@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Poly-Oracle-Agent | Arquitectura</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+
+        :root {
+            --bg-color: #0d1117;
+            --container-bg: rgba(22, 27, 34, 0.85);
+            --border-color: rgba(48, 54, 61, 0.5);
+            --text-color: #c9d1d9;
+            --accent-color: #58a6ff;
+            --grad: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            width: 100%;
+            background: linear-gradient(90deg, #161b22 0%, #0d1117 100%);
+            padding: 20px 40px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            font-weight: 600;
+            background: var(--grad);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: #8b949e;
+            font-size: 0.9rem;
+        }
+
+        .container {
+            flex: 1;
+            width: 95%;
+            max-width: 1200px;
+            margin: 40px 0;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 30px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+        }
+
+        h2 {
+            text-align: center;
+            color: var(--accent-color);
+            font-weight: 400;
+            margin-top: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 15px;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+
+        .footer {
+            margin-top: auto;
+            padding: 20px;
+            font-size: 0.8rem;
+            color: #8b949e;
+        }
+    </style>
+    <!-- Carga de Mermaid via CDN -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+            themeVariables: {
+                primaryColor: '#21262d',
+                primaryTextColor: '#c9d1d9',
+                secondaryColor: '#1f1f1f',
+                lineColor: '#58a6ff',
+                clusterBkg: '#161b22',
+                clusterBorder: '#30363d',
+                nodeBorder: '#485461'
+            }
+        });
+    </script>
+</head>
+
+<body>
+    <header>
+        <div>
+            <h1>Poly-Oracle-Agent</h1>
+            <div class="subtitle">Validación Arquitectónica - Fase 1</div>
+        </div>
+        <div style="font-size: 0.8rem; color: #8b949e;">Lead Engineer view</div>
+    </header>
+
+    <div class="container">
+        <h2>Diagrama de Capas y Flujo de Datos</h2>
+        <pre class="mermaid">
+        graph TB
+            subgraph External["🌐 Capa Externa (APIs / RPC)"]
+                PM_WS["Polymarket CLOB WebSocket<br/>wss://..."]
+                PM_REST["Polymarket REST API<br/>clob.polymarket.com"]
+                GAMMA["Gamma API<br/>gamma-api.polymarket.com"]
+                ANTHROPIC["Anthropic API<br/>Claude 3.5 Sonnet"]
+                POLYGON["Polygon PoS RPC<br/>web3.py"]
+            end
+
+            subgraph Core["⚙️ Bot Core (asyncio event loop)"]
+                direction TB
+
+                subgraph MIE["1. Ingesta (MIE)"]
+                    WS_CLIENT["AsyncWebSocketClient"]
+                    REST_CLIENT["AsyncRESTClient"]
+                    MARKET_Q["asyncio.Queue[MarketSnapshot]"]
+                end
+
+                subgraph CTX["2. Contexto (CTX)"]
+                    AGG["DataAggregator"]
+                    PROMPT_F["PromptFactory"]
+                    CTX_Q["asyncio.Queue[EvaluationContext]"]
+                end
+
+                subgraph LLM["3. Evaluación (LLM)"]
+                    CLAUDE["ClaudeClient (CoT)"]
+                    VALIDATOR["Pydantic: LLMEvaluationResponse"]
+                    DEC_Q["asyncio.Queue[AgentDecision]"]
+                end
+
+                subgraph WEB3["4. Ejecución (WEB3)"]
+                    SIGNER["TransactionSigner (EIP-712)"]
+                    NONCE_MGR["NonceManager"]
+                    GAS_EST["GasEstimator"]
+                    TX_BROAD["TxBroadcaster"]
+                end
+
+                subgraph PERSIST["🗄️ Persistencia (ORM)"]
+                    DB[("SQLite / Postgres")]
+                    SNAP_TBL["MarketSnapshot"]
+                    DEC_TBL["AgentDecisionLog"]
+                    TX_TBL["ExecutionTx"]
+                end
+            end
+
+            PM_WS -->|"book / price"| WS_CLIENT
+            GAMMA -->|"metadata"| REST_CLIENT
+            WS_CLIENT --> MARKET_Q
+            REST_CLIENT --> MARKET_Q
+
+            MARKET_Q --> AGG
+            AGG --> PROMPT_F
+            PROMPT_F --> CTX_Q
+
+            CTX_Q --> CLAUDE
+            ANTHROPIC <-->|"CoT Prompt / JSON"| CLAUDE
+            CLAUDE --> VALIDATOR
+            VALIDATOR --> DEC_Q
+
+            DEC_Q --> SIGNER
+            SIGNER --> NONCE_MGR --> GAS_EST --> TX_BROAD
+            TX_BROAD <-->|"signed tx / receipt"| POLYGON
+            TX_BROAD -->|"POST /order"| PM_REST
+
+            MARKET_Q -.->|"save"| SNAP_TBL
+            DEC_Q -.->|"save"| DEC_TBL
+            TX_BROAD -.->|"save"| TX_TBL
+            SNAP_TBL & DEC_TBL & TX_TBL --- DB
+        </pre>
+    </div>
+
+    <div class="footer">
+        © 2026 Poly-Oracle-Agent | Lead Engineer Workflow
+    </div>
+</body>
+
+</html>
