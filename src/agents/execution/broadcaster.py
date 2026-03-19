@@ -1,130 +1,259 @@
 """
 src/agents/execution/broadcaster.py
 
-Web3 Execution Node.
-Reads approved trades from the LLM, signs them via TransactionSigner,
-and simulates POSTing the order to the Polymarket CLOB.
-Records the final transaction status persistently.
+Order broadcaster for the Polymarket CLOB.
+
+Orchestrates the full order lifecycle:
+    SignedOrder → POST /order (CLOB REST) → poll Polygon RPC → TxReceipt
+
+Depends on the three completed execution modules:
+    - signer.py       (produces SignedOrder)
+    - nonce_manager.py (dispenses sequential nonces under lock)
+    - gas_estimator.py (fresh EIP-1559 gas pricing)
 """
 
 import asyncio
-from typing import Dict, Any
+from datetime import datetime, timezone
 
-import httpx
+import aiohttp
 import structlog
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from web3 import AsyncWeb3
 
-from src.agents.execution.signer import TransactionSigner
-from src.db.engine import get_db_session
-from src.db.models import AgentDecisionLog, ExecutionTx, TxStatus
+from src.agents.execution.gas_estimator import GasEstimator
+from src.agents.execution.nonce_manager import NonceManager
+from src.core.exceptions import BroadcastError
+from src.db.models import ExecutionTx, TxStatus
+from src.schemas.web3 import GasPrice, SignedOrder, TxReceiptSchema
 
 logger = structlog.get_logger(__name__)
 
-class TxBroadcaster:
+_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
+
+
+class OrderBroadcaster:
     """
-    Consumes approved decisions from the Context Node out_queue, handles signing,
-    simulates network dispatch, and persists ExecutionTx audit logs.
+    Submits signed orders to the Polymarket CLOB REST API, polls for
+    on-chain confirmation, and persists every attempt to the DB.
     """
 
-    def __init__(self, in_queue: asyncio.Queue[Dict[str, Any]], signer: TransactionSigner):
-        self.in_queue = in_queue
-        self.signer = signer
-        self._running = False
-        self.polymarket_endpoint = "https://clob.polymarket.com/order"
+    def __init__(
+        self,
+        w3: AsyncWeb3,
+        nonce_manager: NonceManager,
+        gas_estimator: GasEstimator,
+        http_session: aiohttp.ClientSession,
+        db_session_factory: async_sessionmaker[AsyncSession],
+        clob_rest_url: str,
+        poll_max_attempts: int = 30,
+        poll_delay_s: float = 2.0,
+    ) -> None:
+        self._w3 = w3
+        self._nonce_manager = nonce_manager
+        self._gas_estimator = gas_estimator
+        self._http = http_session
+        self._db_factory = db_session_factory
+        self._clob_url = clob_rest_url.rstrip("/")
+        self._poll_max_attempts = poll_max_attempts
+        self._poll_delay_s = poll_delay_s
 
-    async def start(self) -> None:
-        """Starts the broadcaster loop."""
-        self._running = True
-        logger.info("Starting TxBroadcaster Node...")
-        
-        task = asyncio.create_task(self._consume_queue())
-        try:
-            while self._running:
-                await asyncio.sleep(1)
-        finally:
-            task.cancel()
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-    async def stop(self) -> None:
-        """Stops the broadcaster node."""
-        logger.info("Stopping TxBroadcaster Node...")
-        self._running = False
+    async def broadcast(
+        self,
+        signed_order: SignedOrder,
+        decision_id: str,
+    ) -> TxReceiptSchema:
+        """Submit *signed_order* to the CLOB and wait for confirmation."""
+        gas: GasPrice = await self._gas_estimator.estimate()
+        nonce: int = await self._nonce_manager.get_next_nonce()
 
-    async def _consume_queue(self) -> None:
-        """Continuously pulls decisions and processes them asynchronously."""
-        while self._running:
-            try:
-                decision = await self.in_queue.get()
-                await self._process_decision(decision)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("Unexpected error in broadcaster loop.", error=str(e))
-            finally:
-                self.in_queue.task_done()
+        order_id = await self._submit_to_clob(signed_order, nonce, gas)
 
-    async def _process_decision(self, decision: Dict[str, Any]) -> None:
-        """Handles the end-to-end execution of a single confirmed trade."""
-        snapshot_id = decision.get("snapshot_id")
-        
-        if not snapshot_id:
-            logger.error("Decision missing snapshot_id. Aborting execution.")
-            return
-            
-        # 1. Sign the order
-        signed_payload = await self.signer.sign_order(decision)
-        
-        # 2. Simulate dispatch to Polymarket REST API
-        await self._simulate_post(signed_payload)
-        
-        # 3. Persist transaction to DB
-        await self._persist_transaction(snapshot_id, signed_payload)
-
-    async def _simulate_post(self, signed_payload: Dict[str, Any]) -> None:
-        """Simulates network dispatch to the real Polymarket endpoint."""
-        logger.info(
-            "simulated_order_posted",
-            endpoint=self.polymarket_endpoint,
-            condition_id=signed_payload.get("condition_id"),
-            side=signed_payload.get("side"),
-            size=signed_payload.get("size_usdc"),
-            price=signed_payload.get("limit_price")
+        receipt = await self._poll_receipt_safe(
+            order_id, decision_id, signed_order, nonce, gas,
         )
-        # We perform a tiny async sleep to mock network latency
-        await asyncio.sleep(0.1)
+        return receipt
 
-    async def _persist_transaction(self, snapshot_id: str, signed_payload: Dict[str, Any]) -> None:
-        """Logs the CONFIRMED execution permanently into the database."""
-        try:
-            async for session in get_db_session():
-                # Locate the parent AgentDecisionLog record created by ClaudeClient
-                query = select(AgentDecisionLog.id).where(AgentDecisionLog.snapshot_id == snapshot_id).order_by(AgentDecisionLog.evaluated_at.desc()).limit(1)
-                result = await session.execute(query)
-                decision_id = result.scalar_one_or_none()
-                
-                if not decision_id:
-                    logger.error("Parent AgentDecisionLog not found for execution phase.", snapshot_id=snapshot_id)
-                    return
-                
-                # Build ExecutionTx
-                tx = ExecutionTx(
-                    decision_id=decision_id,
-                    tx_hash=f"0x_mock_tx_hash_{snapshot_id[-8:]}",
-                    status=TxStatus.CONFIRMED,
-                    side=signed_payload["side"],
-                    size_usdc=signed_payload["size_usdc"],
-                    limit_price=signed_payload["limit_price"],
-                    condition_id=signed_payload["condition_id"],
-                    outcome_token=signed_payload["outcome_token"],
+    # ------------------------------------------------------------------
+    # CLOB REST submission
+    # ------------------------------------------------------------------
+
+    async def _submit_to_clob(
+        self,
+        signed_order: SignedOrder,
+        nonce: int,
+        gas: GasPrice,
+    ) -> str:
+        """POST the order payload; return the CLOB ``orderID``."""
+        url = f"{self._clob_url}/order"
+        payload = signed_order.to_api_payload()
+
+        async with self._http.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=_REQUEST_TIMEOUT,
+        ) as resp:
+            body = await resp.text()
+
+            if resp.status >= 500:
+                logger.error(
+                    "broadcaster.clob_error",
+                    status=resp.status,
+                    body=body,
                 )
-                
-                session.add(tx)
-                await session.commit()
-                
+                raise BroadcastError(
+                    f"CLOB server error: {resp.status}",
+                    status_code=resp.status,
+                )
+
+            if resp.status >= 400:
+                logger.error(
+                    "broadcaster.clob_error",
+                    status=resp.status,
+                    body=body,
+                )
+                await self._nonce_manager.sync()
+                raise BroadcastError(
+                    f"CLOB client error: {resp.status}",
+                    status_code=resp.status,
+                )
+
+            data = await resp.json()
+            order_id: str = data.get("orderID", "")
+
+        logger.info(
+            "broadcaster.order_submitted",
+            order_id=order_id,
+            nonce=nonce,
+            gas_gwei=gas.max_fee_per_gas_gwei,
+        )
+        return order_id
+
+    # ------------------------------------------------------------------
+    # Receipt polling
+    # ------------------------------------------------------------------
+
+    async def _poll_receipt(
+        self,
+        order_hash: str,
+        max_attempts: int = 30,
+        delay_s: float = 2.0,
+    ) -> TxReceiptSchema:
+        """Poll Polygon RPC until the tx receipt appears or timeout."""
+        for attempt in range(1, max_attempts + 1):
+            try:
+                receipt = await self._w3.eth.get_transaction_receipt(order_hash)
+            except Exception:
+                receipt = None
+
+            if receipt is not None:
+                status = "CONFIRMED" if receipt["status"] == 1 else "REVERTED"
                 logger.info(
-                    "Execution recorded persistently.",
-                    tx_status="CONFIRMED",
-                    decision_id=decision_id
+                    "broadcaster.receipt_confirmed",
+                    tx_hash=order_hash,
+                    block=receipt["blockNumber"],
+                    gas_used=receipt["gasUsed"],
                 )
-                break
-        except Exception as e:
-            logger.error("Database failure while saving ExecutionTx.", error=str(e), snapshot_id=snapshot_id)
+                return TxReceiptSchema(
+                    order_id=order_hash,
+                    tx_hash=order_hash,
+                    status=status,
+                    gas_used=receipt["gasUsed"],
+                    block_number=receipt["blockNumber"],
+                )
+
+            await asyncio.sleep(delay_s)
+
+        logger.warning(
+            "broadcaster.receipt_timeout",
+            order_hash=order_hash,
+            attempts=max_attempts,
+        )
+        raise BroadcastError(
+            f"Receipt timeout after {max_attempts * delay_s:.0f}s"
+        )
+
+    async def _poll_receipt_safe(
+        self,
+        order_id: str,
+        decision_id: str,
+        signed_order: SignedOrder,
+        nonce: int,
+        gas: GasPrice,
+    ) -> TxReceiptSchema:
+        """Wrap _poll_receipt so we always persist an ExecutionTx row."""
+        order = signed_order.order
+        try:
+            receipt = await self._poll_receipt(
+                order_id,
+                max_attempts=self._poll_max_attempts,
+                delay_s=self._poll_delay_s,
+            )
+            await self._persist_tx(
+                decision_id=decision_id,
+                signed_order=signed_order,
+                nonce=nonce,
+                gas=gas,
+                tx_hash=receipt.tx_hash,
+                status=TxStatus.CONFIRMED if receipt.status == "CONFIRMED" else TxStatus.REVERTED,
+                gas_used=receipt.gas_used,
+                block_number=receipt.block_number,
+            )
+            return receipt
+        except BroadcastError:
+            # Timeout — persist as PENDING, then re-raise.
+            await self._persist_tx(
+                decision_id=decision_id,
+                signed_order=signed_order,
+                nonce=nonce,
+                gas=gas,
+                tx_hash=None,
+                status=TxStatus.PENDING,
+                gas_used=None,
+                block_number=None,
+                error_message="Receipt polling timed out",
+            )
+            raise
+
+    # ------------------------------------------------------------------
+    # DB persistence
+    # ------------------------------------------------------------------
+
+    async def _persist_tx(
+        self,
+        decision_id: str,
+        signed_order: SignedOrder,
+        nonce: int,
+        gas: GasPrice,
+        tx_hash: str | None,
+        status: TxStatus,
+        gas_used: int | None,
+        block_number: int | None,
+        error_message: str | None = None,
+    ) -> None:
+        order = signed_order.order
+        row = ExecutionTx(
+            decision_id=decision_id,
+            tx_hash=tx_hash,
+            status=status,
+            side="BUY" if order.side.value == 0 else "SELL",
+            size_usdc=order.maker_amount / 1_000_000,
+            limit_price=0.0,  # CLOB manages price matching
+            condition_id=str(order.token_id),
+            outcome_token="YES",
+            gas_limit=None,
+            gas_price_gwei=gas.max_fee_per_gas_gwei,
+            gas_used=gas_used,
+            nonce=nonce,
+            block_number=block_number,
+            error_message=error_message,
+            confirmed_at=datetime.now(timezone.utc) if status == TxStatus.CONFIRMED else None,
+        )
+
+        async with self._db_factory() as session:
+            session.add(row)
+            await session.commit()

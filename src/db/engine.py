@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from src.core.config import AppConfig
+from src.core.config import get_config
 
 # Load application configuration
-config = AppConfig()
+config = get_config()
 
 # Create the asynchronous engine
 # echo=False prevents SQL query logging in production; enable for debugging.

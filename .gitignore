@@ -1,0 +1,30 @@
+# Secrets
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# DB files
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+
+# IDE
+.cursor/
+.vscode/
+.idea/
+.gemini/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Pytest
+.pytest_cache/

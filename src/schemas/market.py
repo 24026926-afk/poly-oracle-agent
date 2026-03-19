@@ -1,11 +1,12 @@
 """
 src/schemas/market.py
 
-Pydantic V2 schemas for validating Polymarket CLOB WebSocket data.
+Pydantic V2 schemas for validating Polymarket CLOB WebSocket data
+and Gamma REST API responses.
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 class CLOBTick(BaseModel):
     """
@@ -34,3 +35,42 @@ class CLOBMessage(BaseModel):
         # like timestamps or sequence numbers that we might not strictly need right now.
         "extra": "ignore",
     }
+
+
+class MarketSnapshotSchema(BaseModel):
+    """Validated snapshot built from a CLOB WebSocket frame.
+
+    The ``midpoint`` is always auto-computed from ``best_bid`` and
+    ``best_ask`` — we never trust externally-provided midpoints.
+    """
+
+    condition_id: str = Field(..., min_length=1)
+    question: str = Field(default="")
+    best_bid: float = Field(..., ge=0.0, le=1.0)
+    best_ask: float = Field(..., ge=0.0, le=1.0)
+    last_trade_price: Optional[float] = Field(default=None)
+    midpoint: float = Field(default=0.0)
+    outcome_token: str = Field(default="YES")
+    raw_ws_payload: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _compute_midpoint(self) -> "MarketSnapshotSchema":
+        computed = (self.best_bid + self.best_ask) / 2.0
+        object.__setattr__(self, "midpoint", round(computed, 6))
+        return self
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+
+class MarketMetadata(BaseModel):
+    """Market metadata returned by the Gamma REST API."""
+
+    condition_id: str = Field(..., alias="conditionId", min_length=1)
+    question: str = Field(default="")
+    token_ids: List[str] = Field(default_factory=list, alias="clobTokenIds")
+    end_date_iso: Optional[str] = Field(default=None, alias="endDateIso")
+    active: bool = Field(default=True)
+    closed: bool = Field(default=False)
+    volume_24h: Optional[float] = Field(default=None, alias="volume24hr")
+
+    model_config = {"frozen": True, "populate_by_name": True, "extra": "ignore"}

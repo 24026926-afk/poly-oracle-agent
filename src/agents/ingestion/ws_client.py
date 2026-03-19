@@ -1,121 +1,163 @@
 """
 src/agents/ingestion/ws_client.py
 
-Asynchronous WebSocket client for connecting to the Polymarket CLOB.
-Ingests live orderbook updates and enqueues them for the Context Builder to process.
+CLOB WebSocket client for streaming live orderbook events from Polymarket.
+
+Connects to the CLOB WebSocket, validates incoming frames via
+``MarketSnapshotSchema``, persists to the DB, and feeds an
+``asyncio.Queue`` consumed by the Context Builder (Module 2).
 """
 
 import asyncio
 import json
-from typing import Any
 
 import structlog
 import websockets
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.schemas.market import CLOBMessage
+from src.core.config import AppConfig
+from src.db.models import MarketSnapshot
+from src.schemas.market import MarketSnapshotSchema
 
-# Configure structlog for this module
 logger = structlog.get_logger(__name__)
 
-# Official Polymarket CLOB WebSocket endpoint
-POLY_CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+_VALID_EVENTS = {"book", "price_change", "last_trade_price"}
+_HEARTBEAT_INTERVAL_S = 10
 
-class AsyncWebSocketClient:
-    """
-    Connects to the Polymarket CLOB WebSocket, subscribes to a specific market,
-    parses incoming messages safely, and enqueues them for downstream processing.
-    """
 
-    def __init__(self, queue: asyncio.Queue[Any], condition_id: str):
-        self.queue = queue
-        self.condition_id = condition_id
-        self._running = False
-        self._ws: websockets.WebSocketClientProtocol | None = None
+class CLOBWebSocketClient:
+    """Streams live CLOB orderbook events and enqueues MarketSnapshots."""
 
-    async def start(self) -> None:
-        """
-        Connects to the WebSocket, sends the subscription message,
-        and starts the infinite loop to receive and process messages.
-        """
-        self._running = True
-        
-        while self._running:
+    def __init__(
+        self,
+        config: AppConfig,
+        queue: asyncio.Queue[MarketSnapshot],
+        db_session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        self._url = config.clob_ws_url
+        self._queue = queue
+        self._db_factory = db_session_factory
+
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
+
+    async def run(self) -> None:
+        """Connect, subscribe, and stream forever with backoff reconnect."""
+        backoff_s = 1.0
+        max_backoff_s = 60.0
+
+        while True:
             try:
-                logger.info("Connecting to Polymarket CLOB WebSocket...", url=POLY_CLOB_WS_URL)
-                
-                async with websockets.connect(POLY_CLOB_WS_URL) as ws:
-                    self._ws = ws
-                    logger.info("Connection established. Sending subscription.", condition_id=self.condition_id)
-                    
-                    # Send subscription payload
-                    sub_message = {
-                        "assets_ids": [self.condition_id],
-                        "type": "market"
-                    }
-                    await ws.send(json.dumps(sub_message))
-                    
-                    # Process incoming messages
-                    await self._receive_loop(ws)
-                    
-            except websockets.ConnectionClosed as e:
-                logger.warning("WebSocket connection closed. Attempting reconnect...", code=e.code, reason=e.reason)
-            except Exception as e:
-                logger.error("Unexpected WebSocket error. Retrying in 5 seconds...", error=str(e))
-                await asyncio.sleep(5)
-            
-            # Brief pause before reconnecting
-            if self._running:
-                await asyncio.sleep(2)
+                await self._stream()
+                # _stream only returns on clean shutdown
+                backoff_s = 1.0
+            except websockets.ConnectionClosed as exc:
+                logger.warning(
+                    "ws_client.disconnected",
+                    code=exc.code,
+                    reason=exc.reason,
+                    reconnect_in=backoff_s,
+                )
+            except Exception as exc:
+                logger.error(
+                    "ws_client.connection_error",
+                    error=str(exc),
+                    reconnect_in=backoff_s,
+                )
 
-    async def stop(self) -> None:
-        """Gracefully stops the WebSocket client."""
-        logger.info("Stopping WebSocket client...")
-        self._running = False
-        if self._ws is not None:
+            await asyncio.sleep(backoff_s)
+            backoff_s = min(backoff_s * 2, max_backoff_s)
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    async def _stream(self) -> None:
+        async with websockets.connect(self._url) as ws:
+            logger.info("ws_client.connected", url=self._url)
+
+            # Subscribe to all active markets
+            sub_msg = json.dumps({
+                "type": "subscribe",
+                "channel": "market",
+                "market_ids": [],
+            })
+            await ws.send(sub_msg)
+
+            # Start heartbeat task
+            heartbeat_task = asyncio.create_task(self._heartbeat(ws))
+
             try:
-                await self._ws.close()
+                async for raw_msg in ws:
+                    await self._handle_message(raw_msg)
+            finally:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _heartbeat(self, ws: websockets.ClientConnection) -> None:
+        """Send a heartbeat ping every 10 seconds."""
+        while True:
+            await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+            try:
+                await ws.send(json.dumps({"type": "heartbeat"}))
             except Exception:
-                pass
+                return
 
-    async def _receive_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
-        """
-        Infinite loop to receive messages from the open socket.
-        """
-        async for raw_msg in ws:
-            if not self._running:
-                break
-                
-            try:
-                logger.debug("Raw message received", payload_preview=raw_msg[:200])
-                
-                # 1. Parse JSON
-                data = json.loads(raw_msg)
-                
-                # Polymarket sometimes sends purely informational or error frames.
-                # Skip if it doesn't look like a market data event.
-                if "event" not in data or "market" not in data:
-                    continue
-                    
-                # 2. Validate via Pydantic
-                clob_msg = CLOBMessage.model_validate(data)
-                
-                # 3. Log significant data (e.g., best bid/ask changes)
-                best_bid = clob_msg.bids[0].price if clob_msg.bids else None
-                best_ask = clob_msg.asks[0].price if clob_msg.asks else None
-                
-                logger.debug("Received CLOB payload", 
-                             event=clob_msg.event, 
-                             best_bid=best_bid, 
-                             best_ask=best_ask)
-                
-                # 4. Enqueue for downstream consumption
-                # Downstream will map this CLOBMessage to a complete MarketSnapshot
-                await self.queue.put(clob_msg)
-                
-            except json.JSONDecodeError:
-                logger.error("Received malformed JSON payload.", payload=raw_msg[:100])
-            except ValidationError as e:
-                logger.warning("Message failed Pydantic validation.", error=str(e), payload=raw_msg[:100])
-            except Exception as e:
-                logger.error("Error processing message.", error=str(e))
+    async def _handle_message(self, raw_msg: str) -> None:
+        """Parse, validate, persist, and enqueue a single WS frame."""
+        try:
+            data = json.loads(raw_msg)
+        except json.JSONDecodeError:
+            logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
+            return
+
+        event_type = data.get("event_type") or data.get("event", "")
+        if event_type not in _VALID_EVENTS:
+            return
+
+        try:
+            snapshot_schema = MarketSnapshotSchema(
+                condition_id=data.get("market", data.get("condition_id", "")),
+                question=data.get("question", ""),
+                best_bid=data.get("best_bid", data.get("price", 0.0)),
+                best_ask=data.get("best_ask", data.get("price", 0.0)),
+                last_trade_price=data.get("last_trade_price"),
+                outcome_token=data.get("outcome_token", "YES"),
+                raw_ws_payload=raw_msg,
+            )
+        except ValidationError as exc:
+            logger.warning(
+                "ws_client.validation_error",
+                errors=str(exc),
+                market=data.get("market"),
+            )
+            return
+
+        # Persist to DB
+        row = MarketSnapshot(
+            condition_id=snapshot_schema.condition_id,
+            question=snapshot_schema.question,
+            best_bid=snapshot_schema.best_bid,
+            best_ask=snapshot_schema.best_ask,
+            last_trade_price=snapshot_schema.last_trade_price,
+            midpoint=snapshot_schema.midpoint,
+            outcome_token=snapshot_schema.outcome_token,
+            raw_ws_payload=snapshot_schema.raw_ws_payload,
+        )
+
+        async with self._db_factory() as session:
+            session.add(row)
+            await session.commit()
+
+        await self._queue.put(row)
+
+        logger.debug(
+            "ws_client.snapshot_enqueued",
+            condition_id=snapshot_schema.condition_id,
+            midpoint=snapshot_schema.midpoint,
+        )
