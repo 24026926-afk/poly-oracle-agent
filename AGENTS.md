@@ -16,6 +16,8 @@ Before answering any architectural or coding question, silently read:
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
 - `docs/business_logic.md`      ← EV rule: the single source of trade truth
+- `STATE.md`                    ← Current system state and progress
+
 
 These documents are the law. Code must conform to them, not the other way around.
 

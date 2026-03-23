@@ -150,10 +150,14 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 - Supports both standard exchange (`0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E`) and neg-risk exchange (`0xC5d563A36AE78145C45a50134d48A1215220f80a`)
 - Order struct fields mirror on-chain `Order` struct exactly: salt, maker, signer, taker, tokenId, makerAmount, takerAmount, expiration, nonce, feeRateBps, side, signatureType
 - `sign_order()` — Produces EIP-712 signature with 0x prefix
-- `build_order_from_decision()` — Maps LLM evaluation response to a signed order:
-  - Converts position size percentage to USDC micro-units (6 decimals) using `Decimal` for precision
+- `async build_order_from_decision()` — Maps LLM evaluation response to a signed order:
+  - **Requires** a `BankrollPortfolioTracker` instance (raises `ValueError` if not provided)
+  - Delegates position sizing to `tracker.compute_position_size()` (Quarter-Kelly + 3% cap)
+  - Calls `tracker.validate_trade()` to enforce exposure limits before signing
+  - Converts USDC to micro-units (6 decimals) using `Decimal('1e6')`
   - Calculates taker amount from midpoint
   - Generates random 256-bit salt for order uniqueness
+  - **No hardcoded bankroll** — all sizing comes from the tracker
 - Uses `eth_account.Account.sign_typed_data()` for local signing (no RPC required)
 
 #### `src/agents/execution/nonce_manager.py` — `NonceManager`
@@ -175,9 +179,19 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 - Never caches (Polygon ~2s blocks = volatile prices)
 - Returns `GasPrice` Pydantic model with Wei and Gwei values
 
+#### `src/agents/execution/bankroll_tracker.py` — `BankrollPortfolioTracker` ✅ NEW (WI-04)
+- Real-time bankroll awareness and position-size enforcement (replaces hardcoded 1000 USDC)
+- `get_total_bankroll()` — Returns `config.initial_bankroll_usdc` (`Decimal`)
+- `get_exposure(condition_id)` — Queries `ExecutionRepository.get_aggregate_exposure()` (PENDING + CONFIRMED)
+- `get_available_bankroll(condition_id)` — `total - exposure`, floored at `Decimal("0")`
+- `compute_position_size(kelly_fraction_raw, condition_id)` — Applies Quarter-Kelly (`0.25 × f*`) and 3% exposure cap: `min(kelly_size, 0.03 × bankroll)`
+- `validate_trade(size_usdc, condition_id)` — Raises `ExposureLimitError` if trade exceeds exposure cap or available bankroll
+- All math uses `Decimal` — no `float` for money
+
 #### `src/agents/execution/broadcaster.py` — `OrderBroadcaster`
 - Full order lifecycle orchestration: `SignedOrder → POST /order → poll receipt → TxReceipt`
 - `broadcast()` — Main entry point: gets gas estimate, gets nonce, submits to CLOB, polls for confirmation
+- Accepts optional `bankroll_tracker` via constructor for dependency injection through the execution pipeline
 - **CLOB submission**: POST to `/order` endpoint with JSON payload
 - **Receipt polling**: Queries Polygon RPC up to 30 times with 2-second intervals
 - **Error handling**:
@@ -275,10 +289,22 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 - Composite index on `(status, submitted_at)`
 - Unique constraint on `decision_id` enforces 1-to-1 with `AgentDecisionLog`
 
-### `src/db/repositories/` ⚠️ STUB (3 empty files)
-- `market_repo.py` — Empty
-- `decision_repo.py` — Empty
-- `execution_repo.py` — Empty
+### `src/db/repositories/` ✅ IMPLEMENTED — 3 Repository Classes
+
+#### `market_repo.py` — `MarketRepository`
+- `insert_snapshot(snapshot) → MarketSnapshot` — Adds + flushes, returns persisted instance
+- `get_latest_by_condition_id(condition_id) → MarketSnapshot | None` — Latest snapshot by `captured_at DESC`
+
+#### `decision_repo.py` — `DecisionRepository`
+- `insert_decision(decision) → AgentDecisionLog` — Adds + flushes, returns persisted instance
+- `get_recent_by_market(condition_id, limit=10) → list[AgentDecisionLog]` — Joins through `MarketSnapshot`, ordered by `evaluated_at DESC`
+
+#### `execution_repo.py` — `ExecutionRepository`
+- `insert_execution(execution) → ExecutionTx` — Adds + flushes, returns persisted instance
+- `get_by_decision_id(decision_id) → ExecutionTx | None` — Lookup by FK
+- `get_aggregate_exposure(condition_id) → Decimal` — Sums `size_usdc` for `PENDING` + `CONFIRMED` rows only; casts to `Decimal` via `str()` to avoid float contamination
+
+All repositories take `AsyncSession` via constructor injection. All methods are `async`. `__init__.py` re-exports all three classes.
 
 ---
 
@@ -290,6 +316,7 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 - **Web3 config**: Polygon RPC URL, wallet address (EIP-55 validated), private key (SecretStr)
 - **CLOB config**: REST URL, WebSocket URL, Gamma API URL
 - **Risk parameters**: All 6 parameters matching `docs/risk_management.md`
+- **Bankroll**: `initial_bankroll_usdc: Decimal` (default `Decimal("1000")`, override via `INITIAL_BANKROLL_USDC` env var)
 - **Gas config**: Max gas price ceiling (500 Gwei), fallback price (50 Gwei)
 - **Database**: SQLite default connection string
 - **Operational**: Log level (enum validated), dry_run flag (with warning)
@@ -304,6 +331,7 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 - `NonceManagerError` — RPC/state errors in nonce management (with cause chaining)
 - `GasEstimatorError` — Gas price ceiling breaches (with cause chaining)
 - `BroadcastError` — CLOB submission failures (with status_code and cause)
+- `ExposureLimitError` — Trade exceeds exposure cap or available bankroll (WI-04)
 - `WebSocketError` — WS connection failures (with cause chaining)
 - `RESTClientError` — Gamma API failures (with status_code and cause)
 
@@ -370,9 +398,11 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 |---|---|---|---|
 | `test_ingestion.py` | ✅ **8 tests** | Implemented | WS message handling (valid frames, unknown events, invalid JSON, validation errors, midpoint computation), Gamma REST via `httpx` mocks (active markets, caching, 404 handling) |
 | `test_nonce_manager.py` | ✅ **7 tests** | Implemented | Initialize from RPC, get_next_nonce increment, uninitialized error, sync from chain, concurrent nonce uniqueness, log verification, pending block tag usage |
-| `test_signer.py` | ✅ **7 tests** | Implemented | EIP-712 domain (standard + neg-risk), order message serialization (field names, values), signer address verification, valid signature output, deterministic signatures, neg-risk signature difference, chain ID constant |
+| `test_signer.py` | ✅ **7 tests** | Implemented | EIP-712 domain (standard + neg-risk), order message serialization (field names, values), signer address verification, valid signature output, deterministic signatures, neg-risk signature difference, dry_run enforcement (async), chain ID constant |
 | `test_gas_estimator.py` | ✅ **6 tests** | Implemented | Returns GasPrice model, priority fee multiplier, max fee formula, ceiling breach raises error, fallback on RPC error, fallback never raises |
 | `test_broadcaster.py` | ✅ **8 tests** | Implemented | Happy path broadcast, DB persistence, 4xx error + nonce sync, 5xx error without nonce sync, receipt polling retries, receipt timeout raises, timeout persists to DB, gas price logging |
+| `test_bankroll_tracker.py` | ✅ **13 tests** | Implemented | Bankroll queries (total, exposure, available), Quarter-Kelly sizing, 3% cap enforcement, negative Kelly floor, trade validation (pass/reject), exposure cap raises, insufficient bankroll raises, Decimal type safety, restart recovery from persisted DB state |
+| `test_repositories.py` | ✅ **8 tests** | Implemented | MarketRepository (insert + get latest, None on miss), DecisionRepository (insert + recent ordered, cross-market filtering), ExecutionRepository (insert + get by decision, None on miss, aggregate exposure PENDING+CONFIRMED only, zero on empty). **100% coverage** on all repo modules |
 | `test_schemas.py` | ⚠️ **Empty** | Stub | — |
 | `test_prompt_factory.py` | ⚠️ **Empty** | Stub | — |
 
@@ -384,8 +414,8 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 | `test_claude_client.py` | ⚠️ **Empty** | Stub |
 
 ### Test Infrastructure
-- `tests/conftest.py` — ⚠️ **Empty** (no shared fixtures yet)
-- Total implemented tests: **43 tests** across 5 test files
+- `tests/conftest.py` — ✅ **Implemented** with async in-memory SQLite fixtures (`async_engine` + `async_session` with per-test rollback)
+- Total implemented tests: **64 tests** across 7 test files
 - Framework: `pytest` with `pytest-asyncio`
 
 ---
@@ -434,15 +464,11 @@ PEP 621 project metadata with all 10 dependencies declared.
 ### Empty Source Files (Stubs)
 | File | Expected Purpose |
 |---|---|
-| `src/db/repositories/market_repo.py` | Query helpers for MarketSnapshot table |
-| `src/db/repositories/decision_repo.py` | Query helpers for AgentDecisionLog table |
-| `src/db/repositories/execution_repo.py` | Query helpers for ExecutionTx table |
 | `scripts/seed_markets.py` | Dev-time market seeding utility |
 
 ### Empty Test Files
 | File | Expected Purpose |
 |---|---|
-| `tests/conftest.py` | Shared pytest-asyncio fixtures, in-memory DB setup |
 | `tests/unit/test_schemas.py` | Tests for `LLMEvaluationResponse` Gatekeeper logic, `MarketSnapshotSchema`, `OrderData` |
 | `tests/unit/test_prompt_factory.py` | Tests for `PromptFactory.build_evaluation_prompt()` |
 | `tests/integration/test_ws_client.py` | Live/mocked WebSocket integration tests |
@@ -452,14 +478,10 @@ PEP 621 project metadata with all 10 dependencies declared.
 | Gap | Description |
 |---|---|
 | Alembic migrations | `migrations/env.py` is empty — schema evolution is not managed |
-| Repository pattern | DB repositories are stubbed — direct session usage in agent code |
+| Repository pattern | DB repositories implemented — agent code should migrate to use them instead of direct sessions |
 | Orchestrator uses legacy class names | References `AsyncWebSocketClient` and `TxBroadcaster` which differ from actual class names (`CLOBWebSocketClient`, `OrderBroadcaster`) — **orchestrator will crash on import** |
 | Orchestrator hardcoded asset | Uses a single hardcoded Polymarket condition ID rather than dynamic market selection |
-| `dry_run` flag | Configured in `AppConfig` but not checked in execution code |
-
 | No market selection logic | No mechanism to discover and select profitable markets autonomously |
-| No bankroll tracking | `build_order_from_decision()` uses a default 1000 USDC bankroll |
-| No position tracking/portfolio management | No awareness of existing positions or exposure limits across trades |
 | README.md | Empty file — no project documentation |
 
 ---
@@ -481,20 +503,19 @@ The core trading pipeline is **structurally complete** from data ingestion to or
 - ✅ **Order broadcasting** with CLOB REST submission and receipt polling
 - ✅ **Full audit trail persistence** across 3 normalized database tables
 - ✅ **Comprehensive risk management documentation** with mathematical specifications
-- ✅ **43 unit tests** covering the execution layer, ingestion layer, and core components
+- ✅ **Bankroll & portfolio tracking** via `BankrollPortfolioTracker` with DB-backed exposure, Quarter-Kelly sizing, and 3% cap enforcement
+- ✅ **64 unit tests** covering execution layer, ingestion layer, repository layer, bankroll tracker, and core components
 - ✅ **Configuration management** with type-safe Pydantic Settings and `.env` file support
 
 ### What Is NOT Working Yet
 The system is **not ready for live trading** due to:
 
 1. **Orchestrator wiring is broken** — Import references do not match actual class names
-2. **Repository layer is empty** — All 3 DB repositories are stubs
+2. **Repository layer not wired** — Repositories are implemented but agent code still uses direct sessions
 3. **No market discovery** — Agent operates on a single hardcoded market
-4. **No bankroll/portfolio management** — No tracking of available capital or existing positions
-5. **`dry_run` not enforced** — Flag exists but is not checked before execution
-6. **No Alembic migrations** — Schema changes are not versioned
-7. **Integration tests missing** — No end-to-end validation of the full pipeline
-8. **README is empty** — No project documentation for onboarding
+4. **No Alembic migrations** — Schema changes are not versioned
+5. **Integration tests missing** — No end-to-end validation of the full pipeline
+6. **README is empty** — No project documentation for onboarding
 
 ### Development Phase
 The project is at the boundary between **Phase 1 (Infrastructure & Core Implementation)** and **Phase 2 (Integration & Operational Readiness)**. All individual components work in isolation (as verified by unit tests), but the orchestration layer needs repair and the system requires integration testing before any live execution.

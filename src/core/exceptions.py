@@ -43,6 +43,10 @@ class BroadcastError(PolyOracleError):
         self.cause = cause
 
 
+class ExposureLimitError(PolyOracleError):
+    """Raised when a trade would exceed exposure or bankroll limits."""
+
+
 class WebSocketError(PolyOracleError):
     """Raised on CLOB WebSocket connection failures."""
 

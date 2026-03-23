@@ -166,12 +166,13 @@ class TransactionSigner:
 
     # -- convenience builder ------------------------------------------------
 
-    def build_order_from_decision(
+    async def build_order_from_decision(
         self,
         decision: Dict[str, Any],
         nonce: int = 0,
         fee_rate_bps: int = 0,
         neg_risk: bool = False,
+        bankroll_tracker: "BankrollPortfolioTracker | None" = None,
     ) -> SignedOrder:
         """
         Map an approved agent decision into a signed ``OrderData``.
@@ -184,6 +185,8 @@ class TransactionSigner:
 
         Raises:
             DryRunActiveError: If ``dry_run`` is enabled in config.
+            ValueError: If ``bankroll_tracker`` is not provided.
+            ExposureLimitError: If trade exceeds bankroll/exposure limits.
         """
         if self._config.dry_run:
             logger.info(
@@ -195,6 +198,9 @@ class TransactionSigner:
                 "Order construction blocked: dry_run=True"
             )
 
+        if bankroll_tracker is None:
+            raise ValueError("BankrollPortfolioTracker is required")
+
         eval_resp = decision["evaluation"]
         mc = eval_resp.market_context
 
@@ -202,16 +208,20 @@ class TransactionSigner:
         action = eval_resp.recommended_action.value
         side = OrderSide.BUY if action == "BUY" else OrderSide.SELL
 
-        # Position size → USDC micro-units (6 decimals)
-        # Why Decimal: float binary precision errors corrupt micro-unit calcs.
-        bankroll_usdc = Decimal(str(decision.get("bankroll_usdc", "1000.0")))
-        raw_usdc = Decimal(str(eval_resp.position_size_pct)) * bankroll_usdc
-        maker_amount = int(raw_usdc * Decimal("1000000"))
+        # Position size via tracker (Decimal math, Quarter-Kelly + 3% cap)
+        raw_usdc = await bankroll_tracker.compute_position_size(
+            kelly_fraction_raw=Decimal(str(eval_resp.position_size_pct)),
+            condition_id=str(mc.condition_id),
+        )
+        await bankroll_tracker.validate_trade(raw_usdc, str(mc.condition_id))
+
+        # USDC → micro-units (6 decimals)
+        maker_amount = int(raw_usdc * Decimal("1e6"))
 
         # Taker amount: tokens received at midpoint
         if mc.midpoint > 0:
             taker_amount = int(
-                (raw_usdc / Decimal(str(mc.midpoint))) * Decimal("1000000")
+                (raw_usdc / Decimal(str(mc.midpoint))) * Decimal("1e6")
             )
         else:
             taker_amount = 0

@@ -143,14 +143,15 @@ class TestTransactionSigner:
         with pytest.raises(DryRunActiveError):
             signer.sign_order(_sample_order())
 
-    def test_dry_run_build_order_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_dry_run_build_order_raises_error(self):
         """build_order_from_decision must raise DryRunActiveError when dry_run=True."""
         cfg = _make_config()
         cfg.dry_run = True
         signer = TransactionSigner(cfg)
 
         with pytest.raises(DryRunActiveError):
-            signer.build_order_from_decision({"evaluation": MagicMock()})
+            await signer.build_order_from_decision({"evaluation": MagicMock()})
 
     def test_chain_id_is_polygon(self):
         assert CHAIN_ID == 137

@@ -6,8 +6,9 @@ Order broadcaster for the Polymarket CLOB.
 Orchestrates the full order lifecycle:
     SignedOrder → POST /order (CLOB REST) → poll Polygon RPC → TxReceipt
 
-Depends on the three completed execution modules:
+Depends on the completed execution modules:
     - signer.py       (produces SignedOrder)
+    - bankroll_tracker.py (real-time bankroll & exposure)
     - nonce_manager.py (dispenses sequential nonces under lock)
     - gas_estimator.py (fresh EIP-1559 gas pricing)
 """
@@ -47,6 +48,7 @@ class OrderBroadcaster:
         db_session_factory: async_sessionmaker[AsyncSession],
         clob_rest_url: str,
         config: AppConfig | None = None,
+        bankroll_tracker: "BankrollPortfolioTracker | None" = None,
         poll_max_attempts: int = 30,
         poll_delay_s: float = 2.0,
     ) -> None:
@@ -57,6 +59,7 @@ class OrderBroadcaster:
         self._db_factory = db_session_factory
         self._clob_url = clob_rest_url.rstrip("/")
         self._config = config
+        self._bankroll_tracker = bankroll_tracker
         self._poll_max_attempts = poll_max_attempts
         self._poll_delay_s = poll_delay_s
 

@@ -20,10 +20,12 @@ from web3 import AsyncHTTPProvider, AsyncWeb3
 from src.agents.context.aggregator import DataAggregator
 from src.agents.context.prompt_factory import PromptFactory
 from src.agents.evaluation.claude_client import ClaudeClient
+from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
 from src.agents.execution.signer import TransactionSigner
+from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
 from src.core.config import AppConfig, get_config
@@ -48,11 +50,7 @@ class Orchestrator:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-
-        # TODO: replace with dynamic market selection from WI-03
-        self.asset_id = (
-            "0x2173a110cb1ba3c7b39912066c07dd82a4664b5953dd4305bc8c3e03cd530e8c"
-        )
+        self.active_condition_id: str | None = None
 
         # Queue wiring per architecture sequence:
         # ingestion -> context -> evaluation -> execution
@@ -70,16 +68,15 @@ class Orchestrator:
             self.w3, self.config.wallet_address, dry_run=self.config.dry_run,
         )
         self.gas_estimator = GasEstimator(self.w3)
+        self.bankroll_tracker = BankrollPortfolioTracker(
+            config=self.config,
+            db_session_factory=AsyncSessionLocal,
+        )
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
             queue=self.market_queue,
             db_session_factory=AsyncSessionLocal,
-        )
-        self.aggregator = DataAggregator(
-            input_queue=self.market_queue,
-            output_queue=self.prompt_queue,
-            condition_id=self.asset_id,
         )
         self.prompt_factory = PromptFactory()
         self.claude_client = ClaudeClient(
@@ -88,7 +85,10 @@ class Orchestrator:
             config=self.config,
         )
 
+        # Initialized in start() after discovery
+        self.aggregator: DataAggregator | None = None
         self.gamma_client: GammaRESTClient | None = None
+        self.discovery_engine: MarketDiscoveryEngine | None = None
         self.broadcaster: OrderBroadcaster | None = None
 
     async def start(self) -> None:
@@ -101,6 +101,11 @@ class Orchestrator:
             config=self.config,
             http_session=self._httpx_client,
         )
+        self.discovery_engine = MarketDiscoveryEngine(
+            gamma_client=self.gamma_client,
+            bankroll_tracker=self.bankroll_tracker,
+            config=self.config,
+        )
         self.broadcaster = OrderBroadcaster(
             w3=self.w3,
             nonce_manager=self.nonce_manager,
@@ -109,8 +114,28 @@ class Orchestrator:
             db_session_factory=AsyncSessionLocal,
             clob_rest_url=self.config.clob_rest_url,
             config=self.config,
+            bankroll_tracker=self.bankroll_tracker,
         )
         await self.nonce_manager.initialize()
+
+        # Discover eligible markets before wiring the pipeline
+        eligible = await self.discovery_engine.discover()
+        if not eligible:
+            logger.warning(
+                "orchestrator.no_eligible_markets_at_startup",
+            )
+            return
+        self.active_condition_id = eligible[0]
+        logger.info(
+            "orchestrator.market_selected",
+            condition_id=self.active_condition_id,
+        )
+
+        self.aggregator = DataAggregator(
+            input_queue=self.market_queue,
+            output_queue=self.prompt_queue,
+            condition_id=self.active_condition_id,
+        )
 
         self._tasks = [
             asyncio.create_task(self.ws_client.run(), name="IngestionTask"),
@@ -119,6 +144,10 @@ class Orchestrator:
             asyncio.create_task(
                 self._execution_consumer_loop(),
                 name="ExecutionTask",
+            ),
+            asyncio.create_task(
+                self._discovery_loop(),
+                name="DiscoveryTask",
             ),
         ]
 
@@ -159,7 +188,10 @@ class Orchestrator:
                     )
                     continue
 
-                signed_order = self.signer.build_order_from_decision(item)
+                signed_order = await self.signer.build_order_from_decision(
+                    item,
+                    bankroll_tracker=self.bankroll_tracker,
+                )
                 decision_id = str(item.get("snapshot_id", "unknown"))
                 await self.broadcaster.broadcast(
                     signed_order=signed_order,
@@ -170,11 +202,44 @@ class Orchestrator:
             finally:
                 self.execution_queue.task_done()
 
+    async def _discovery_loop(self) -> None:
+        """Re-run market discovery every 5 minutes to rotate if needed."""
+        while True:
+            await asyncio.sleep(300)
+            try:
+                if self.discovery_engine is None:
+                    continue
+                eligible = await self.discovery_engine.discover()
+                if eligible and eligible[0] != self.active_condition_id:
+                    logger.info(
+                        "orchestrator.market_rotation",
+                        old_condition_id=self.active_condition_id,
+                        new_condition_id=eligible[0],
+                    )
+                    self.active_condition_id = eligible[0]
+                    if self.aggregator is not None:
+                        self.aggregator.condition_id = eligible[0]
+                        self.aggregator.best_bid = 0.0
+                        self.aggregator.best_ask = 0.0
+                        self.aggregator._last_emitted_midpoint = None
+                elif not eligible:
+                    logger.warning(
+                        "orchestrator.no_eligible_markets_on_refresh",
+                        keeping=self.active_condition_id,
+                    )
+            except Exception as exc:
+                logger.error(
+                    "orchestrator.discovery_loop_error",
+                    error=str(exc),
+                )
+
     async def shutdown(self) -> None:
         """Stop running components, cancel tasks, and dispose shared resources."""
         logger.info("orchestrator.shutdown_start")
 
         for stoppable in (self.aggregator, self.claude_client):
+            if stoppable is None:
+                continue
             try:
                 await stoppable.stop()
             except Exception as exc:
