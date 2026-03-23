@@ -8,6 +8,7 @@ type safety.  A module-level ``get_config()`` singleton ensures exactly one
 """
 
 import warnings
+from decimal import Decimal
 from functools import lru_cache
 
 import structlog
@@ -82,6 +83,12 @@ class AppConfig(BaseSettings):
     )
     min_ttr_hours: float = Field(
         default=4.0, description="Min hours to resolution allowed for execution"
+    )
+
+    # --- Bankroll ---
+    initial_bankroll_usdc: Decimal = Field(
+        default=Decimal("1000"),
+        description="Seed bankroll in USDC (override via INITIAL_BANKROLL_USDC env var)",
     )
 
     # --- Gas ---

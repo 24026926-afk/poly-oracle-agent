@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
-"""
-scripts/init_db.py
+"""Initialize the database schema via Alembic migrations."""
 
-Utility script to initialize the physical database schema.
-Creates all tables defined in src/db/models.py using the async engine.
-"""
+from __future__ import annotations
 
 import sys
-import os
-import asyncio
+from pathlib import Path
 
-# Add the project root to the Python path to allow absolute imports from src
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import structlog
+from alembic import command
+from alembic.config import Config
 
-from src.db.engine import engine
-from src.db.models import Base
+logger = structlog.get_logger(__name__)
 
-async def init_db() -> None:
-    """
-    Creates all tables in the physical database asynchronously.
-    """
-    print(f"Initializing database using engine: {engine.url}")
-    
-    async with engine.begin() as conn:
-        # Create all tables (MarketSnapshot, AgentDecisionLog, ExecutionTx)
-        await conn.run_sync(Base.metadata.create_all)
-        
-    print("Database tables created successfully.")
-    
-    # Dispose the engine to close connections cleanly
-    await engine.dispose()
+
+def _build_alembic_config() -> Config:
+    project_root = Path(__file__).resolve().parents[1]
+    alembic_ini_path = project_root / "alembic.ini"
+
+    cfg = Config(str(alembic_ini_path))
+    cfg.set_main_option("script_location", str(project_root / "migrations"))
+    return cfg
+
+
+def init_db() -> None:
+    """Apply all migrations up to ``head``."""
+    command.upgrade(_build_alembic_config(), "head")
+    logger.info("database_initialized", migration_target="head")
+
 
 if __name__ == "__main__":
     try:
-        asyncio.run(init_db())
-    except Exception as e:
-        print(f"Error initializing database: {e}")
+        init_db()
+    except Exception as exc:
+        logger.exception("database_init_failed", error=str(exc))
         sys.exit(1)

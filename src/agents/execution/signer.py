@@ -17,6 +17,7 @@ from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
 from src.core.config import AppConfig
+from src.core.exceptions import DryRunActiveError
 from src.schemas.web3 import OrderData, OrderSide, SignedOrder, SIGNATURE_TYPE_EOA
 
 logger = structlog.get_logger(__name__)
@@ -123,7 +124,19 @@ class TransactionSigner:
         Returns:
             ``SignedOrder`` containing the original order, hex signature,
             and the checksummed signer address.
+
+        Raises:
+            DryRunActiveError: If ``dry_run`` is enabled in config.
         """
+        if self._config.dry_run:
+            logger.info(
+                "signer.dry_run_skip",
+                dry_run=True,
+                token_id=order.token_id,
+                side=order.side.name,
+            )
+            raise DryRunActiveError("Order signing blocked: dry_run=True")
+
         domain = _build_eip712_domain(neg_risk)
         message = _order_to_message(order)
 
@@ -153,12 +166,13 @@ class TransactionSigner:
 
     # -- convenience builder ------------------------------------------------
 
-    def build_order_from_decision(
+    async def build_order_from_decision(
         self,
         decision: Dict[str, Any],
         nonce: int = 0,
         fee_rate_bps: int = 0,
         neg_risk: bool = False,
+        bankroll_tracker: "BankrollPortfolioTracker | None" = None,
     ) -> SignedOrder:
         """
         Map an approved agent decision into a signed ``OrderData``.
@@ -168,7 +182,25 @@ class TransactionSigner:
         - ``snapshot_id`` — for traceability (not encoded on-chain)
 
         A random 256-bit salt guarantees order uniqueness.
+
+        Raises:
+            DryRunActiveError: If ``dry_run`` is enabled in config.
+            ValueError: If ``bankroll_tracker`` is not provided.
+            ExposureLimitError: If trade exceeds bankroll/exposure limits.
         """
+        if self._config.dry_run:
+            logger.info(
+                "signer.dry_run_skip",
+                dry_run=True,
+                method="build_order_from_decision",
+            )
+            raise DryRunActiveError(
+                "Order construction blocked: dry_run=True"
+            )
+
+        if bankroll_tracker is None:
+            raise ValueError("BankrollPortfolioTracker is required")
+
         eval_resp = decision["evaluation"]
         mc = eval_resp.market_context
 
@@ -176,16 +208,20 @@ class TransactionSigner:
         action = eval_resp.recommended_action.value
         side = OrderSide.BUY if action == "BUY" else OrderSide.SELL
 
-        # Position size → USDC micro-units (6 decimals)
-        # Why Decimal: float binary precision errors corrupt micro-unit calcs.
-        bankroll_usdc = Decimal(str(decision.get("bankroll_usdc", "1000.0")))
-        raw_usdc = Decimal(str(eval_resp.position_size_pct)) * bankroll_usdc
-        maker_amount = int(raw_usdc * Decimal("1000000"))
+        # Position size via tracker (Decimal math, Quarter-Kelly + 3% cap)
+        raw_usdc = await bankroll_tracker.compute_position_size(
+            kelly_fraction_raw=Decimal(str(eval_resp.position_size_pct)),
+            condition_id=str(mc.condition_id),
+        )
+        await bankroll_tracker.validate_trade(raw_usdc, str(mc.condition_id))
+
+        # USDC → micro-units (6 decimals)
+        maker_amount = int(raw_usdc * Decimal("1e6"))
 
         # Taker amount: tokens received at midpoint
         if mc.midpoint > 0:
             taker_amount = int(
-                (raw_usdc / Decimal(str(mc.midpoint))) * Decimal("1000000")
+                (raw_usdc / Decimal(str(mc.midpoint))) * Decimal("1e6")
             )
         else:
             taker_amount = 0

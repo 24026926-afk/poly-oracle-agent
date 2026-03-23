@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Autonomous AI Agent for Polymarket"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.13.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "sqlalchemy>=2.0.0",
