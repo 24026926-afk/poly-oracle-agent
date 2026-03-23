@@ -21,6 +21,14 @@ Add BankrollPortfolioTracker service that computes available bankroll/exposure f
 3. Reject trade if proposed size > available or exceeds exposure.
 4. Add restart-recovery test that reconstructs state from DB.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi04.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] Order sizing no longer uses hardcoded 1000 USDC anywhere.
 - [ ] Bankroll/portfolio service computes available bankroll and current exposure from persisted state.
