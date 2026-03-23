@@ -20,6 +20,14 @@ Implement MarketDiscoveryEngine that selects eligible markets and feeds them to 
 3. Log and skip if no eligible markets.
 4. Add tests with mocked Gamma data.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi03.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] Market discovery uses GammaRESTClient.get_active_markets() with no hardcoded condition_id.
 - [ ] Candidate selection applies active status, metadata presence, hours_to_resolution, and exposure limits.

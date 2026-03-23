@@ -1,10 +1,50 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-23  
-**Version:** 0.1.0  
-**Status:** Pre-Production (Core Infrastructure Complete, Integration In-Progress)
+**Last Updated:** 2026-03-23
+**Version:** 0.2.0
+**Status:** Phase 2 Complete — All 8 Work Items Delivered (92 tests, 91% coverage)
+
+# ⚙️ Phase 3 Evaluation Gate
+**Status:** 🔴 IN PROGRESS — v0.3.0
+
+### WI-09 — Repository Wiring
+- [ ] `grep -r "session.add\|session.execute\|session.flush\|session.scalar" src/agents/`
+      → zero results outside `src/db/`
+- [ ] `pytest --asyncio-mode=auto tests/` → all 92 pass, no regressions
+- [ ] `coverage report` → ≥ 80%
+- [ ] Bypass regression test EXISTS and FAILS when a direct session call is injected
+
+### WI-10 — README
+- [ ] Clean-room validation completed (fresh venv, follow README only)
+- [ ] All 6 commands in Command Validation Checklist produce expected output signals
+- [ ] README is internally consistent with STATE.md, .env.example, pyproject.toml
+
+### Phase Gate (both WIs required)
+- [ ] Both PRs merged to `develop`
+- [ ] Final PR `develop → master` approved
+- [ ] STATE.md updated: version `0.3.0`, status `Phase 3 Complete`
+- [ ] `docs/prompts/` has P9 + P10 archived
+---
+When the gate is fully green → flip:
+
+text
+**Status:** 🟢 COMPLETE — v0.3.0
+**Last Updated:** [date]
+Execution Order From Here
+text
+Now:   Codex CLI → create both branches
+Then:  Claude Code Session B → WI-10 (README, fast, low risk)
+Then:  Claude Code Session A → WI-09 (repo wiring, higher risk)
+Then:  Reflection Pass on each (Codex Chat Panel)
+Then:  Run Evaluation Gate checklist
+Then:  Merge WI-10 → develop → PR
+       Merge WI-09 → develop → PR
+       develop → master
+Then:  STATE.md → v0.3.0, Phase 3 Complete
+
 
 ---
+
 
 ## Table of Contents
 
@@ -96,12 +136,24 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 - Validates responses via `MarketMetadata` Pydantic model
 - Custom `RESTClientError` for 5xx server errors
 
+#### `src/agents/ingestion/market_discovery.py` — `MarketDiscoveryEngine` ✅ NEW (WI-03)
+- Autonomous market discovery using Gamma API and exposure-based filtering
+- `discover()` — Returns eligible `condition_id` list (best candidates first), never hardcoded
+- Sequential filter chain applied to `GammaRESTClient.get_active_markets()` output:
+  1. **Metadata presence**: `condition_id` non-empty and `token_ids` non-empty
+  2. **Time-to-resolution**: `hours_to_resolution >= config.min_ttr_hours` (4.0h); markets with no/unparseable `end_date_iso` excluded
+  3. **Exposure limits**: current exposure < `max_exposure_pct × bankroll` (Decimal math via `BankrollPortfolioTracker`)
+- Logs filter stats (`total`, `no_metadata`, `ttr_fail`, `exposure_fail`) on every discovery cycle
+- Returns `[]` with `logger.warning` when no market is eligible — never falls back to hardcoded ID
+- All monetary comparisons use `Decimal` — no `float` for exposure checks
+
 ---
 
 ### Layer 2 — Context Builder ✅ IMPLEMENTED
 
 #### `src/agents/context/aggregator.py` — `DataAggregator`
 - Maintains in-memory orderbook state (best bid/ask)
+- **Filters incoming messages by `condition_id`** — silently discards messages for other markets (WI-03)
 - Dual-trigger emission system:
   - **Time trigger**: Emits market state every 10 seconds
   - **Volatility trigger**: Emits immediately on >2% midpoint change
@@ -346,19 +398,23 @@ All repositories take `AsyncSession` via constructor injection. All methods are 
 
 ### `src/orchestrator.py` ✅ IMPLEMENTED — Main Entry Point
 - Loads `.env` and validates `AppConfig`
+- **Market discovery at startup** via `MarketDiscoveryEngine.discover()` — no hardcoded `condition_id` (WI-03)
+- Instantiates `BankrollPortfolioTracker` and passes it to signer and broadcaster (WI-04)
 - Instantiates all 4 layers with proper queue wiring:
   - `market_queue`: ws_client → aggregator
   - `prompt_queue`: aggregator → claude_client
   - `execution_queue`: claude_client → broadcaster
-- Spins up 4 concurrent `asyncio.Task` instances via `asyncio.gather()`
+- Spins up 5 concurrent `asyncio.Task` instances via `asyncio.gather()`:
+  - IngestionTask, ContextTask, EvaluationTask, ExecutionTask, **DiscoveryTask**
+- **`_discovery_loop()`** — Re-runs discovery every 5 minutes; rotates aggregator to new best market if found, resets bid/ask state
 - Manages two HTTP clients: `httpx.AsyncClient` for `GammaRESTClient`, `aiohttp.ClientSession` for `OrderBroadcaster`
+- Execution consumer calls `await signer.build_order_from_decision()` with `bankroll_tracker`
 - Graceful shutdown sequence:
   1. Catches `CancelledError` and `KeyboardInterrupt`
-  2. Calls `.stop()` on all agent components
+  2. Calls `.stop()` on all agent components (None-safe)
   3. Cancels hanging tasks
   4. Closes both HTTP clients (`aclose()` / `close()`)
   5. Disposes database engine connections
-- Uses a hardcoded test asset ID for testing
 
 ---
 
@@ -403,6 +459,7 @@ All repositories take `AsyncSession` via constructor injection. All methods are 
 | `test_broadcaster.py` | ✅ **8 tests** | Implemented | Happy path broadcast, DB persistence, 4xx error + nonce sync, 5xx error without nonce sync, receipt polling retries, receipt timeout raises, timeout persists to DB, gas price logging |
 | `test_bankroll_tracker.py` | ✅ **13 tests** | Implemented | Bankroll queries (total, exposure, available), Quarter-Kelly sizing, 3% cap enforcement, negative Kelly floor, trade validation (pass/reject), exposure cap raises, insufficient bankroll raises, Decimal type safety, restart recovery from persisted DB state |
 | `test_repositories.py` | ✅ **8 tests** | Implemented | MarketRepository (insert + get latest, None on miss), DecisionRepository (insert + recent ordered, cross-market filtering), ExecutionRepository (insert + get by decision, None on miss, aggregate exposure PENDING+CONFIRMED only, zero on empty). **100% coverage** on all repo modules |
+| `test_market_discovery.py` | ✅ **12 tests** | Implemented | Eligible market selection (happy path), empty token_ids exclusion, TTR below minimum, no end_date, past end_date, exposure at/below limit, no eligible markets, empty Gamma response, unparseable end_date, TTR computation accuracy, Decimal exposure math |
 | `test_schemas.py` | ⚠️ **Empty** | Stub | — |
 | `test_prompt_factory.py` | ⚠️ **Empty** | Stub | — |
 
@@ -410,12 +467,32 @@ All repositories take `AsyncSession` via constructor injection. All methods are 
 
 | Test File | Status | Covers |
 |---|---|---|
-| `test_ws_client.py` | ⚠️ **Empty** | Stub |
-| `test_claude_client.py` | ⚠️ **Empty** | Stub |
+| `test_orchestrator.py` | ✅ **5 tests** | Instantiation, early exit when no markets, shutdown disposal, discovery sets `condition_id`, dry_run execution skip |
+| `test_ws_client.py` | ✅ **4 tests** | Enqueue + persist frames, filter invalid event types, skip malformed JSON payloads, handle multiple WebSocket frames |
+| `test_claude_client.py` | ✅ **4 tests** | Approved decisions enqueue to execution queue, rejected decisions dropped, decision log persistence, retry on validation errors |
+| `test_pipeline_e2e.py` | ✅ **3 tests** | Full 4-layer dry_run proof, discovery feeds pipeline, persistence across `market_snapshots`, `agent_decision_logs`, and `execution_txs` tables |
+
+### WI-08 Integration Test Suite — Results
+
+- **Metrics**
+  - Total tests increased from 76 to 92 (16 new integration tests) while coverage shifted from 94% to 91%, remaining well above the 80% target.
+  - Integration tests grew from the single Alembic suite to 17 deterministic scenarios running without live network access.
+- **Files created/modified**
+  - `tests/conftest.py` — Added `test_config`, `mock_gamma_markets`, `mock_anthropic_buy_json`, `mock_anthropic_hold_json`, `db_session_factory`, and `pipeline_queues` fixtures plus safe-collection env var setup.
+  - `tests/integration/test_orchestrator.py` — 5 tests covering orchestrator lifecycle, discovery wiring, and dry_run skip logic.
+  - `tests/integration/test_ws_client.py` — Rewritten to ensure enqueue/persist behavior, filtering, malformed frames, and multi-frame handling.
+  - `tests/integration/test_claude_client.py` — Rewritten to assert routing, persistence, and retry behavior.
+  - `tests/integration/test_pipeline_e2e.py` — New suite proving the end-to-end queue handoff and persistence across all three tables.
+- **Acceptance criteria met**
+  - Shared async fixtures for isolated databases, config overrides, mocked services, and queue bootstrapping.
+  - Integration coverage for orchestrator startup/shutdown, queue handoff, dry_run trade gating, market discovery, and repository persistence.
+  - Suite runs deterministically with mocked services and without external network access.
+  - Coverage remains at 91% (target ≥ 80%).
 
 ### Test Infrastructure
-- `tests/conftest.py` — ✅ **Implemented** with async in-memory SQLite fixtures (`async_engine` + `async_session` with per-test rollback)
-- Total implemented tests: **64 tests** across 7 test files
+- `tests/conftest.py` — ✅ **Implemented** with async in-memory SQLite fixtures (`async_engine` + `async_session` with per-test rollback), additional shared fixtures for mocked Gamma, Anthropic, queues, and safe-collection env var overrides
+- Total implemented tests: **92 tests** across 12 test files (8 unit + 4 integration)
+- Coverage: **91%** (target ≥ 80%)
 - Framework: `pytest` with `pytest-asyncio`
 
 ---
@@ -449,10 +526,10 @@ Covers: `.env`, `venv/`, `__pycache__/`, `*.db`, `.DS_Store`, IDE dirs, build ar
 ### `pyproject.toml` ✅ CONFIGURED
 PEP 621 project metadata with all 10 dependencies declared.
 
-### Migrations
-- `migrations/env.py` — ⚠️ **Empty** (Alembic not configured)
-- `migrations/versions/` — Empty directory
-- Database initialized directly via `scripts/init_db.py` using `create_all()`
+### Migrations ✅ CONFIGURED (WI-07)
+- `migrations/env.py` — Alembic async environment configured with `run_async_migrations()`
+- `migrations/versions/0001_initial_schema.py` — Baseline migration for all 3 tables
+- `alembic.ini` — Points to `DATABASE_URL` from config
 
 ### Active Database
 - `poly_oracle.db` — SQLite database file exists (69 KB), tables have been created
@@ -471,17 +548,11 @@ PEP 621 project metadata with all 10 dependencies declared.
 |---|---|
 | `tests/unit/test_schemas.py` | Tests for `LLMEvaluationResponse` Gatekeeper logic, `MarketSnapshotSchema`, `OrderData` |
 | `tests/unit/test_prompt_factory.py` | Tests for `PromptFactory.build_evaluation_prompt()` |
-| `tests/integration/test_ws_client.py` | Live/mocked WebSocket integration tests |
-| `tests/integration/test_claude_client.py` | Live/mocked Claude API integration tests |
 
 ### Architecture Gaps
 | Gap | Description |
 |---|---|
-| Alembic migrations | `migrations/env.py` is empty — schema evolution is not managed |
 | Repository pattern | DB repositories implemented — agent code should migrate to use them instead of direct sessions |
-| Orchestrator uses legacy class names | References `AsyncWebSocketClient` and `TxBroadcaster` which differ from actual class names (`CLOBWebSocketClient`, `OrderBroadcaster`) — **orchestrator will crash on import** |
-| Orchestrator hardcoded asset | Uses a single hardcoded Polymarket condition ID rather than dynamic market selection |
-| No market selection logic | No mechanism to discover and select profitable markets autonomously |
 | README.md | Empty file — no project documentation |
 
 ---
@@ -504,18 +575,16 @@ The core trading pipeline is **structurally complete** from data ingestion to or
 - ✅ **Full audit trail persistence** across 3 normalized database tables
 - ✅ **Comprehensive risk management documentation** with mathematical specifications
 - ✅ **Bankroll & portfolio tracking** via `BankrollPortfolioTracker` with DB-backed exposure, Quarter-Kelly sizing, and 3% cap enforcement
-- ✅ **64 unit tests** covering execution layer, ingestion layer, repository layer, bankroll tracker, and core components
+- ✅ **Autonomous market discovery** via `MarketDiscoveryEngine` with metadata, TTR, and exposure filters — no hardcoded condition_ids
+- ✅ **92 automated tests** (76 unit + 16 integration) covering execution, ingestion, repository, bankroll, market discovery, and core components
+- ✅ **WI-08 integration suite** proving orchestrator startup/shutdown, queue handoff, dry_run gating, market discovery, and repository persistence
 - ✅ **Configuration management** with type-safe Pydantic Settings and `.env` file support
 
 ### What Is NOT Working Yet
 The system is **not ready for live trading** due to:
 
-1. **Orchestrator wiring is broken** — Import references do not match actual class names
-2. **Repository layer not wired** — Repositories are implemented but agent code still uses direct sessions
-3. **No market discovery** — Agent operates on a single hardcoded market
-4. **No Alembic migrations** — Schema changes are not versioned
-5. **Integration tests missing** — No end-to-end validation of the full pipeline
-6. **README is empty** — No project documentation for onboarding
+1. **Repository layer not fully wired** — Repositories are implemented but some agent code still uses direct sessions
+2. **README is empty** — No project documentation for onboarding
 
 ### Development Phase
-The project is at the boundary between **Phase 1 (Infrastructure & Core Implementation)** and **Phase 2 (Integration & Operational Readiness)**. All individual components work in isolation (as verified by unit tests), but the orchestration layer needs repair and the system requires integration testing before any live execution.
+The project is in **Phase 2 (Integration & Operational Readiness)**. Completed WIs: WI-01 (orchestrator fix), WI-02 (repository layer), WI-03 (market discovery), WI-04 (bankroll tracker), WI-05 (dry_run enforcement), WI-06 (httpx migration), WI-07 (Alembic migrations), WI-08 (integration test suite). All four layers now run under 92 tests with 91% coverage, and the integration suite runs deterministically with mocked services and no external network access. Remaining operational work focuses on repository wiring and onboarding documentation before live trading.
