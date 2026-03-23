@@ -17,6 +17,7 @@ from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
 from src.core.config import AppConfig
+from src.core.exceptions import DryRunActiveError
 from src.schemas.web3 import OrderData, OrderSide, SignedOrder, SIGNATURE_TYPE_EOA
 
 logger = structlog.get_logger(__name__)
@@ -123,7 +124,19 @@ class TransactionSigner:
         Returns:
             ``SignedOrder`` containing the original order, hex signature,
             and the checksummed signer address.
+
+        Raises:
+            DryRunActiveError: If ``dry_run`` is enabled in config.
         """
+        if self._config.dry_run:
+            logger.info(
+                "signer.dry_run_skip",
+                dry_run=True,
+                token_id=order.token_id,
+                side=order.side.name,
+            )
+            raise DryRunActiveError("Order signing blocked: dry_run=True")
+
         domain = _build_eip712_domain(neg_risk)
         message = _order_to_message(order)
 
@@ -168,7 +181,20 @@ class TransactionSigner:
         - ``snapshot_id`` — for traceability (not encoded on-chain)
 
         A random 256-bit salt guarantees order uniqueness.
+
+        Raises:
+            DryRunActiveError: If ``dry_run`` is enabled in config.
         """
+        if self._config.dry_run:
+            logger.info(
+                "signer.dry_run_skip",
+                dry_run=True,
+                method="build_order_from_decision",
+            )
+            raise DryRunActiveError(
+                "Order construction blocked: dry_run=True"
+            )
+
         eval_resp = decision["evaluation"]
         mc = eval_resp.market_context
 

@@ -116,6 +116,20 @@ async def test_sync_logs_old_and_new_nonce():
 
 
 @pytest.mark.asyncio
+async def test_dry_run_does_not_advance_nonce():
+    """When dry_run=True, get_next_nonce returns sentinel -1 and nonce stays put."""
+    w3 = _mock_w3(INITIAL_NONCE)
+    mgr = NonceManager(w3, MOCK_ADDRESS, dry_run=True)
+    await mgr.initialize()
+
+    result = await mgr.get_next_nonce()
+
+    assert result == -1
+    # Internal nonce must not have changed
+    assert mgr.current_nonce == INITIAL_NONCE
+
+
+@pytest.mark.asyncio
 async def test_initialize_uses_pending_block_tag():
     w3 = _mock_w3(INITIAL_NONCE)
     mgr = NonceManager(w3, MOCK_ADDRESS)

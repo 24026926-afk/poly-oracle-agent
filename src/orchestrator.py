@@ -64,7 +64,9 @@ class Orchestrator:
 
         self.w3 = AsyncWeb3(AsyncHTTPProvider(self.config.polygon_rpc_url))
         self.signer = TransactionSigner(config=self.config)
-        self.nonce_manager = NonceManager(self.w3, self.config.wallet_address)
+        self.nonce_manager = NonceManager(
+            self.w3, self.config.wallet_address, dry_run=self.config.dry_run,
+        )
         self.gas_estimator = GasEstimator(self.w3)
 
         self.ws_client = CLOBWebSocketClient(
@@ -103,6 +105,7 @@ class Orchestrator:
             http_session=self._http_session,
             db_session_factory=AsyncSessionLocal,
             clob_rest_url=self.config.clob_rest_url,
+            config=self.config,
         )
         await self.nonce_manager.initialize()
 
@@ -133,7 +136,26 @@ class Orchestrator:
                     logger.error("execution.broadcaster_not_initialized")
                     continue
 
-                # TODO: WI-05 — check config.dry_run before signing/broadcasting
+                if self.config.dry_run:
+                    eval_resp = item.get("evaluation")
+                    logger.info(
+                        "execution.dry_run_skip",
+                        dry_run=True,
+                        condition_id=str(
+                            eval_resp.market_context.condition_id
+                            if eval_resp else "unknown"
+                        ),
+                        proposed_action=(
+                            eval_resp.recommended_action.value
+                            if eval_resp else "unknown"
+                        ),
+                        would_be_size_usdc=(
+                            str(eval_resp.position_size_pct)
+                            if eval_resp else "unknown"
+                        ),
+                    )
+                    continue
+
                 signed_order = self.signer.build_order_from_decision(item)
                 decision_id = str(item.get("snapshot_id", "unknown"))
                 await self.broadcaster.broadcast(

@@ -246,6 +246,40 @@ async def test_poll_receipt_timeout_still_persists_db():
 
 
 @pytest.mark.asyncio
+async def test_dry_run_prevents_all_execution():
+    """When dry_run=True, broadcast() must not call gas, nonce, HTTP, or DB."""
+    config = MagicMock()
+    config.dry_run = True
+
+    gas_est = _mock_gas_estimator()
+    nonce_mgr = _mock_nonce_manager()
+    http = _mock_http_session()
+    db = _mock_db_factory()
+
+    bc = OrderBroadcaster(
+        w3=_mock_w3(_receipt_dict()),
+        nonce_manager=nonce_mgr,
+        gas_estimator=gas_est,
+        http_session=http,
+        db_session_factory=db,
+        clob_rest_url="https://clob.polymarket.com",
+        config=config,
+    )
+
+    result = await bc.broadcast(_signed_order(), decision_id="dec-dry")
+
+    assert isinstance(result, TxReceiptSchema)
+    assert result.status == "DRY_RUN"
+    assert result.order_id == "dry-run"
+
+    # Zero side effects
+    gas_est.estimate.assert_not_awaited()
+    nonce_mgr.get_next_nonce.assert_not_awaited()
+    http.post.assert_not_called()
+    db._last_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_gas_price_logged_on_submission():
     w3 = _mock_w3(_receipt_dict())
     bc = _build_broadcaster(w3=w3)

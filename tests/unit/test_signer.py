@@ -17,6 +17,7 @@ from src.agents.execution.signer import (
     _build_eip712_domain,
     _order_to_message,
 )
+from src.core.exceptions import DryRunActiveError
 from src.schemas.web3 import OrderData, OrderSide, SIGNATURE_TYPE_EOA
 
 
@@ -25,12 +26,13 @@ TEST_PRIVATE_KEY = "0x" + "ab" * 32
 TEST_ACCOUNT = Account.from_key(TEST_PRIVATE_KEY)
 
 
-def _make_config() -> MagicMock:
+def _make_config(dry_run: bool = False) -> MagicMock:
     """Create a minimal AppConfig mock exposing wallet_private_key."""
     cfg = MagicMock()
     secret = MagicMock()
     secret.get_secret_value.return_value = TEST_PRIVATE_KEY
     cfg.wallet_private_key = secret
+    cfg.dry_run = dry_run
     return cfg
 
 
@@ -131,6 +133,24 @@ class TestTransactionSigner:
         sig_neg = signer.sign_order(order, neg_risk=True).signature
 
         assert sig_std != sig_neg
+
+    def test_dry_run_raises_error(self):
+        """sign_order must raise DryRunActiveError when dry_run=True."""
+        cfg = _make_config()
+        cfg.dry_run = True
+        signer = TransactionSigner(cfg)
+
+        with pytest.raises(DryRunActiveError):
+            signer.sign_order(_sample_order())
+
+    def test_dry_run_build_order_raises_error(self):
+        """build_order_from_decision must raise DryRunActiveError when dry_run=True."""
+        cfg = _make_config()
+        cfg.dry_run = True
+        signer = TransactionSigner(cfg)
+
+        with pytest.raises(DryRunActiveError):
+            signer.build_order_from_decision({"evaluation": MagicMock()})
 
     def test_chain_id_is_polygon(self):
         assert CHAIN_ID == 137

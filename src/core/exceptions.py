@@ -25,6 +25,10 @@ class GasEstimatorError(PolyOracleError):
         self.cause = cause
 
 
+class DryRunActiveError(PolyOracleError):
+    """Raised when a write operation is attempted with dry_run=True."""
+
+
 class BroadcastError(PolyOracleError):
     """Raised on CLOB submission failure or receipt timeout."""
 

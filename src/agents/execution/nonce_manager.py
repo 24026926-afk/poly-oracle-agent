@@ -29,11 +29,14 @@ class NonceManager:
         4. Call ``await sync()`` after a tx revert or RPC error.
     """
 
-    def __init__(self, w3: AsyncWeb3, address: str) -> None:
+    def __init__(
+        self, w3: AsyncWeb3, address: str, dry_run: bool = False,
+    ) -> None:
         self._w3 = w3
         self._address: str = AsyncWeb3.to_checksum_address(address)
         self._nonce: int = -1  # sentinel — not yet fetched
         self._lock: asyncio.Lock = asyncio.Lock()
+        self._dry_run: bool = dry_run
 
     # -- public properties --------------------------------------------------
 
@@ -71,6 +74,10 @@ class NonceManager:
         Raises:
             RuntimeError: If ``initialize()`` has not been called yet.
         """
+        if self._dry_run:
+            logger.info("nonce_manager.dry_run_skip", dry_run=True)
+            return -1
+
         async with self._lock:
             if self._nonce == -1:
                 raise RuntimeError("NonceManager not initialized")
