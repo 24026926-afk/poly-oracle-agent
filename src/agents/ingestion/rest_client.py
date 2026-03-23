@@ -9,7 +9,7 @@ data not available on the CLOB WebSocket stream.
 
 import time
 
-import aiohttp
+import httpx
 import structlog
 
 from src.core.config import AppConfig
@@ -18,7 +18,7 @@ from src.schemas.market import MarketMetadata
 
 logger = structlog.get_logger(__name__)
 
-_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
+_REQUEST_TIMEOUT = httpx.Timeout(10.0)
 _CACHE_TTL_S = 60.0
 
 
@@ -28,7 +28,7 @@ class GammaRESTClient:
     def __init__(
         self,
         config: AppConfig,
-        http_session: aiohttp.ClientSession,
+        http_session: httpx.AsyncClient,
     ) -> None:
         self._base_url = config.gamma_api_url.rstrip("/")
         self._http = http_session
@@ -48,17 +48,15 @@ class GammaRESTClient:
         url = f"{self._base_url}/markets?active=true&closed=false"
 
         try:
-            async with self._http.get(
-                url, timeout=_REQUEST_TIMEOUT
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(
-                        "gamma.active_markets_error",
-                        status=resp.status,
-                    )
-                    return self._cache  # stale is better than nothing
+            resp = await self._http.get(url, timeout=_REQUEST_TIMEOUT)
+            if resp.status_code != 200:
+                logger.warning(
+                    "gamma.active_markets_error",
+                    status=resp.status_code,
+                )
+                return self._cache  # stale is better than nothing
 
-                raw: list[dict] = await resp.json()
+            raw: list[dict] = resp.json()
         except Exception as exc:
             logger.warning(
                 "gamma.active_markets_failed",
@@ -91,25 +89,25 @@ class GammaRESTClient:
         """
         url = f"{self._base_url}/markets/{condition_id}"
 
-        async with self._http.get(url, timeout=_REQUEST_TIMEOUT) as resp:
-            if resp.status == 404:
-                return None
+        resp = await self._http.get(url, timeout=_REQUEST_TIMEOUT)
 
-            if resp.status >= 500:
-                body = await resp.text()
-                raise RESTClientError(
-                    f"Gamma server error: {resp.status}",
-                    status_code=resp.status,
-                )
+        if resp.status_code == 404:
+            return None
 
-            if resp.status != 200:
-                logger.warning(
-                    "gamma.market_lookup_error",
-                    condition_id=condition_id,
-                    status=resp.status,
-                )
-                return None
+        if resp.status_code >= 500:
+            raise RESTClientError(
+                f"Gamma server error: {resp.status_code}",
+                status_code=resp.status_code,
+            )
 
-            data: dict = await resp.json()
+        if resp.status_code != 200:
+            logger.warning(
+                "gamma.market_lookup_error",
+                condition_id=condition_id,
+                status=resp.status_code,
+            )
+            return None
+
+        data: dict = resp.json()
 
         return MarketMetadata.model_validate(data)

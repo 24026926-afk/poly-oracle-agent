@@ -12,6 +12,7 @@ import sys
 from typing import Any
 
 import aiohttp
+import httpx
 import structlog
 from dotenv import load_dotenv
 from web3 import AsyncHTTPProvider, AsyncWeb3
@@ -60,6 +61,7 @@ class Orchestrator:
         self.execution_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
         self._http_session: aiohttp.ClientSession | None = None
+        self._httpx_client: httpx.AsyncClient | None = None
         self._tasks: list[asyncio.Task[Any]] = []
 
         self.w3 = AsyncWeb3(AsyncHTTPProvider(self.config.polygon_rpc_url))
@@ -94,9 +96,10 @@ class Orchestrator:
         logger.info("orchestrator.starting")
 
         self._http_session = aiohttp.ClientSession()
+        self._httpx_client = httpx.AsyncClient()
         self.gamma_client = GammaRESTClient(
             config=self.config,
-            http_session=self._http_session,
+            http_session=self._httpx_client,
         )
         self.broadcaster = OrderBroadcaster(
             w3=self.w3,
@@ -184,6 +187,10 @@ class Orchestrator:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks = []
+
+        if self._httpx_client is not None:
+            await self._httpx_client.aclose()
+            self._httpx_client = None
 
         if self._http_session is not None:
             await self._http_session.close()

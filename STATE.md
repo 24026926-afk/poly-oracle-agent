@@ -1,6 +1,6 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-22  
+**Last Updated:** 2026-03-23  
 **Version:** 0.1.0  
 **Status:** Pre-Production (Core Infrastructure Complete, Integration In-Progress)
 
@@ -88,6 +88,7 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 
 #### `src/agents/ingestion/rest_client.py` — `GammaRESTClient`
 - Fetches market metadata from Gamma API (`https://gamma-api.polymarket.com`)
+- Uses `httpx.AsyncClient` exclusively (migrated from `aiohttp` in WI-06)
 - `get_active_markets()` — Returns all active, non-closed markets
 - `get_market_by_condition_id()` — Single market lookup with 404 handling
 - In-memory cache with 60-second TTL for active markets
@@ -322,11 +323,13 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
   - `prompt_queue`: aggregator → claude_client
   - `execution_queue`: claude_client → broadcaster
 - Spins up 4 concurrent `asyncio.Task` instances via `asyncio.gather()`
+- Manages two HTTP clients: `httpx.AsyncClient` for `GammaRESTClient`, `aiohttp.ClientSession` for `OrderBroadcaster`
 - Graceful shutdown sequence:
   1. Catches `CancelledError` and `KeyboardInterrupt`
   2. Calls `.stop()` on all agent components
   3. Cancels hanging tasks
-  4. Disposes database engine connections
+  4. Closes both HTTP clients (`aclose()` / `close()`)
+  5. Disposes database engine connections
 - Uses a hardcoded test asset ID for testing
 
 ---
@@ -365,7 +368,7 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 
 | Test File | Status | Tests | Covers |
 |---|---|---|---|
-| `test_ingestion.py` | ✅ **7 tests** | Implemented | WS message handling (valid frames, unknown events, invalid JSON, validation errors, midpoint computation), Gamma REST (active markets, caching, 404 handling) |
+| `test_ingestion.py` | ✅ **8 tests** | Implemented | WS message handling (valid frames, unknown events, invalid JSON, validation errors, midpoint computation), Gamma REST via `httpx` mocks (active markets, caching, 404 handling) |
 | `test_nonce_manager.py` | ✅ **7 tests** | Implemented | Initialize from RPC, get_next_nonce increment, uninitialized error, sync from chain, concurrent nonce uniqueness, log verification, pending block tag usage |
 | `test_signer.py` | ✅ **7 tests** | Implemented | EIP-712 domain (standard + neg-risk), order message serialization (field names, values), signer address verification, valid signature output, deterministic signatures, neg-risk signature difference, chain ID constant |
 | `test_gas_estimator.py` | ✅ **6 tests** | Implemented | Returns GasPrice model, priority fee multiplier, max fee formula, ceiling breach raises error, fallback on RPC error, fallback never raises |
@@ -382,7 +385,7 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 
 ### Test Infrastructure
 - `tests/conftest.py` — ⚠️ **Empty** (no shared fixtures yet)
-- Total implemented tests: **~35 tests** across 5 test files
+- Total implemented tests: **43 tests** across 5 test files
 - Framework: `pytest` with `pytest-asyncio`
 
 ---
@@ -453,7 +456,7 @@ PEP 621 project metadata with all 10 dependencies declared.
 | Orchestrator uses legacy class names | References `AsyncWebSocketClient` and `TxBroadcaster` which differ from actual class names (`CLOBWebSocketClient`, `OrderBroadcaster`) — **orchestrator will crash on import** |
 | Orchestrator hardcoded asset | Uses a single hardcoded Polymarket condition ID rather than dynamic market selection |
 | `dry_run` flag | Configured in `AppConfig` but not checked in execution code |
-| REST client HTTP library mismatch | `rest_client.py` uses `aiohttp` while `pyproject.toml` declares `httpx` |
+
 | No market selection logic | No mechanism to discover and select profitable markets autonomously |
 | No bankroll tracking | `build_order_from_decision()` uses a default 1000 USDC bankroll |
 | No position tracking/portfolio management | No awareness of existing positions or exposure limits across trades |
@@ -478,7 +481,7 @@ The core trading pipeline is **structurally complete** from data ingestion to or
 - ✅ **Order broadcasting** with CLOB REST submission and receipt polling
 - ✅ **Full audit trail persistence** across 3 normalized database tables
 - ✅ **Comprehensive risk management documentation** with mathematical specifications
-- ✅ **~35 unit tests** covering the execution layer, ingestion layer, and core components
+- ✅ **43 unit tests** covering the execution layer, ingestion layer, and core components
 - ✅ **Configuration management** with type-safe Pydantic Settings and `.env` file support
 
 ### What Is NOT Working Yet
