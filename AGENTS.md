@@ -13,6 +13,9 @@ above code elegance.
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
 - `docs/PRD-v2.0.md`            ← Phase 2 scope and acceptance criteria
+- `docs/PRD-v3.0.md`            ← Phase 3 scope and acceptance criteria
+- `docs/business_logic_wi09.md` ← WI-09 business logic and acceptance criteria
+- `docs/business_logic_wi10.md` ← WI-10 business logic and acceptance criteria
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
 - `docs/business_logic.md`      ← EV rule: the single source of trade truth
