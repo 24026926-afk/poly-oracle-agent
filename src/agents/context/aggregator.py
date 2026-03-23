@@ -72,6 +72,10 @@ class DataAggregator:
 
     async def _process_message(self, msg: CLOBMessage) -> None:
         """Updates internal state based on new CLOB message and checks triggers."""
+        msg_cid = getattr(msg, "condition_id", None)
+        if msg_cid is not None and msg_cid != self.condition_id:
+            return
+
         updated = False
         
         if msg.bids and len(msg.bids) > 0:

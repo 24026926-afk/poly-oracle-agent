@@ -52,23 +52,18 @@ def _mock_config() -> MagicMock:
 
 
 class _FakeResponse:
-    """Minimal aiohttp response for REST client tests."""
+    """Minimal httpx response mock for REST client tests."""
 
-    def __init__(self, status: int, body: object) -> None:
-        self.status = status
+    def __init__(self, status_code: int, body: object) -> None:
+        self.status_code = status_code
         self._body = body
 
-    async def json(self) -> object:
+    def json(self) -> object:
         return self._body
 
-    async def text(self) -> str:
+    @property
+    def text(self) -> str:
         return json.dumps(self._body)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +147,7 @@ async def test_gamma_get_active_markets_returns_list():
         }
     ]
     http = MagicMock()
-    http.get = MagicMock(return_value=_FakeResponse(200, body))
+    http.get = AsyncMock(return_value=_FakeResponse(200, body))
 
     client = GammaRESTClient(_mock_config(), http)
     result = await client.get_active_markets()
@@ -173,7 +168,7 @@ async def test_gamma_cache_returns_stale_within_60s():
         }
     ]
     http = MagicMock()
-    http.get = MagicMock(return_value=_FakeResponse(200, body))
+    http.get = AsyncMock(return_value=_FakeResponse(200, body))
 
     client = GammaRESTClient(_mock_config(), http)
 
@@ -182,15 +177,14 @@ async def test_gamma_cache_returns_stale_within_60s():
     second = await client.get_active_markets()
 
     assert first == second
-    # aiohttp context manager: the .get mock returns _FakeResponse which is
-    # used as a context manager once. If cache works, .get is called once.
+    # httpx coroutine: if cache works, .get is awaited only once.
     assert http.get.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_gamma_404_returns_none():
     http = MagicMock()
-    http.get = MagicMock(return_value=_FakeResponse(404, {}))
+    http.get = AsyncMock(return_value=_FakeResponse(404, {}))
 
     client = GammaRESTClient(_mock_config(), http)
     result = await client.get_market_by_condition_id("nonexistent")

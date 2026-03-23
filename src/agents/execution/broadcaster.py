@@ -6,8 +6,9 @@ Order broadcaster for the Polymarket CLOB.
 Orchestrates the full order lifecycle:
     SignedOrder → POST /order (CLOB REST) → poll Polygon RPC → TxReceipt
 
-Depends on the three completed execution modules:
+Depends on the completed execution modules:
     - signer.py       (produces SignedOrder)
+    - bankroll_tracker.py (real-time bankroll & exposure)
     - nonce_manager.py (dispenses sequential nonces under lock)
     - gas_estimator.py (fresh EIP-1559 gas pricing)
 """
@@ -22,6 +23,7 @@ from web3 import AsyncWeb3
 
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
+from src.core.config import AppConfig
 from src.core.exceptions import BroadcastError
 from src.db.models import ExecutionTx, TxStatus
 from src.schemas.web3 import GasPrice, SignedOrder, TxReceiptSchema
@@ -45,6 +47,8 @@ class OrderBroadcaster:
         http_session: aiohttp.ClientSession,
         db_session_factory: async_sessionmaker[AsyncSession],
         clob_rest_url: str,
+        config: AppConfig | None = None,
+        bankroll_tracker: "BankrollPortfolioTracker | None" = None,
         poll_max_attempts: int = 30,
         poll_delay_s: float = 2.0,
     ) -> None:
@@ -54,6 +58,8 @@ class OrderBroadcaster:
         self._http = http_session
         self._db_factory = db_session_factory
         self._clob_url = clob_rest_url.rstrip("/")
+        self._config = config
+        self._bankroll_tracker = bankroll_tracker
         self._poll_max_attempts = poll_max_attempts
         self._poll_delay_s = poll_delay_s
 
@@ -67,6 +73,21 @@ class OrderBroadcaster:
         decision_id: str,
     ) -> TxReceiptSchema:
         """Submit *signed_order* to the CLOB and wait for confirmation."""
+        if self._config is not None and self._config.dry_run:
+            order = signed_order.order
+            logger.info(
+                "broadcaster.dry_run_skip",
+                dry_run=True,
+                condition_id=str(order.token_id),
+                proposed_action="BUY" if order.side.value == 0 else "SELL",
+                would_be_size_usdc=order.maker_amount / 1_000_000,
+                decision_id=decision_id,
+            )
+            return TxReceiptSchema(
+                order_id="dry-run",
+                status="DRY_RUN",
+            )
+
         gas: GasPrice = await self._gas_estimator.estimate()
         nonce: int = await self._nonce_manager.get_next_nonce()
 

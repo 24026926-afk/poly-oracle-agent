@@ -25,6 +25,10 @@ class GasEstimatorError(PolyOracleError):
         self.cause = cause
 
 
+class DryRunActiveError(PolyOracleError):
+    """Raised when a write operation is attempted with dry_run=True."""
+
+
 class BroadcastError(PolyOracleError):
     """Raised on CLOB submission failure or receipt timeout."""
 
@@ -37,6 +41,10 @@ class BroadcastError(PolyOracleError):
         super().__init__(message)
         self.status_code = status_code
         self.cause = cause
+
+
+class ExposureLimitError(PolyOracleError):
+    """Raised when a trade would exceed exposure or bankroll limits."""
 
 
 class WebSocketError(PolyOracleError):
