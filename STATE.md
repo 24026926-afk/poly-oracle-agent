@@ -121,7 +121,7 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 - Sends periodic heartbeat pings every 10 seconds
 - Validates incoming frames via `MarketSnapshotSchema` (Pydantic V2)
 - Filters for valid event types: `book`, `price_change`, `last_trade_price`
-- Persists validated snapshots to `market_snapshots` table via `MarketRepository` (WI-09)
+- Persists validated snapshots to `market_snapshots` table via injectable `market_repo_factory` (WI-09 steps 1 + 5)
 - Enqueues `MarketSnapshot` ORM objects for downstream consumption
 - Implements exponential backoff reconnection (1s → 60s max)
 - Handles invalid JSON, validation errors, and connection drops gracefully
@@ -180,7 +180,7 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 #### `src/agents/evaluation/claude_client.py` — `ClaudeClient`
 - Async Anthropic client using `AsyncAnthropic` SDK
 - Consumes prompts from input queue, processes evaluations, routes decisions
-- Accepts `db_session_factory` via constructor injection (WI-09)
+- Accepts `db_session_factory` and injectable `decision_repo_factory` via constructor (WI-09 steps 2 + 5)
 - **Retry mechanism**: Up to 2 retries on JSON validation failures, re-prompting Claude with specific Pydantic errors
 - **JSON extraction**: Handles both raw JSON and markdown-wrapped JSON responses (````json ... ```)
 - **Gatekeeper enforcement**: All responses validated through `LLMEvaluationResponse` Pydantic model
@@ -349,12 +349,12 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 #### `market_repo.py` — `MarketRepository`
 - `insert_snapshot(snapshot) → MarketSnapshot` — Adds + flushes, returns persisted instance
 - `get_latest_by_condition_id(condition_id) → MarketSnapshot | None` — Latest snapshot by `captured_at DESC`
-- **Wired into**: `CLOBWebSocketClient` (WI-09 step 1)
+- **Wired into**: `CLOBWebSocketClient` via injectable `market_repo_factory` (WI-09 steps 1 + 5 ✅)
 
 #### `decision_repo.py` — `DecisionRepository`
 - `insert_decision(decision) → AgentDecisionLog` — Adds + flushes, returns persisted instance
 - `get_recent_by_market(condition_id, limit=10) → list[AgentDecisionLog]` — Joins through `MarketSnapshot`, ordered by `evaluated_at DESC`
-- **Wired into**: `ClaudeClient` (WI-09 step 2)
+- **Wired into**: `ClaudeClient` via injectable `decision_repo_factory` (WI-09 steps 2 + 5 ✅)
 
 #### `execution_repo.py` — `ExecutionRepository`
 - `insert_execution(execution) → ExecutionTx` — Adds + flushes, returns persisted instance
@@ -363,7 +363,7 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 - `get_aggregate_exposure(condition_id) → Decimal` — Sums `size_usdc` for `PENDING` + `CONFIRMED` rows only; casts to `Decimal` via `str()` to avoid float contamination
 - **Wired into**: `BankrollPortfolioTracker` (WI-09 step 4 ✅), `OrderBroadcaster` (WI-09 step 3 ✅)
 
-All repositories take `AsyncSession` via constructor injection. All methods are `async`. `__init__.py` re-exports all three classes.
+All repositories take `AsyncSession` via constructor injection. All four agent clients accept injectable repo factories (`Callable[[AsyncSession], Repo] = Repo`) with production defaults (WI-09 step 5). All methods are `async`. `__init__.py` re-exports all three classes.
 
 ---
 
