@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
 from src.db.models import MarketSnapshot
+from src.db.repositories.market_repo import MarketRepository
 from src.schemas.market import MarketSnapshotSchema
 
 logger = structlog.get_logger(__name__)
@@ -151,7 +152,8 @@ class CLOBWebSocketClient:
         )
 
         async with self._db_factory() as session:
-            session.add(row)
+            repo = MarketRepository(session)
+            await repo.insert_snapshot(row)
             await session.commit()
 
         await self._queue.put(row)
