@@ -21,6 +21,14 @@ Configure Alembic for async SQLAlchemy and create initial baseline migration for
 3. Modify `scripts/init_db.py` to use `alembic upgrade head` instead of `create_all()`.
 4. Add smoke test for upgrade/downgrade.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi07.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] Alembic is configured against the project's SQLAlchemy metadata and can run in the project environment.
 - [ ] An initial baseline migration exists for the current three-table schema.

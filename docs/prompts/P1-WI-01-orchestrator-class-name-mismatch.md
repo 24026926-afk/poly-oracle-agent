@@ -20,6 +20,14 @@ Make `src/orchestrator.py` import and instantiate ONLY the implemented runtime c
 4. Keep graceful shutdown (`CancelledError` + `.stop()` + engine dispose) unchanged.
 5. Add comment `# TODO: replace with dynamic market selection from WI-03` where hardcoded asset appears.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi01.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] `src/orchestrator.py` imports and instantiates the implemented runtime classes only; no references to `AsyncWebSocketClient` or `TxBroadcaster` remain.
 - [ ] A startup smoke test instantiates the orchestrator, creates the three queues, and reaches task creation without `ImportError`, `NameError`, or `AttributeError`.

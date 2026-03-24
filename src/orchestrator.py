@@ -83,6 +83,7 @@ class Orchestrator:
             in_queue=self.prompt_queue,
             out_queue=self.execution_queue,
             config=self.config,
+            db_session_factory=AsyncSessionLocal,
         )
 
         # Initialized in start() after discovery

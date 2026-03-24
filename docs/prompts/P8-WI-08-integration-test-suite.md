@@ -22,6 +22,14 @@ Implement full integration test suite covering the wired pipeline in dry_run mod
 3. Run coverage and assert ≥80%.
 4. Update README.md with test command.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi08.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] tests/conftest.py provides shared async fixtures for isolated DB, config overrides, mocked services, queue/orchestrator bootstrapping.
 - [ ] Integration tests cover orchestrator startup/shutdown, queue handoff, dry_run trade, market discovery, repository assertions.

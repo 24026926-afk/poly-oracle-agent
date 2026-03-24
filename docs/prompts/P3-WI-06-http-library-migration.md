@@ -19,6 +19,14 @@ Migrate `GammaRESTClient` to `httpx.AsyncClient` exclusively while preserving ex
 3. Keep 60s in-memory cache, stale-cache-on-failure, 5xx → `RESTClientError`, and all Pydantic validation.
 4. Update unit tests to mock `httpx` responses.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi06.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] `src/agents/ingestion/rest_client.py` uses `httpx.AsyncClient` exclusively; no `aiohttp` import remains.
 - [ ] Existing behavior is preserved for `get_active_markets()`, `get_market_by_condition_id()`, cache TTL, stale-cache fallback, and error handling.

@@ -23,6 +23,14 @@ Implement async repository classes for all three tables with methods needed by l
 4. Update orchestrator and agents to inject repositories instead of raw sessions.
 5. Add unit tests against async SQLite.
 
+## Step 5b — Reflection Pass (NEW)
+Tool: Codex Chat Panel (Antigravity)
+Prompt: "Review the changes made in this session against:
+  1. business_logic_wi02.md — did every rule get implemented?
+  2. .agents/rules/db-engineer.md — any violations?
+  3. PRD-v3.0 acceptance criteria — all met?
+List any gaps before I approve the commit."
+
 ## Acceptance Criteria (must match PRD exactly)
 - [ ] The three repository modules contain async repository implementations.
 - [ ] Repository methods cover snapshot insert/lookup, decision insert/recent lookup, execution insert/update, and aggregate exposure queries.

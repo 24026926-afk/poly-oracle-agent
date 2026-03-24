@@ -10,6 +10,7 @@ Connects to the CLOB WebSocket, validates incoming frames via
 
 import asyncio
 import json
+from collections.abc import Callable
 
 import structlog
 import websockets
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
 from src.db.models import MarketSnapshot
+from src.db.repositories.market_repo import MarketRepository
 from src.schemas.market import MarketSnapshotSchema
 
 logger = structlog.get_logger(__name__)
@@ -34,10 +36,14 @@ class CLOBWebSocketClient:
         config: AppConfig,
         queue: asyncio.Queue[MarketSnapshot],
         db_session_factory: async_sessionmaker[AsyncSession],
+        market_repo_factory: Callable[
+            [AsyncSession], MarketRepository
+        ] = MarketRepository,
     ) -> None:
         self._url = config.clob_ws_url
         self._queue = queue
         self._db_factory = db_session_factory
+        self._market_repo_factory = market_repo_factory
 
     # ------------------------------------------------------------------
     # Public
@@ -151,7 +157,8 @@ class CLOBWebSocketClient:
         )
 
         async with self._db_factory() as session:
-            session.add(row)
+            repo = self._market_repo_factory(session)
+            await repo.insert_snapshot(row)
             await session.commit()
 
         await self._queue.put(row)

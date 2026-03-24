@@ -13,6 +13,9 @@ above code elegance.
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
 - `docs/PRD-v2.0.md`            ← Phase 2 scope and acceptance criteria
+- `docs/PRD-v3.0.md`            ← Phase 3 scope and acceptance criteria
+- `docs/business_logic_wi09.md` ← WI-09 business logic and acceptance criteria
+- `docs/business_logic_wi10.md` ← WI-10 business logic and acceptance criteria
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
 - `docs/business_logic.md`      ← EV rule: the single source of trade truth
@@ -122,3 +125,50 @@ trading decision. Code explains what — comments explain why.
 - No new class names for existing modules. Ever.
 
 ```
+**Every Claude Code session MUST read these files first.**
+
+## 📋 Mandatory Read Order (Plan Mode)
+
+1. **STATE.md** — Current project state, test coverage, known gaps
+2. **PRD-v3.0.md** — Phase 3 work items + acceptance criteria
+3. **docs/business_logic/business_logic_wiXX.md** — WI-specific rules
+4. **.agents/rules/[relevant].md** — Role-specific constraints
+5. **docs/prompts/PX-WI-XX.md** — Execution instructions
+
+## 🎯 Session Template
+
+STEP 0: Read AGENTS.md
+STEP 1: Read STATE.md, PRD-v3.0.md, business_logic_wiXX.md, .agents/rules/[relevant].md
+STEP 2: Read PX-WI-XX.md
+STEP 3: Enter Plan Mode — propose atomic steps before touching any file
+STEP 4: Await approval → execute one step → test → report
+STEP 5: Run Regression Gate from PX-WI-XX.md
+STEP 6: Request Reflection Pass review
+
+text
+
+## 🔒 Agent Constraints Summary
+
+| Agent | Constraint |
+|---|---|
+| `db-engineer.md` | Zero direct AsyncSession calls outside `src/db/repositories/` |
+| `async-architect.md` | Session lifecycle per-task only, no cross-task reuse |
+| `risk-auditor.md` | Decimal math preserved exactly (R-04) |
+| `test-engineer.md` | Coverage ≥ 80%, 92 tests pass |
+| `git-ops.md` | Atomic commits, PR title format: `feat|docs(scope): description` |
+
+## 📊 Phase 3 Evaluation Gate (Reference)
+
+WI-09: grep -r "session.add|session.flush" src/agents/ → zero results
+WI-10: README clean-room validation complete
+Both: pytest → 92 pass, coverage ≥ 80%
+
+text
+
+## 🚫 NEVER
+
+- Commit `.env`, `venv/`, `.pyc`
+- Hardcode `condition_id` — use MarketDiscoveryEngine
+- Use `float` for money — always `Decimal`
+- Merge to `master` directly — PR from `develop` only
+- Skip Plan Mode or Reflection Pass
