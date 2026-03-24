@@ -7,6 +7,7 @@ Parses prompts via the Gatekeeper (LLMEvaluationResponse) and logs to the DB.
 
 import asyncio
 import re
+from collections.abc import Callable
 from typing import Dict, Any, Optional
 
 import structlog
@@ -35,11 +36,15 @@ class ClaudeClient:
         out_queue: asyncio.Queue[Dict[str, Any]],
         config: AppConfig,
         db_session_factory: async_sessionmaker[AsyncSession] | None = None,
+        decision_repo_factory: Callable[
+            [AsyncSession], DecisionRepository
+        ] = DecisionRepository,
     ):
         self.in_queue = in_queue
         self.out_queue = out_queue
         self.config = config
         self._db_factory = db_session_factory
+        self._decision_repo_factory = decision_repo_factory
         self.client = AsyncAnthropic(api_key=self.config.anthropic_api_key.get_secret_value())
         self._running = False
         self.model = "claude-3-5-sonnet-latest"
@@ -190,7 +195,7 @@ class ClaudeClient:
             return
         try:
             async with self._db_factory() as session:
-                repo = DecisionRepository(session)
+                repo = self._decision_repo_factory(session)
                 decision_log = AgentDecisionLog(
                     snapshot_id=snapshot_id,
                     confidence_score=eval_resp.confidence_score,
