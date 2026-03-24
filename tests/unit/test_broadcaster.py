@@ -12,6 +12,7 @@ import pytest
 
 from src.agents.execution.broadcaster import OrderBroadcaster
 from src.core.exceptions import BroadcastError
+from src.db.models import TxStatus
 from src.schemas.web3 import (
     GasPrice,
     OrderData,
@@ -70,11 +71,9 @@ def _mock_nonce_manager(nonce: int = 42) -> MagicMock:
 
 
 def _mock_db_factory() -> MagicMock:
-    """Return an async_sessionmaker mock whose session tracks .add() calls."""
+    """Return an async_sessionmaker mock whose session tracks commits."""
     session = MagicMock()
-    session.add = MagicMock()
     session.commit = AsyncMock()
-    session.close = AsyncMock()
 
     # async context manager protocol
     session.__aenter__ = AsyncMock(return_value=session)
@@ -82,6 +81,20 @@ def _mock_db_factory() -> MagicMock:
 
     factory = MagicMock(return_value=session)
     factory._last_session = session  # test helper
+    return factory
+
+
+def _mock_execution_repo() -> MagicMock:
+    repo = MagicMock()
+    repo.insert_execution = AsyncMock(side_effect=lambda execution: execution)
+    repo.update_execution_status = AsyncMock(return_value=MagicMock())
+    return repo
+
+
+def _mock_repo_factory(repo: MagicMock | None = None) -> MagicMock:
+    repo_instance = repo or _mock_execution_repo()
+    factory = MagicMock(return_value=repo_instance)
+    factory._repo = repo_instance
     return factory
 
 
@@ -130,6 +143,7 @@ def _build_broadcaster(
     gas_est: MagicMock | None = None,
     http: MagicMock | None = None,
     db: MagicMock | None = None,
+    repo_factory: MagicMock | None = None,
     poll_max_attempts: int = 2,
     poll_delay_s: float = 0.0,
 ) -> OrderBroadcaster:
@@ -140,6 +154,7 @@ def _build_broadcaster(
         http_session=http or _mock_http_session(),
         db_session_factory=db or _mock_db_factory(),
         clob_rest_url="https://clob.polymarket.com",
+        execution_repo_factory=repo_factory or _mock_repo_factory(),
         poll_max_attempts=poll_max_attempts,
         poll_delay_s=poll_delay_s,
     )
@@ -164,43 +179,72 @@ async def test_broadcast_happy_path():
 @pytest.mark.asyncio
 async def test_broadcast_persists_execution_tx():
     db = _mock_db_factory()
+    repo_factory = _mock_repo_factory()
     w3 = _mock_w3(_receipt_dict())
-    bc = _build_broadcaster(w3=w3, db=db)
+    bc = _build_broadcaster(w3=w3, db=db, repo_factory=repo_factory)
 
     await bc.broadcast(_signed_order(), decision_id="dec-1")
 
-    session = db._last_session
-    session.add.assert_called_once()
-    row = session.add.call_args[0][0]
+    repo = repo_factory._repo
+    repo.insert_execution.assert_awaited_once()
+    row = repo.insert_execution.await_args.args[0]
     assert row.decision_id == "dec-1"
     assert row.nonce == 42
-    session.commit.assert_awaited_once()
+    assert repo.update_execution_status.await_count == 2
+
+    pending_update = repo.update_execution_status.await_args_list[0]
+    confirmed_update = repo.update_execution_status.await_args_list[1]
+    assert pending_update.kwargs["decision_id"] == "dec-1"
+    assert pending_update.kwargs["status"] == TxStatus.PENDING
+    assert pending_update.kwargs["tx_hash"] == "order-abc-123"
+    assert confirmed_update.kwargs["decision_id"] == "dec-1"
+    assert confirmed_update.kwargs["status"] == TxStatus.CONFIRMED
+    assert confirmed_update.kwargs["tx_hash"] == "order-abc-123"
+
+    session = db._last_session
+    assert session.commit.await_count == 3
 
 
 @pytest.mark.asyncio
 async def test_broadcast_4xx_raises_and_syncs_nonce():
     http = _mock_http_session(status=400, body={"error": "bad request"})
     nonce_mgr = _mock_nonce_manager()
-    bc = _build_broadcaster(http=http, nonce_mgr=nonce_mgr)
+    repo_factory = _mock_repo_factory()
+    bc = _build_broadcaster(
+        http=http,
+        nonce_mgr=nonce_mgr,
+        repo_factory=repo_factory,
+    )
 
     with pytest.raises(BroadcastError) as exc_info:
         await bc.broadcast(_signed_order(), decision_id="dec-1")
 
     assert exc_info.value.status_code == 400
     nonce_mgr.sync.assert_awaited_once()
+    failed_update = repo_factory._repo.update_execution_status.await_args_list[-1]
+    assert failed_update.kwargs["decision_id"] == "dec-1"
+    assert failed_update.kwargs["status"] == TxStatus.FAILED
 
 
 @pytest.mark.asyncio
 async def test_broadcast_5xx_raises_no_nonce_sync():
     http = _mock_http_session(status=500, body={"error": "internal"})
     nonce_mgr = _mock_nonce_manager()
-    bc = _build_broadcaster(http=http, nonce_mgr=nonce_mgr)
+    repo_factory = _mock_repo_factory()
+    bc = _build_broadcaster(
+        http=http,
+        nonce_mgr=nonce_mgr,
+        repo_factory=repo_factory,
+    )
 
     with pytest.raises(BroadcastError) as exc_info:
         await bc.broadcast(_signed_order(), decision_id="dec-1")
 
     assert exc_info.value.status_code == 500
     nonce_mgr.sync.assert_not_awaited()
+    failed_update = repo_factory._repo.update_execution_status.await_args_list[-1]
+    assert failed_update.kwargs["decision_id"] == "dec-1"
+    assert failed_update.kwargs["status"] == TxStatus.FAILED
 
 
 @pytest.mark.asyncio
@@ -232,17 +276,18 @@ async def test_poll_receipt_timeout_raises():
 async def test_poll_receipt_timeout_still_persists_db():
     w3 = _mock_w3(receipt=None)
     db = _mock_db_factory()
-    bc = _build_broadcaster(w3=w3, db=db)
+    repo_factory = _mock_repo_factory()
+    bc = _build_broadcaster(w3=w3, db=db, repo_factory=repo_factory)
 
     with pytest.raises(BroadcastError):
         await bc.broadcast(_signed_order(), decision_id="dec-timeout")
 
-    session = db._last_session
-    session.add.assert_called_once()
-    row = session.add.call_args[0][0]
-    assert row.decision_id == "dec-timeout"
-    assert row.status.value == "PENDING"
-    assert row.error_message is not None
+    repo = repo_factory._repo
+    repo.insert_execution.assert_awaited_once()
+    timeout_update = repo.update_execution_status.await_args_list[-1]
+    assert timeout_update.kwargs["decision_id"] == "dec-timeout"
+    assert timeout_update.kwargs["status"] == TxStatus.PENDING
+    assert timeout_update.kwargs["error_message"] is not None
 
 
 @pytest.mark.asyncio
@@ -255,6 +300,7 @@ async def test_dry_run_prevents_all_execution():
     nonce_mgr = _mock_nonce_manager()
     http = _mock_http_session()
     db = _mock_db_factory()
+    repo_factory = _mock_repo_factory()
 
     bc = OrderBroadcaster(
         w3=_mock_w3(_receipt_dict()),
@@ -263,6 +309,7 @@ async def test_dry_run_prevents_all_execution():
         http_session=http,
         db_session_factory=db,
         clob_rest_url="https://clob.polymarket.com",
+        execution_repo_factory=repo_factory,
         config=config,
     )
 
@@ -276,7 +323,8 @@ async def test_dry_run_prevents_all_execution():
     gas_est.estimate.assert_not_awaited()
     nonce_mgr.get_next_nonce.assert_not_awaited()
     http.post.assert_not_called()
-    db._last_session.add.assert_not_called()
+    repo_factory.assert_not_called()
+    db._last_session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
