@@ -16,6 +16,7 @@ Depends on the completed execution modules:
 import asyncio
 from collections.abc import Callable
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import aiohttp
 import structlog
@@ -330,7 +331,7 @@ class OrderBroadcaster:
             tx_hash=None,
             status=TxStatus.PENDING,
             side="BUY" if order.side.value == 0 else "SELL",
-            size_usdc=order.maker_amount / 1_000_000,
+            size_usdc=Decimal(str(order.maker_amount)) / Decimal('1e6'),
             limit_price=0.0,  # CLOB manages price matching
             condition_id=str(order.token_id),
             outcome_token="YES",

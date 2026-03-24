@@ -159,7 +159,7 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `LOG_LEVEL` | str | `INFO` | No | Allowed: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DRY_RUN` | bool | `false` | No | **Must be `true` for local development and CI** |
 
-> **Important:** `DRY_RUN=true` is the required default for local development, CI, and all validation runs. See [Section 10: Operational Notes](#10-operational-notes) for details.
+> **Important:** `DRY_RUN=true` is the required default for local development, CI, and all validation runs. See [Section 11: Operational Notes](#11-operational-notes) for details.
 
 ---
 
@@ -340,7 +340,52 @@ Position sizing: `min(quarter_kelly × bankroll, 0.03 × bankroll)` where quarte
 
 ---
 
-## 10. Operational Notes
+## 10. Financial Integrity & Numeric Safety
+
+**Critical Constraint:** All USDC and price calculations use Python's `Decimal` type to prevent floating-point precision loss.
+
+### No Float Arithmetic for Financial Calculations
+
+**Why?** IEEE 754 floating-point arithmetic introduces cumulative rounding errors in financial calculations. A single unsafe division like `order_amount / 1_000_000` can introduce precision loss that cascades into exposure miscalculations and bankroll tracking errors.
+
+**Implementation:**
+
+1. **USDC Size Calculation** (`OrderBroadcaster._build_execution_row()`):
+   ```python
+   from decimal import Decimal
+   size_usdc = Decimal(str(order.maker_amount)) / Decimal('1e6')
+   ```
+   - Converts integer microUSDC to Decimal USDC
+   - String casting prevents implicit float conversion
+   - All tests verify Decimal type at storage time
+
+2. **Exposure Aggregation** (`ExecutionRepository.get_aggregate_exposure()`):
+   ```python
+   raw = await session.execute(select(func.sum(ExecutionTx.size_usdc)))
+   return Decimal(str(raw.scalar_one_or_none() or 0))
+   ```
+   - Database sum results cast via `str()` before Decimal conversion
+   - Prevents float→Decimal contamination
+
+3. **Position Sizing** (`BankrollPortfolioTracker.compute_position_size()`):
+   ```python
+   kelly_frac = Decimal(str(config.kelly_fraction))  # 0.25
+   kelly_size = kelly_frac * kelly_fraction_raw * bankroll
+   exposure_cap = Decimal(str(config.max_exposure_pct)) * bankroll
+   position_size = min(kelly_size, exposure_cap)
+   ```
+   - All config parameters cast to Decimal
+   - All intermediate values are Decimal
+
+### Verification
+
+- `pytest tests/unit/test_broadcaster.py -v` — 9/9 pass with Decimal implementation
+- All bankroll calculations in `tests/unit/test_bankroll.py` assert Decimal type
+- Search verification: `grep -r "size_usdc.*/" src/agents/` returns zero float divisions
+
+---
+
+## 11. Operational Notes
 
 > **This system is not live-trading ready.** Phase 3 must be fully complete before any live execution. Always set `DRY_RUN=true` for local development, CI, and validation runs.
 

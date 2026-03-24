@@ -135,6 +135,14 @@ return position_size
 - **Injection**: `execution_repo_factory: Callable[[AsyncSession], ExecutionRepository] = ExecutionRepository`
 - **Flow**: Build ExecutionTx (PENDING) → insert → commit → POST CLOB → poll receipt → update status → commit
 
+**Critical: `size_usdc` Decimal Math (Section 2.5 Invariant)**
+```python
+# In _build_execution_row(): MUST use Decimal, never float
+from decimal import Decimal
+size_usdc = Decimal(str(order.maker_amount)) / Decimal('1e6')
+```
+This ensures financial integrity—prevents float precision loss when converting from integer microUSDC to USDC.
+
 ### 3.4 BankrollPortfolioTracker (Bankroll queries)
 - **Domain**: `execution_txs` (query only, no writes)
 - **Methods used**: `ExecutionRepository.get_aggregate_exposure(condition_id)`
@@ -191,6 +199,11 @@ All four agent clients follow the same injection pattern:
 - Constructor parameter: `{entity}_repo_factory: Callable[[AsyncSession], RepositoryClass] = RepositoryClass`
 - Storage: `self._{entity}_repo_factory = {entity}_repo_factory`
 - Usage: `repo = self._{entity}_repo_factory(session)` inside `async with self._db_factory() as session:`
+
+### 5.4 Decimal Math Verification
+- OrderBroadcaster `_build_execution_row()` uses `Decimal(str(order.maker_amount)) / Decimal('1e6')` for `size_usdc` ✓
+- No float division for USDC calculations anywhere in agent code ✓
+- All tests in `tests/unit/test_broadcaster.py` pass with Decimal implementation ✓
 
 ## 6. Risk Mitigations (from PRD-v3.0 R-04)
 

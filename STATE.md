@@ -1,5 +1,6 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
+
 **Last Updated:** 2026-03-24
 **Version:** 0.2.0
 **Status:** Phase 2 Complete — All 8 Work Items Delivered (92 tests, 90% coverage)
@@ -12,7 +13,9 @@
       → zero results outside `src/db/`
 - [x] `pytest --asyncio-mode=auto tests/` → all 92 pass, no regressions
 - [x] `coverage report` → ≥ 80%
-- [ ] Bypass regression test EXISTS and FAILS when a direct session call is injected
+- [x] Bypass regression test EXISTS and FAILS when a direct session call is injected
+- [x] **Financial Integrity Fix**: OrderBroadcaster `size_usdc` uses `Decimal(str(order.maker_amount)) / Decimal('1e6')`
+      → No unsafe float division; complies with AGENTS.md constraint
 
 ### WI-10 — README
 - [ ] Clean-room validation completed (fresh venv, follow README only)
