@@ -9,7 +9,7 @@ The agent operates as a fully async (`asyncio`) pipeline with four isolated proc
 Current project state:
 - **Version:** 0.2.0 (Phase 2 complete — all 8 work items delivered)
 - **Tests:** 92 automated tests passing
-- **Coverage:** 91% (target: ≥ 80%)
+- **Coverage:** 90% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -81,9 +81,11 @@ alembic upgrade head
 ```
 
 This applies all migrations from `migrations/versions/` (baseline: `0001_initial_schema.py`) and creates the three core tables:
-- `market_snapshots` — point-in-time orderbook captures
-- `agent_decision_logs` — full LLM evaluation audit trail
-- `execution_txs` — on-chain transaction records
+- `market_snapshots` — point-in-time orderbook captures (accessed via `MarketRepository`)
+- `agent_decision_logs` — full LLM evaluation audit trail (accessed via `DecisionRepository`)
+- `execution_txs` — on-chain transaction records (accessed via `ExecutionRepository`)
+
+All runtime persistence is routed through repository classes in `src/db/repositories/`. No agent code accesses the database directly.
 
 Default database: `sqlite+aiosqlite:///./poly_oracle.db` (override via `DATABASE_URL` in `.env`).
 
@@ -209,7 +211,7 @@ pytest tests/unit/test_nonce_manager.py -v
 
 Current baseline:
 - 92 tests
-- 91% coverage (target: ≥ 80%)
+- 90% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 
@@ -317,10 +319,10 @@ graph TB
 
 | Layer | Components | Responsibility |
 |---|---|---|
-| **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots to `market_snapshots` |
+| **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via `MarketRepository` |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
-| **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions to `agent_decision_logs`; route approved trades |
-| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; record in `execution_txs` |
+| **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via `DecisionRepository`; route approved trades |
+| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; persist via `ExecutionRepository` (`insert_execution` + status updates) with explicit commit-before-return boundaries |
 
 ### Safety Filters (Gatekeeper)
 
