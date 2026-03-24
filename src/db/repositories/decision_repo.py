@@ -31,7 +31,7 @@ class DecisionRepository:
         logger.debug(
             "decision_inserted",
             decision_id=decision.id,
-            action=decision.recommended_action.value,
+            action=getattr(decision.recommended_action, "value", decision.recommended_action),
         )
         return decision
 

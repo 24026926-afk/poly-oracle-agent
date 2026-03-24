@@ -13,10 +13,12 @@ import structlog
 from anthropic import AsyncAnthropic
 from pydantic import ValidationError
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from src.core.config import AppConfig
 from src.schemas.llm import LLMEvaluationResponse
-from src.db.engine import get_db_session
 from src.db.models import AgentDecisionLog
+from src.db.repositories.decision_repo import DecisionRepository
 
 logger = structlog.get_logger(__name__)
 
@@ -31,11 +33,13 @@ class ClaudeClient:
         self,
         in_queue: asyncio.Queue[Dict[str, Any]],
         out_queue: asyncio.Queue[Dict[str, Any]],
-        config: AppConfig
+        config: AppConfig,
+        db_session_factory: async_sessionmaker[AsyncSession] | None = None,
     ):
         self.in_queue = in_queue
         self.out_queue = out_queue
         self.config = config
+        self._db_factory = db_session_factory
         self.client = AsyncAnthropic(api_key=self.config.anthropic_api_key.get_secret_value())
         self._running = False
         self.model = "claude-3-5-sonnet-latest"
@@ -174,15 +178,19 @@ class ClaudeClient:
         return None
 
     async def _persist_decision(
-        self, 
-        eval_resp: LLMEvaluationResponse, 
-        raw_text: str, 
-        token_usage: Dict[str, int], 
+        self,
+        eval_resp: LLMEvaluationResponse,
+        raw_text: str,
+        token_usage: Dict[str, int],
         snapshot_id: str
     ) -> None:
         """Persists the full audit trail and Gatekeeper invariants into SQLite."""
+        if self._db_factory is None:
+            logger.error("No db_session_factory configured — cannot persist decision.", snapshot_id=snapshot_id)
+            return
         try:
-            async for session in get_db_session():
+            async with self._db_factory() as session:
+                repo = DecisionRepository(session)
                 decision_log = AgentDecisionLog(
                     snapshot_id=snapshot_id,
                     confidence_score=eval_resp.confidence_score,
@@ -196,8 +204,7 @@ class ClaudeClient:
                     input_tokens=token_usage["input"],
                     output_tokens=token_usage["output"]
                 )
-                session.add(decision_log)
+                await repo.insert_decision(decision_log)
                 await session.commit()
-                break # Ensure we break out of the generator
         except Exception as e:
             logger.error("Failed to persist AgentDecisionLog to database.", error=str(e), snapshot_id=snapshot_id)
