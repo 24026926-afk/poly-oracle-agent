@@ -322,7 +322,7 @@ graph TB
 | **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via `MarketRepository` |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
 | **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via `DecisionRepository`; route approved trades |
-| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; persist via `ExecutionRepository` (`insert_execution` + status updates) with explicit commit-before-return boundaries |
+| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; persist and query via `ExecutionRepository` (`insert_execution`, status updates, `get_aggregate_exposure`) with explicit commit-before-return boundaries |
 
 ### Safety Filters (Gatekeeper)
 

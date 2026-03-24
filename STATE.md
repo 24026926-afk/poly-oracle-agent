@@ -234,8 +234,9 @@ All inter-layer communication is via `asyncio.Queue` instances. Every layer pers
 
 #### `src/agents/execution/bankroll_tracker.py` — `BankrollPortfolioTracker` ✅ NEW (WI-04)
 - Real-time bankroll awareness and position-size enforcement (replaces hardcoded 1000 USDC)
+- Accepts injectable `execution_repo_factory` via constructor (WI-09 step 4) — defaults to `ExecutionRepository`
 - `get_total_bankroll()` — Returns `config.initial_bankroll_usdc` (`Decimal`)
-- `get_exposure(condition_id)` — Queries `ExecutionRepository.get_aggregate_exposure()` (PENDING + CONFIRMED)
+- `get_exposure(condition_id)` — Queries `ExecutionRepository.get_aggregate_exposure()` via injected factory (PENDING + CONFIRMED)
 - `get_available_bankroll(condition_id)` — `total - exposure`, floored at `Decimal("0")`
 - `compute_position_size(kelly_fraction_raw, condition_id)` — Applies Quarter-Kelly (`0.25 × f*`) and 3% exposure cap: `min(kelly_size, 0.03 × bankroll)`
 - `validate_trade(size_usdc, condition_id)` — Raises `ExposureLimitError` if trade exceeds exposure cap or available bankroll
@@ -360,7 +361,7 @@ This module **IS** the Gatekeeper — the risk enforcement layer between LLM out
 - `get_by_decision_id(decision_id) → ExecutionTx | None` — Lookup by FK
 - `update_execution_status(...) → ExecutionTx | None` — Updates tx status/receipt fields (`status`, `tx_hash`, `gas_used`, `block_number`, `error_message`, `confirmed_at`) and flushes
 - `get_aggregate_exposure(condition_id) → Decimal` — Sums `size_usdc` for `PENDING` + `CONFIRMED` rows only; casts to `Decimal` via `str()` to avoid float contamination
-- **Wired into**: `BankrollPortfolioTracker` (Phase 2), `OrderBroadcaster` (WI-09 step 3 ✅)
+- **Wired into**: `BankrollPortfolioTracker` (WI-09 step 4 ✅), `OrderBroadcaster` (WI-09 step 3 ✅)
 
 All repositories take `AsyncSession` via constructor injection. All methods are `async`. `__init__.py` re-exports all three classes.
 
@@ -406,7 +407,7 @@ All repositories take `AsyncSession` via constructor injection. All methods are 
 - Loads `.env` and validates `AppConfig`
 - **Market discovery at startup** via `MarketDiscoveryEngine.discover()` — no hardcoded `condition_id` (WI-03)
 - Instantiates `BankrollPortfolioTracker` and passes it to signer and broadcaster (WI-04)
-- Passes `db_session_factory` to `CLOBWebSocketClient`, `ClaudeClient`, and `OrderBroadcaster` for repository-based persistence (WI-09)
+- Passes `db_session_factory` to `CLOBWebSocketClient`, `ClaudeClient`, `OrderBroadcaster`, and `BankrollPortfolioTracker` for repository-based persistence (WI-09)
 - Instantiates all 4 layers with proper queue wiring:
   - `market_queue`: ws_client → aggregator
   - `prompt_queue`: aggregator → claude_client
