@@ -74,6 +74,9 @@ pytest tests/unit/test_nonce_manager.py -v
 
 New code must not decrease coverage below 80%.
 
+## Update Documentation
+Update: STATE.md and README.md after every task completed.
+
 ---
 
 ## 🗄️ Database Rules

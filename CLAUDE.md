@@ -7,3 +7,5 @@ See docs/prompts/ for implementation prompts P1–P10.
 Current branch: 
 Active phase: Phase 3 — Integration & Operational Readiness
 Next task: Check docs/prompts/ for next pending prompt.
+
+Update: STATE.md and README.md after each task completion.

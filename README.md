@@ -49,6 +49,7 @@ Quick start:
 ```bash
 cp .env.example .env
 # Edit .env and fill in the 4 required secrets above
+# Keep DRY_RUN=true for local development, CI, and validation runs
 ```
 
 ---
@@ -157,7 +158,7 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `LOG_LEVEL` | str | `INFO` | No | Allowed: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `DRY_RUN` | bool | `false` | No | **Must be `true` for local development and CI** |
+| `DRY_RUN` | bool | `false` (AppConfig fallback) | No | **Required value: `true` for local development, CI, and validation runs; only set `false` for controlled post-Phase-3 live operations** |
 
 > **Important:** `DRY_RUN=true` is the required default for local development, CI, and all validation runs. See [Section 11: Operational Notes](#11-operational-notes) for details.
 
