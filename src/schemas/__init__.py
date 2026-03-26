@@ -1,3 +1,3 @@
-from src.schemas.llm import MarketCategory, SentimentResponse
+from src.schemas.llm import MarketCategory, ReflectionResponse, SentimentResponse
 
-__all__ = ["MarketCategory", "SentimentResponse"]
+__all__ = ["MarketCategory", "ReflectionResponse", "SentimentResponse"]

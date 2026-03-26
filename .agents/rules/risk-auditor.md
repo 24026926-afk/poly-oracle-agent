@@ -32,6 +32,7 @@ Invoke me for:
    - exposure ≤ 0.03 × bankroll (MAX_EXPOSURE)
    - hours_to_resolution ≥ 4.0 (MIN_TTR_H)
 7. All math uses Decimal. Never float.
+8. Pydantic dicts used for risk/sizing must include explicit @field_validators that recursively coerce floats to Decimals to prevent silent precision loss on JSON re-serialization.
 
 ## Output Format
 - ✅ CORRECT or ❌ BUG per formula

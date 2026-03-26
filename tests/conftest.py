@@ -243,3 +243,23 @@ def mock_anthropic_hold_json() -> str:
         action="BUY",
         confidence=0.50,  # below 0.75 → gatekeeper overrides to HOLD
     )
+
+
+# ---------------------------------------------------------------------------
+# Mock Reflection Auditor response (integration — WI-13)
+# ---------------------------------------------------------------------------
+
+APPROVED_REFLECTION_JSON: str = json.dumps({
+    "verdict": "APPROVED",
+    "bias_flags": [],
+    "consistency_flags": [],
+    "risk_flags": [],
+    "audit_note": "No issues found.",
+    "latency_ms": 50,
+})
+
+
+@pytest.fixture()
+def mock_reflection_approved_json() -> str:
+    """Canned ReflectionResponse JSON that approves the candidate unchanged."""
+    return APPROVED_REFLECTION_JSON

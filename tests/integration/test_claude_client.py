@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from src.agents.evaluation.claude_client import ClaudeClient
 from src.db.models import AgentDecisionLog, MarketSnapshot
+from tests.conftest import APPROVED_REFLECTION_JSON
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +35,11 @@ def _mock_anthropic_response(raw_json: str):
     resp.content = [content_block]
     resp.usage = usage
     return resp
+
+
+def _approved_reflection():
+    """Return a mock Anthropic response wrapping an APPROVED reflection."""
+    return _mock_anthropic_response(APPROVED_REFLECTION_JSON)
 
 
 def _make_snapshot_row(snapshot_id: str) -> MarketSnapshot:
@@ -64,10 +70,13 @@ async def test_evaluation_approved_trade_reaches_execution_queue(
     out_q: asyncio.Queue = asyncio.Queue()
     client = ClaudeClient(in_queue=in_q, out_queue=out_q, config=test_config)
 
-    # Patch the Anthropic client
+    # Patch the Anthropic client — primary + reflection
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(
-        return_value=_mock_anthropic_response(mock_anthropic_buy_json)
+        side_effect=[
+            _mock_anthropic_response(mock_anthropic_buy_json),
+            _approved_reflection(),
+        ],
     )
 
     # Bypass DB persistence to avoid FK constraints
@@ -104,7 +113,10 @@ async def test_evaluation_rejected_trade_not_enqueued(
 
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(
-        return_value=_mock_anthropic_response(mock_anthropic_hold_json)
+        side_effect=[
+            _mock_anthropic_response(mock_anthropic_hold_json),
+            _approved_reflection(),
+        ],
     )
     client._persist_decision = AsyncMock()
 
@@ -140,7 +152,10 @@ async def test_evaluation_persists_decision_log(
 
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(
-        return_value=_mock_anthropic_response(mock_anthropic_buy_json)
+        side_effect=[
+            _mock_anthropic_response(mock_anthropic_buy_json),
+            _approved_reflection(),
+        ],
     )
 
     # Pre-insert a MarketSnapshot row so the FK is satisfied
@@ -173,20 +188,21 @@ async def test_evaluation_persists_decision_log(
 
 
 @pytest.mark.asyncio
-async def test_evaluation_retries_on_validation_error(
+async def test_evaluation_retries_on_json_parse_error(
     test_config, mock_anthropic_buy_json
 ):
-    """First call returns invalid JSON; retry returns valid JSON → success."""
+    """First call returns unparseable text; retry returns valid JSON → success."""
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
     client = ClaudeClient(in_queue=in_q, out_queue=out_q, config=test_config)
 
-    bad_resp = _mock_anthropic_response('{"invalid": "schema"}')
+    # Bad response: not valid JSON at all (triggers JSONDecodeError in _get_primary_candidate)
+    bad_resp = _mock_anthropic_response("<html>Service unavailable</html>")
     good_resp = _mock_anthropic_response(mock_anthropic_buy_json)
 
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(
-        side_effect=[bad_resp, good_resp]
+        side_effect=[bad_resp, good_resp, _approved_reflection()]
     )
     client._persist_decision = AsyncMock()
 
@@ -206,4 +222,5 @@ async def test_evaluation_retries_on_validation_error(
 
     # Despite the first failure, evaluation succeeds on retry
     assert out_q.qsize() == 1
-    assert client.client.messages.create.call_count == 2
+    # 1 (bad primary) + 1 (good primary retry) + 1 (reflection) = 3
+    assert client.client.messages.create.call_count == 3

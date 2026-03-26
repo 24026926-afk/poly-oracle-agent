@@ -25,6 +25,7 @@ import pytest
 
 from src.agents.evaluation.claude_client import ClaudeClient
 from src.agents.evaluation.grok_client import GrokClient, NEUTRAL_SENTIMENT, _MOCK_SENTIMENT
+from tests.conftest import APPROVED_REFLECTION_JSON
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +116,11 @@ def _general_market_item() -> dict:
 
 
 def _setup_client(test_config, mock_anthropic_buy_json):
-    """Create a ClaudeClient with real GrokClient and mocked Anthropic API."""
+    """Create a ClaudeClient with real GrokClient and mocked Anthropic API.
+
+    Provides side_effect responses for both the primary evaluation call
+    and the WI-13 reflection audit call.
+    """
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
     client = ClaudeClient(in_queue=in_q, out_queue=out_q, config=test_config)
@@ -123,10 +128,13 @@ def _setup_client(test_config, mock_anthropic_buy_json):
     # Verify real GrokClient was instantiated by __init__
     assert isinstance(client._grok_client, GrokClient)
 
-    # Mock only the Anthropic API and DB persistence
+    # Mock Anthropic API — primary eval + approved reflection
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(
-        return_value=_mock_anthropic_response(mock_anthropic_buy_json),
+        side_effect=[
+            _mock_anthropic_response(mock_anthropic_buy_json),
+            _mock_anthropic_response(APPROVED_REFLECTION_JSON),
+        ],
     )
     client._persist_decision = AsyncMock()
 
@@ -151,7 +159,8 @@ async def test_crypto_triggers_grok_sentiment_call(
         spy.assert_called_once()
 
     # Prompt must contain _MOCK_SENTIMENT values (score=0.65, delta=12)
-    call_args = client.client.messages.create.call_args
+    # Use call_args_list[0] to get the primary eval call (not the reflection call)
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
     assert str(_MOCK_SENTIMENT.sentiment_score) in prompt_text
@@ -175,7 +184,7 @@ async def test_politics_triggers_grok_sentiment_call(
         await client._process_evaluation(_politics_market_item())
         spy.assert_called_once()
 
-    call_args = client.client.messages.create.call_args
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
     assert str(_MOCK_SENTIMENT.sentiment_score) in prompt_text
@@ -199,7 +208,7 @@ async def test_sports_skips_grok_sentiment(
         spy.assert_not_called()
 
     # Prompt must contain neutral fallback values
-    call_args = client.client.messages.create.call_args
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
     assert str(NEUTRAL_SENTIMENT.sentiment_score) in prompt_text
@@ -223,7 +232,7 @@ async def test_general_skips_grok_sentiment(
         await client._process_evaluation(_general_market_item())
         spy.assert_not_called()
 
-    call_args = client.client.messages.create.call_args
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
     assert str(NEUTRAL_SENTIMENT.sentiment_score) in prompt_text
@@ -249,8 +258,8 @@ async def test_grok_timeout_falls_back_to_neutral_sentiment(
         patched.assert_called_once()
 
     # Evaluation still completed (Anthropic API was called with neutral fallback)
-    client.client.messages.create.assert_called_once()
-    call_args = client.client.messages.create.call_args
+    assert client.client.messages.create.call_count >= 1
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
     assert "### SENTIMENT ORACLE (LAST 60 MIN)" in prompt_text
@@ -275,8 +284,8 @@ async def test_malformed_grok_json_falls_back_to_neutral(
         await client._process_evaluation(_crypto_market_item())
         patched.assert_called_once()
 
-    client.client.messages.create.assert_called_once()
-    call_args = client.client.messages.create.call_args
+    assert client.client.messages.create.call_count >= 1
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
     assert "### SENTIMENT ORACLE (LAST 60 MIN)" in prompt_text
@@ -297,7 +306,7 @@ async def test_prompt_includes_sentiment_oracle_block(
 
     await client._process_evaluation(_crypto_market_item())
 
-    call_args = client.client.messages.create.call_args
+    call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
 

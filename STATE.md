@@ -2,7 +2,8 @@
 
 **Last Updated:** 2026-03-26
 **Version:** 0.4.0
-**Status:** Phase 4 Active — Cognitive Architecture (WI-11 & WI-12 Complete)
+**Status:** Phase 4 Complete — Cognitive Architecture (WI-11–WI-13 Complete)
+**Next Task:** Phase 5 Preparation (WI-14)
 
 ---
 
@@ -19,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 115 (107 existing + 8 new sentiment chain) |
+| Total tests | 119 |
 | Coverage | 90%+ (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
@@ -47,16 +48,16 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - 8 integration tests (RED→GREEN), 115 total tests pass, zero regression
   - Key files: `src/schemas/llm.py`, `src/agents/evaluation/grok_client.py`, `src/agents/context/prompt_factory.py`, `src/agents/evaluation/claude_client.py`, `src/core/config.py`
 
-- [ ] **WI-13 — Reflection Auditor**
-  - Internal LLM reflection pass after Stage B, before Gatekeeper validation
-  - Challenges draft decision for inconsistencies, overconfidence, unsupported assumptions
-  - Output: revised candidate decision + reflection audit note persisted to `agent_decision_logs`
+- [x] **WI-13 — Reflection Auditor** (completed 2026-03-26)
+  - Mandatory reflection pass after Stage B and before Gatekeeper validation
+  - Enforces conservative HOLD path on bias/contradiction/timeout; ADJUSTED path is single-pass
+  - Reflection artifacts persisted in decision audit log envelope; 119 tests passing
 
 ### Phase 4 Completion Gate
 
 - [x] WI-12 implemented, tests pass (115 passed), no coverage regression ✅
-- [ ] WI-13 implemented, tests pass, no coverage regression
-- [ ] `STATE.md` updated: version `0.4.0`, status `Phase 4 Complete`
+- [x] WI-13 implemented, tests pass (119 passed), no coverage regression
+- [x] `STATE.md` updated: version `0.4.0`, status `Phase 4 Complete`
 - [ ] PRs merged to `develop` ✅, then `develop → main`
 
 ---

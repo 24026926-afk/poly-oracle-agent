@@ -19,6 +19,23 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
+# Decimal safety helpers
+# ---------------------------------------------------------------------------
+
+def _recursive_float_to_decimal(obj: object) -> object:
+    """Recursively traverse a dict/list structure and convert every ``float``
+    to ``Decimal(str(val))`` so that no raw float survives into money-path
+    arithmetic.  Non-float primitives (str, int, bool, None) pass through."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _recursive_float_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_recursive_float_to_decimal(item) for item in obj]
+    return obj
+
+
+# ---------------------------------------------------------------------------
 # Risk Parameter Constants
 # ---------------------------------------------------------------------------
 KELLY_FRACTION: float = 0.25       # Quarter-Kelly multiplier
@@ -53,6 +70,39 @@ class MarketCategory(str, Enum):
     POLITICS = "POLITICS"
     SPORTS = "SPORTS"
     GENERAL = "GENERAL"
+
+class ReflectionVerdict(str, Enum):
+    APPROVED = "APPROVED"
+    ADJUSTED = "ADJUSTED"
+    REJECTED = "REJECTED"
+
+# ---------------------------------------------------------------------------
+# Sub-schema: ReflectionResponse (Stage C — Reflection Auditor output)
+# ---------------------------------------------------------------------------
+class ReflectionResponse(BaseModel):
+    """Validated Stage C reflection audit verdict.
+    This is an upstream quality-control signal only — LLMEvaluationResponse
+    remains the terminal Gatekeeper gate."""
+
+    verdict: ReflectionVerdict
+    bias_flags: list[str] = Field(default_factory=list)
+    consistency_flags: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    audit_note: str
+    correction_instructions: Optional[str] = None
+    corrected_candidate_json: Optional[dict] = None
+    latency_ms: int = Field(default=0, ge=0)
+
+    @field_validator("corrected_candidate_json", mode="before")
+    @classmethod
+    def _sanitize_floats_to_decimal(cls, v: object) -> object:
+        """Convert every float in the corrected candidate to Decimal(str(val))
+        so that no raw float leaks into money-path re-serialization."""
+        if v is None:
+            return v
+        return _recursive_float_to_decimal(v)
+
+    model_config = {"frozen": True}
 
 # ---------------------------------------------------------------------------
 # Sub-schema: SentimentResponse (Stage A — Grok Oracle output)

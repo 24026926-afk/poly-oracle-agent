@@ -9,7 +9,18 @@ from __future__ import annotations
 
 from typing import Dict, Any
 
-from src.schemas.llm import LLMEvaluationResponse, MarketCategory, SentimentResponse
+from src.schemas.llm import (
+    LLMEvaluationResponse,
+    MarketCategory,
+    ReflectionResponse,
+    SentimentResponse,
+    KELLY_FRACTION,
+    MIN_CONFIDENCE,
+    MAX_SPREAD_PCT,
+    MAX_EXPOSURE_PCT,
+    MIN_EV_THRESHOLD,
+    MIN_TTR_HOURS,
+)
 
 _PERSONA_MAP: Dict[MarketCategory, str] = {
     MarketCategory.CRYPTO: (
@@ -103,3 +114,64 @@ JSON Schema for your output:
 {json_schema}
 """
         return prompt
+
+    @staticmethod
+    def build_reflection_prompt(
+        *,
+        market_state: Dict[str, Any],
+        sentiment: SentimentResponse | None,
+        primary_candidate_json: str,
+        snapshot_id: str,
+    ) -> str:
+        """Build the adversarial reflection auditor prompt (Stage C).
+
+        The reflection LLM acts as a ruthless quantitative risk auditor
+        that challenges the primary evaluation for bias, data inconsistency,
+        and risk drift.
+        """
+        sentiment_block = PromptFactory._build_sentiment_block(sentiment)
+        reflection_schema = ReflectionResponse.model_json_schema()
+
+        return f"""You are an adversarial quantitative risk auditor. Your job is to challenge the primary evaluation for bias, data inconsistency, and risk drift. Prefer conservative outcomes under unresolved uncertainty. Return strict JSON only.
+
+### SNAPSHOT
+snapshot_id: {snapshot_id}
+
+### MARKET STATE
+Condition ID: {market_state.get('condition_id', 'Unknown')}
+Best Bid: {market_state.get('best_bid', 0.0)}
+Best Ask: {market_state.get('best_ask', 0.0)}
+Midpoint: {market_state.get('midpoint', 0.0)}
+Spread: {market_state.get('spread', 0.0)}
+Timestamp: {market_state.get('timestamp', 0)}
+
+{sentiment_block}
+### RISK CONSTANTS
+KELLY_FRACTION={KELLY_FRACTION}
+MIN_CONFIDENCE={MIN_CONFIDENCE}
+MAX_SPREAD_PCT={MAX_SPREAD_PCT}
+MAX_EXPOSURE_PCT={MAX_EXPOSURE_PCT}
+MIN_EV_THRESHOLD={MIN_EV_THRESHOLD}
+MIN_TTR_HOURS={MIN_TTR_HOURS}
+
+### PRIMARY CANDIDATE (Stage B output)
+{primary_candidate_json}
+
+### AUDIT QUESTIONS (answer each explicitly)
+1. Bias check: Does reasoning show confirmation bias, recency bias, narrative anchoring, or overconfidence unsupported by evidence?
+2. Data consistency check: Are bid/ask/midpoint/spread relationships coherent with market snapshot values?
+3. Probability/EV consistency: Are p_true, p_market, and EV arithmetic internally consistent?
+4. Risk sanity check: Does proposed sizing align with quarter-Kelly and 3% cap policy?
+5. Gatekeeper pre-check: Would any mandatory safety filter clearly fail (EV threshold, confidence, spread, TTR)?
+6. Decision coherence check: Are decision_boolean, recommended_action, and size logically consistent?
+7. Uncertainty check: If assumptions are unsupported or contradictory, should decision default to HOLD?
+
+### OUTPUT
+Return ONLY a raw JSON object matching this schema (no markdown, no commentary):
+{reflection_schema}
+
+Verdict rules:
+- APPROVED: candidate passes all checks unchanged.
+- ADJUSTED: provide correction_instructions and corrected_candidate_json with fixes.
+- REJECTED: candidate has fatal bias or inconsistency; force HOLD.
+"""
