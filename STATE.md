@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 
-**Last Updated:** 2026-03-24
-**Version:** 0.2.0
-**Status:** Phase 2 Complete — All 8 Work Items Delivered (92 tests, 90% coverage)
+**Last Updated:** 2026-03-26
+**Version:** 0.4.0-draft
+**Status:** Phase 4 Planning
 
 # ⚙️ Phase 3 Evaluation Gate
 **Status:** 🔴 IN PROGRESS — v0.3.0
@@ -45,6 +45,10 @@ Then:  Merge WI-10 → develop → PR
        develop → master
 Then:  STATE.md → v0.3.0, Phase 3 Complete
 
+## Phase 4: Cognitive Architecture
+- [ ] WI-11 — Market Router
+- [ ] WI-12 — Chained Prompt Factory
+- [ ] WI-13 — Reflection Auditor
 
 ---
 
@@ -598,4 +602,4 @@ The system is **not ready for live trading** due to:
 2. **WI-10 validation not complete** — clean-room README command validation is still open
 
 ### Development Phase
-The project is in **Phase 2 (Integration & Operational Readiness)**. Completed WIs: WI-01 (orchestrator fix), WI-02 (repository layer), WI-03 (market discovery), WI-04 (bankroll tracker), WI-05 (dry_run enforcement), WI-06 (httpx migration), WI-07 (Alembic migrations), WI-08 (integration test suite). All four layers now run under 92 tests with 90% coverage, and the integration suite runs deterministically with mocked services and no external network access. Remaining operational work focuses on final WI-09 regression gate closure and WI-10 validation before live trading.
+The project is in **Phase 4: Cognitive Architecture**. Completed WIs: WI-01 (orchestrator fix), WI-02 (repository layer), WI-03 (market discovery), WI-04 (bankroll tracker), WI-05 (dry_run enforcement), WI-06 (httpx migration), WI-07 (Alembic migrations), WI-08 (integration test suite). All four layers now run under 92 tests with 90% coverage, and the integration suite runs deterministically with mocked services and no external network access. Remaining operational work focuses on final WI-09 regression gate closure and WI-10 validation before live trading.

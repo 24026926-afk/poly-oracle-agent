@@ -7,7 +7,8 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.2.0 (Phase 2 complete — all 8 work items delivered)
+- **Version:** 0.4.0-draft
+- **Status:** Phase 4 Planning (Cognitive Architecture)
 - **Tests:** 92 automated tests passing
 - **Coverage:** 90% (target: ≥ 80%)
 
