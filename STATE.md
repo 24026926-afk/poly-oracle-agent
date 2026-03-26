@@ -46,7 +46,7 @@ Then:  Merge WI-10 → develop → PR
 Then:  STATE.md → v0.3.0, Phase 3 Complete
 
 ## Phase 4: Cognitive Architecture
-- [ ] WI-11 — Market Router
+- [x] WI-11 — Market Router (completed 2026-03-26)
 - [ ] WI-12 — Chained Prompt Factory
 - [ ] WI-13 — Reflection Auditor
 
