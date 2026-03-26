@@ -17,12 +17,18 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
-from src.schemas.llm import LLMEvaluationResponse, MarketCategory
+from src.schemas.llm import LLMEvaluationResponse, MarketCategory, SentimentResponse
 from src.agents.context.prompt_factory import PromptFactory
+from src.agents.evaluation.grok_client import GrokClient, NEUTRAL_SENTIMENT
 from src.db.models import AgentDecisionLog
 from src.db.repositories.decision_repo import DecisionRepository
 
 logger = structlog.get_logger(__name__)
+
+_GROK_ELIGIBLE: frozenset[MarketCategory] = frozenset({
+    MarketCategory.CRYPTO,
+    MarketCategory.POLITICS,
+})
 
 _ROUTING_TABLE: Dict[MarketCategory, list[str]] = {
     MarketCategory.CRYPTO: [
@@ -63,6 +69,12 @@ class ClaudeClient:
         self._db_factory = db_session_factory
         self._decision_repo_factory = decision_repo_factory
         self.client = AsyncAnthropic(api_key=self.config.anthropic_api_key.get_secret_value())
+        self._grok_client = GrokClient(
+            api_key=self.config.grok_api_key,
+            base_url=self.config.grok_base_url,
+            model=self.config.grok_model,
+            mocked=self.config.grok_mocked,
+        )
         self._running = False
         self.model = "claude-3-5-sonnet-latest"
         
@@ -108,13 +120,89 @@ class ClaudeClient:
                 return category
         return MarketCategory.GENERAL
 
+    def _log_sentiment(
+        self,
+        *,
+        status: str,
+        reason: str,
+        sentiment: SentimentResponse,
+        snapshot_id: str,
+    ) -> None:
+        """Emit a normalized sentiment audit log entry."""
+        logger.info(
+            "grok_sentiment",
+            status=status,
+            reason=reason,
+            sentiment_score=str(sentiment.sentiment_score),
+            tweet_volume_delta=sentiment.tweet_volume_delta,
+            top_narrative_summary=sentiment.top_narrative_summary,
+            snapshot_id=snapshot_id,
+        )
+
+    async def _fetch_sentiment(
+        self,
+        category: MarketCategory,
+        market_state: Dict[str, Any],
+        snapshot_id: str,
+    ) -> SentimentResponse:
+        """Stage A: fetch sentiment from Grok for eligible categories.
+
+        - CRYPTO / POLITICS -> call GrokClient (timeout handled internally).
+        - SPORTS / GENERAL -> neutral fallback immediately (skip Grok).
+        - Any failure -> neutral fallback; never stalls the pipeline.
+        """
+        if category not in _GROK_ELIGIBLE:
+            self._log_sentiment(
+                status="SKIPPED",
+                reason="SKIPPED_CATEGORY",
+                sentiment=NEUTRAL_SENTIMENT,
+                snapshot_id=snapshot_id,
+            )
+            return NEUTRAL_SENTIMENT
+
+        try:
+            sentiment = await self._grok_client.analyze_sentiment(
+                condition_id=market_state.get("condition_id", ""),
+                market_title=market_state.get("title", ""),
+                market_category=category,
+                reference_timestamp_utc=str(market_state.get("timestamp", "")),
+                tags=market_state.get("tags"),
+            )
+            self._log_sentiment(
+                status="SUCCESS",
+                reason="RECEIVED",
+                sentiment=sentiment,
+                snapshot_id=snapshot_id,
+            )
+            return sentiment
+
+        except asyncio.TimeoutError:
+            self._log_sentiment(
+                status="ERROR",
+                reason="TIMEOUT",
+                sentiment=NEUTRAL_SENTIMENT,
+                snapshot_id=snapshot_id,
+            )
+            return NEUTRAL_SENTIMENT
+
+        except Exception as exc:
+            reason = "SCHEMA_ERROR" if "validat" in str(exc).lower() else "HTTP_ERROR"
+            self._log_sentiment(
+                status="ERROR",
+                reason=reason,
+                sentiment=NEUTRAL_SENTIMENT,
+                snapshot_id=snapshot_id,
+            )
+            return NEUTRAL_SENTIMENT
+
     async def _process_evaluation(self, item: Dict[str, Any]) -> None:
         market_state = item.get("state", item)
         snapshot_id = item.get("snapshot_id", "local_test_no_id")
 
         category = await self._route_market(market_state)
+        sentiment = await self._fetch_sentiment(category, market_state, snapshot_id)
         prompt = PromptFactory.build_evaluation_prompt(
-            market_state=market_state, category=category,
+            market_state=market_state, category=category, sentiment=sentiment,
         )
 
         result = await self._evaluate_with_retries(prompt, snapshot_id)

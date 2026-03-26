@@ -105,6 +105,24 @@ class AppConfig(BaseSettings):
         description="Async database connection string",
     )
 
+    # --- Grok Sentiment Oracle (WI-12) ---
+    grok_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="API key for Grok sentiment oracle",
+    )
+    grok_base_url: str = Field(
+        default="https://api.x.ai/v1",
+        description="Grok API base URL",
+    )
+    grok_model: str = Field(
+        default="grok-3",
+        description="Grok model identifier",
+    )
+    grok_mocked: bool = Field(
+        default=True,
+        description="Use deterministic mock sentiment responses (set False for live API)",
+    )
+
     # --- Operational ---
     log_level: str = Field(
         default="INFO", description="Logging level: DEBUG, INFO, WARNING, ERROR"

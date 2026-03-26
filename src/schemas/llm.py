@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Optional
 
@@ -52,6 +53,25 @@ class MarketCategory(str, Enum):
     POLITICS = "POLITICS"
     SPORTS = "SPORTS"
     GENERAL = "GENERAL"
+
+# ---------------------------------------------------------------------------
+# Sub-schema: SentimentResponse (Stage A — Grok Oracle output)
+# ---------------------------------------------------------------------------
+class SentimentResponse(BaseModel):
+    """Validated Stage A sentiment artifact from the Grok Sentiment Oracle.
+    This is an upstream cognitive signal only — it does NOT replace or modify
+    the Gatekeeper (LLMEvaluationResponse) terminal validation gate."""
+
+    sentiment_score: Decimal = Field(ge=Decimal("-1.0"), le=Decimal("1.0"))
+    tweet_volume_delta: int = Field(ge=-10000, le=10000)
+    top_narrative_summary: str = Field(min_length=10, max_length=320)
+
+    @field_validator("sentiment_score", mode="before")
+    @classmethod
+    def _parse_decimal(cls, v: object) -> Decimal:
+        return Decimal(str(v))
+
+    model_config = {"frozen": True}
 
 # ---------------------------------------------------------------------------
 # Sub-schema: MarketContext
