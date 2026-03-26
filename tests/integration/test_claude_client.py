@@ -73,7 +73,18 @@ async def test_evaluation_approved_trade_reaches_execution_queue(
     # Bypass DB persistence to avoid FK constraints
     client._persist_decision = AsyncMock()
 
-    item = {"prompt": "Evaluate this market", "snapshot_id": "snap-buy-001"}
+    item = {
+        "snapshot_id": "snap-buy-001",
+        "prompt": "Evaluate this market",
+        "state": {
+            "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
+            "best_bid": 0.45,
+            "best_ask": 0.455,
+            "midpoint": 0.4525,
+            "spread": 0.005,
+            "timestamp": 1700000000,
+        },
+    }
     await client._process_evaluation(item)
 
     assert out_q.qsize() == 1
@@ -97,7 +108,18 @@ async def test_evaluation_rejected_trade_not_enqueued(
     )
     client._persist_decision = AsyncMock()
 
-    item = {"prompt": "Evaluate this market", "snapshot_id": "snap-hold-001"}
+    item = {
+        "snapshot_id": "snap-hold-001",
+        "prompt": "Evaluate this market",
+        "state": {
+            "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
+            "best_bid": 0.45,
+            "best_ask": 0.455,
+            "midpoint": 0.4525,
+            "spread": 0.005,
+            "timestamp": 1700000000,
+        },
+    }
     await client._process_evaluation(item)
 
     # Gatekeeper overrides low confidence to HOLD → not enqueued
@@ -127,7 +149,18 @@ async def test_evaluation_persists_decision_log(
         session.add(_make_snapshot_row(snapshot_id))
         await session.commit()
 
-    item = {"prompt": "Evaluate this market", "snapshot_id": snapshot_id}
+    item = {
+        "snapshot_id": snapshot_id,
+        "prompt": "Evaluate this market",
+        "state": {
+            "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
+            "best_bid": 0.45,
+            "best_ask": 0.455,
+            "midpoint": 0.4525,
+            "spread": 0.005,
+            "timestamp": 1700000000,
+        },
+    }
     await client._process_evaluation(item)
 
     # Verify decision log row
@@ -157,7 +190,18 @@ async def test_evaluation_retries_on_validation_error(
     )
     client._persist_decision = AsyncMock()
 
-    item = {"prompt": "Evaluate this market", "snapshot_id": "snap-retry-001"}
+    item = {
+        "snapshot_id": "snap-retry-001",
+        "prompt": "Evaluate this market",
+        "state": {
+            "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
+            "best_bid": 0.45,
+            "best_ask": 0.455,
+            "midpoint": 0.4525,
+            "spread": 0.005,
+            "timestamp": 1700000000,
+        },
+    }
     await client._process_evaluation(item)
 
     # Despite the first failure, evaluation succeeds on retry

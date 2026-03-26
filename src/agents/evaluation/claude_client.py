@@ -17,11 +17,28 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
-from src.schemas.llm import LLMEvaluationResponse
+from src.schemas.llm import LLMEvaluationResponse, MarketCategory
+from src.agents.context.prompt_factory import PromptFactory
 from src.db.models import AgentDecisionLog
 from src.db.repositories.decision_repo import DecisionRepository
 
 logger = structlog.get_logger(__name__)
+
+_ROUTING_TABLE: Dict[MarketCategory, list[str]] = {
+    MarketCategory.CRYPTO: [
+        "btc", "bitcoin", "eth", "ethereum", "crypto", "token",
+        "defi", "blockchain", "sol", "solana",
+    ],
+    MarketCategory.POLITICS: [
+        "election", "president", "senate", "congress", "vote",
+        "candidate", "party", "referendum", "governor", "minister",
+    ],
+    MarketCategory.SPORTS: [
+        "nfl", "nba", "mlb", "nhl", "soccer", "football",
+        "basketball", "baseball", "tennis", "ufc", "match",
+        "game", "tournament",
+    ],
+}
 
 class ClaudeClient:
     """
@@ -79,13 +96,26 @@ class ClaudeClient:
             finally:
                 self.in_queue.task_done()
 
+    async def _route_market(self, item: Dict[str, Any]) -> MarketCategory:
+        """Layer 0: classify market into a domain category via keyword matching."""
+        condition_id = item.get("condition_id", "")
+        title = item.get("title", "")
+        tags = " ".join(item.get("tags", []))
+        text = f"{condition_id} {title} {tags}".lower()
+
+        for category in [MarketCategory.CRYPTO, MarketCategory.POLITICS, MarketCategory.SPORTS]:
+            if any(kw in text for kw in _ROUTING_TABLE[category]):
+                return category
+        return MarketCategory.GENERAL
+
     async def _process_evaluation(self, item: Dict[str, Any]) -> None:
-        prompt = item.get("prompt")
+        market_state = item.get("state", item)
         snapshot_id = item.get("snapshot_id", "local_test_no_id")
-        
-        if not prompt:
-            logger.warning("Empty prompt received. Skipping.")
-            return
+
+        category = await self._route_market(market_state)
+        prompt = PromptFactory.build_evaluation_prompt(
+            market_state=market_state, category=category,
+        )
 
         result = await self._evaluate_with_retries(prompt, snapshot_id)
         if not result:
@@ -101,6 +131,7 @@ class ClaudeClient:
         logger.info(
             "Evaluation complete (Gatekeeper Enforced)",
             snapshot_id=snapshot_id,
+            market_category=category.value,
             action=eval_resp.recommended_action.value,
             expected_value=eval_resp.expected_value,
             position_size_pct=eval_resp.position_size_pct,

@@ -47,6 +47,12 @@ class GatekeeperFilter(str, Enum):
     MIN_EV_THRESHOLD = "MIN_EV_THRESHOLD"
     MIN_TIME_TO_RESOLUTION = "MIN_TIME_TO_RESOLUTION"
 
+class MarketCategory(str, Enum):
+    CRYPTO = "CRYPTO"
+    POLITICS = "POLITICS"
+    SPORTS = "SPORTS"
+    GENERAL = "GENERAL"
+
 # ---------------------------------------------------------------------------
 # Sub-schema: MarketContext
 # ---------------------------------------------------------------------------

@@ -6,7 +6,25 @@ into a strict Chain-of-Thought architecture.
 """
 
 from typing import Dict, Any
-from src.schemas.llm import LLMEvaluationResponse
+from src.schemas.llm import LLMEvaluationResponse, MarketCategory
+
+_PERSONA_MAP: Dict[MarketCategory, str] = {
+    MarketCategory.CRYPTO: (
+        "You are a senior on-chain analyst and crypto derivatives trader with deep expertise "
+        "in blockchain fundamentals, tokenomics, and macro crypto market cycles."
+    ),
+    MarketCategory.POLITICS: (
+        "You are a political risk analyst with expertise in electoral forecasting, "
+        "geopolitical event modelling, and prediction market calibration."
+    ),
+    MarketCategory.SPORTS: (
+        "You are a quantitative sports analyst specialising in statistical modelling, "
+        "real-time line movement analysis, and injury-impact assessment."
+    ),
+    MarketCategory.GENERAL: (
+        "You are an elite Staff Quantitative Developer at a top proprietary trading firm."
+    ),
+}
 
 class PromptFactory:
     """
@@ -16,22 +34,25 @@ class PromptFactory:
     """
 
     @staticmethod
-    def build_evaluation_prompt(market_state: Dict[str, Any]) -> str:
+    def build_evaluation_prompt(
+        market_state: Dict[str, Any],
+        category: MarketCategory = MarketCategory.GENERAL,
+    ) -> str:
         """
         Constructs the Chain-of-Thought evaluation prompt.
-        
+
         Args:
             market_state: Dictionary containing condition_id, best_bid, best_ask,
                           midpoint, spread, and timestamp.
-                          
+            category: Market domain category for persona selection.
+
         Returns:
             The complete formatted prompt string to send to the LLM.
         """
-        # We extract the JSON schema representation from our Pydantic model
-        # to guarantee the LLM knows the exact required properties and types.
         json_schema = LLMEvaluationResponse.model_json_schema()
-        
-        prompt = f"""You are an elite Staff Quantitative Developer at a top proprietary trading firm. 
+        persona = _PERSONA_MAP[category]
+
+        prompt = f"""{persona}
 Your objective is to evaluate a live binary options market on Polymarket and determine if there is a positive Expected Value (EV) trading opportunity.
 
 ### LIVE MARKET DATA SNAPSHOT
