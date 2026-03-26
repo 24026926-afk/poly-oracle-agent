@@ -76,3 +76,8 @@ List any gaps before I approve the commit."
 5. `feat(repo): inject all three repositories in orchestrator.py`
 6. `feat(repo): complete repository pattern wiring across runtime`
 Final PR title: `feat(db): wire repository pattern across all agent modules`
+
+## Exception Protocol
+- Test failure after edit → Codex Chat Panel: "Diagnose why test X failed, propose fix"
+- Coverage drop below 80% → Revert commit, re-enter Plan Mode with constraint added
+- Risk R-04 triggered → Escalate to Grok for logic re-spec before retry

@@ -7,9 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.2.0 (Phase 2 complete — all 8 work items delivered)
+- **Version:** 0.4.0-draft
+- **Status:** Phase 4 Planning (Cognitive Architecture)
 - **Tests:** 92 automated tests passing
-- **Coverage:** 91% (target: ≥ 80%)
+- **Coverage:** 90% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -49,6 +50,7 @@ Quick start:
 ```bash
 cp .env.example .env
 # Edit .env and fill in the 4 required secrets above
+# Keep DRY_RUN=true for local development, CI, and validation runs
 ```
 
 ---
@@ -81,9 +83,11 @@ alembic upgrade head
 ```
 
 This applies all migrations from `migrations/versions/` (baseline: `0001_initial_schema.py`) and creates the three core tables:
-- `market_snapshots` — point-in-time orderbook captures
-- `agent_decision_logs` — full LLM evaluation audit trail
-- `execution_txs` — on-chain transaction records
+- `market_snapshots` — point-in-time orderbook captures (accessed via `MarketRepository`)
+- `agent_decision_logs` — full LLM evaluation audit trail (accessed via `DecisionRepository`)
+- `execution_txs` — on-chain transaction records (accessed via `ExecutionRepository`)
+
+All runtime persistence is routed through repository classes in `src/db/repositories/`. No agent code accesses the database directly.
 
 Default database: `sqlite+aiosqlite:///./poly_oracle.db` (override via `DATABASE_URL` in `.env`).
 
@@ -155,9 +159,9 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `LOG_LEVEL` | str | `INFO` | No | Allowed: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `DRY_RUN` | bool | `false` | No | **Must be `true` for local development and CI** |
+| `DRY_RUN` | bool | `false` (AppConfig fallback) | No | **Required value: `true` for local development, CI, and validation runs; only set `false` for controlled post-Phase-3 live operations** |
 
-> **Important:** `DRY_RUN=true` is the required default for local development, CI, and all validation runs. See [Section 10: Operational Notes](#10-operational-notes) for details.
+> **Important:** `DRY_RUN=true` is the required default for local development, CI, and all validation runs. See [Section 11: Operational Notes](#11-operational-notes) for details.
 
 ---
 
@@ -209,7 +213,7 @@ pytest tests/unit/test_nonce_manager.py -v
 
 Current baseline:
 - 92 tests
-- 91% coverage (target: ≥ 80%)
+- 90% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 
@@ -317,10 +321,10 @@ graph TB
 
 | Layer | Components | Responsibility |
 |---|---|---|
-| **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots to `market_snapshots` |
+| **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via injectable `MarketRepository` factory |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
-| **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions to `agent_decision_logs`; route approved trades |
-| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; record in `execution_txs` |
+| **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via injectable `DecisionRepository` factory; route approved trades |
+| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; persist and query via `ExecutionRepository` (`insert_execution`, status updates, `get_aggregate_exposure`) with explicit commit-before-return boundaries |
 
 ### Safety Filters (Gatekeeper)
 
@@ -338,7 +342,52 @@ Position sizing: `min(quarter_kelly × bankroll, 0.03 × bankroll)` where quarte
 
 ---
 
-## 10. Operational Notes
+## 10. Financial Integrity & Numeric Safety
+
+**Critical Constraint:** All USDC and price calculations use Python's `Decimal` type to prevent floating-point precision loss.
+
+### No Float Arithmetic for Financial Calculations
+
+**Why?** IEEE 754 floating-point arithmetic introduces cumulative rounding errors in financial calculations. A single unsafe division like `order_amount / 1_000_000` can introduce precision loss that cascades into exposure miscalculations and bankroll tracking errors.
+
+**Implementation:**
+
+1. **USDC Size Calculation** (`OrderBroadcaster._build_execution_row()`):
+   ```python
+   from decimal import Decimal
+   size_usdc = Decimal(str(order.maker_amount)) / Decimal('1e6')
+   ```
+   - Converts integer microUSDC to Decimal USDC
+   - String casting prevents implicit float conversion
+   - All tests verify Decimal type at storage time
+
+2. **Exposure Aggregation** (`ExecutionRepository.get_aggregate_exposure()`):
+   ```python
+   raw = await session.execute(select(func.sum(ExecutionTx.size_usdc)))
+   return Decimal(str(raw.scalar_one_or_none() or 0))
+   ```
+   - Database sum results cast via `str()` before Decimal conversion
+   - Prevents float→Decimal contamination
+
+3. **Position Sizing** (`BankrollPortfolioTracker.compute_position_size()`):
+   ```python
+   kelly_frac = Decimal(str(config.kelly_fraction))  # 0.25
+   kelly_size = kelly_frac * kelly_fraction_raw * bankroll
+   exposure_cap = Decimal(str(config.max_exposure_pct)) * bankroll
+   position_size = min(kelly_size, exposure_cap)
+   ```
+   - All config parameters cast to Decimal
+   - All intermediate values are Decimal
+
+### Verification
+
+- `pytest tests/unit/test_broadcaster.py -v` — 9/9 pass with Decimal implementation
+- All bankroll calculations in `tests/unit/test_bankroll.py` assert Decimal type
+- Search verification: `grep -r "size_usdc.*/" src/agents/` returns zero float divisions
+
+---
+
+## 11. Operational Notes
 
 > **This system is not live-trading ready.** Phase 3 must be fully complete before any live execution. Always set `DRY_RUN=true` for local development, CI, and validation runs.
 

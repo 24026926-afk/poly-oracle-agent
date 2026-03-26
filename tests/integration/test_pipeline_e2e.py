@@ -10,11 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.context.aggregator import DataAggregator
 from src.agents.evaluation.claude_client import ClaudeClient
@@ -127,24 +126,16 @@ async def test_full_pipeline_dry_run_proof(
         in_queue=prompt_queue,
         out_queue=execution_queue,
         config=test_config,
+        db_session_factory=db_session_factory,
     )
     claude.client = MagicMock()
     claude.client.messages.create = AsyncMock(
         return_value=_mock_anthropic_response(mock_anthropic_buy_json)
     )
 
-    # Patch DB persistence to use test DB with the snapshot row as FK target
-    async def _test_db_session():
-        async with db_session_factory() as session:
-            yield session
-
-    with patch(
-        "src.agents.evaluation.claude_client.get_db_session",
-        _test_db_session,
-    ):
-        # Use the snapshot_id from ingestion for FK linkage
-        prompt_item["snapshot_id"] = snapshot_id
-        await claude._process_evaluation(prompt_item)
+    # Use the snapshot_id from ingestion for FK linkage
+    prompt_item["snapshot_id"] = snapshot_id
+    await claude._process_evaluation(prompt_item)
 
     assert execution_queue.qsize() == 1
     exec_item = execution_queue.get_nowait()
@@ -244,24 +235,19 @@ async def test_persistence_all_three_tables(
     # -- Evaluation: persist a decision log --
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
-    claude = ClaudeClient(in_queue=in_q, out_queue=out_q, config=test_config)
+    claude = ClaudeClient(
+        in_queue=in_q, out_queue=out_q, config=test_config,
+        db_session_factory=db_session_factory,
+    )
     claude.client = MagicMock()
     claude.client.messages.create = AsyncMock(
         return_value=_mock_anthropic_response(mock_anthropic_buy_json)
     )
 
-    async def _test_db_session():
-        async with db_session_factory() as session:
-            yield session
-
-    with patch(
-        "src.agents.evaluation.claude_client.get_db_session",
-        _test_db_session,
-    ):
-        await claude._process_evaluation({
-            "prompt": "Evaluate this market",
-            "snapshot_id": snapshot_id,
-        })
+    await claude._process_evaluation({
+        "prompt": "Evaluate this market",
+        "snapshot_id": snapshot_id,
+    })
 
     # -- Verify all three tables --
     async with db_session_factory() as session:

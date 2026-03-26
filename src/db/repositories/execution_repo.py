@@ -6,6 +6,7 @@ Async repository for ExecutionTx persistence.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -45,6 +46,38 @@ class ExecutionRepository:
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def update_execution_status(
+        self,
+        decision_id: str,
+        *,
+        status: TxStatus,
+        tx_hash: str | None = None,
+        gas_used: int | None = None,
+        block_number: int | None = None,
+        error_message: str | None = None,
+        confirmed_at: datetime | None = None,
+    ) -> ExecutionTx | None:
+        """Update status/receipt fields for a decision-linked execution row."""
+        execution = await self.get_by_decision_id(decision_id)
+        if execution is None:
+            return None
+
+        execution.status = status
+        execution.tx_hash = tx_hash
+        execution.gas_used = gas_used
+        execution.block_number = block_number
+        execution.error_message = error_message
+        execution.confirmed_at = confirmed_at
+
+        await self._session.flush()
+        logger.debug(
+            "execution_updated",
+            execution_id=execution.id,
+            decision_id=decision_id,
+            status=status.value,
+        )
+        return execution
 
     async def get_aggregate_exposure(self, condition_id: str) -> Decimal:
         """Sum size_usdc for PENDING + CONFIRMED executions on a market.

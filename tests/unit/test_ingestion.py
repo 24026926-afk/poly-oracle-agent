@@ -36,6 +36,7 @@ def _book_frame(**overrides: object) -> str:
 def _mock_db_factory() -> MagicMock:
     session = MagicMock()
     session.add = MagicMock()
+    session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)

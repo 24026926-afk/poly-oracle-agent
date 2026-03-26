@@ -15,6 +15,7 @@ Risk-auditor compliance:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 import structlog
@@ -38,9 +39,13 @@ class BankrollPortfolioTracker:
         self,
         config: AppConfig,
         db_session_factory: async_sessionmaker[AsyncSession],
+        execution_repo_factory: Callable[
+            [AsyncSession], ExecutionRepository
+        ] = ExecutionRepository,
     ) -> None:
         self._config = config
         self._db_factory = db_session_factory
+        self._execution_repo_factory = execution_repo_factory
 
     # ------------------------------------------------------------------
     # Bankroll queries
@@ -53,7 +58,7 @@ class BankrollPortfolioTracker:
     async def get_exposure(self, condition_id: str) -> Decimal:
         """Sum of PENDING + CONFIRMED execution sizes for *condition_id*."""
         async with self._db_factory() as session:
-            repo = ExecutionRepository(session)
+            repo = self._execution_repo_factory(session)
             exposure = await repo.get_aggregate_exposure(condition_id)
         logger.debug(
             "bankroll.exposure_queried",

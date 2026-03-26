@@ -14,7 +14,9 @@ Depends on the completed execution modules:
 """
 
 import asyncio
+from collections.abc import Callable
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import aiohttp
 import structlog
@@ -26,6 +28,7 @@ from src.agents.execution.nonce_manager import NonceManager
 from src.core.config import AppConfig
 from src.core.exceptions import BroadcastError
 from src.db.models import ExecutionTx, TxStatus
+from src.db.repositories.execution_repo import ExecutionRepository
 from src.schemas.web3 import GasPrice, SignedOrder, TxReceiptSchema
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +50,9 @@ class OrderBroadcaster:
         http_session: aiohttp.ClientSession,
         db_session_factory: async_sessionmaker[AsyncSession],
         clob_rest_url: str,
+        execution_repo_factory: Callable[
+            [AsyncSession], ExecutionRepository
+        ] = ExecutionRepository,
         config: AppConfig | None = None,
         bankroll_tracker: "BankrollPortfolioTracker | None" = None,
         poll_max_attempts: int = 30,
@@ -58,6 +64,7 @@ class OrderBroadcaster:
         self._http = http_session
         self._db_factory = db_session_factory
         self._clob_url = clob_rest_url.rstrip("/")
+        self._execution_repo_factory = execution_repo_factory
         self._config = config
         self._bankroll_tracker = bankroll_tracker
         self._poll_max_attempts = poll_max_attempts
@@ -91,10 +98,33 @@ class OrderBroadcaster:
         gas: GasPrice = await self._gas_estimator.estimate()
         nonce: int = await self._nonce_manager.get_next_nonce()
 
-        order_id = await self._submit_to_clob(signed_order, nonce, gas)
+        await self._insert_pending_execution(
+            decision_id=decision_id,
+            signed_order=signed_order,
+            nonce=nonce,
+            gas=gas,
+        )
+
+        try:
+            order_id = await self._submit_to_clob(signed_order, nonce, gas)
+        except BroadcastError as exc:
+            await self._update_execution_status(
+                decision_id=decision_id,
+                status=TxStatus.FAILED,
+                error_message=str(exc),
+            )
+            raise
+
+        await self._update_execution_status(
+            decision_id=decision_id,
+            status=TxStatus.PENDING,
+            tx_hash=order_id,
+            error_message=None,
+        )
 
         receipt = await self._poll_receipt_safe(
-            order_id, decision_id, signed_order, nonce, gas,
+            order_id,
+            decision_id,
         )
         return receipt
 
@@ -202,79 +232,114 @@ class OrderBroadcaster:
         self,
         order_id: str,
         decision_id: str,
-        signed_order: SignedOrder,
-        nonce: int,
-        gas: GasPrice,
     ) -> TxReceiptSchema:
         """Wrap _poll_receipt so we always persist an ExecutionTx row."""
-        order = signed_order.order
         try:
             receipt = await self._poll_receipt(
                 order_id,
                 max_attempts=self._poll_max_attempts,
                 delay_s=self._poll_delay_s,
             )
-            await self._persist_tx(
-                decision_id=decision_id,
-                signed_order=signed_order,
-                nonce=nonce,
-                gas=gas,
-                tx_hash=receipt.tx_hash,
-                status=TxStatus.CONFIRMED if receipt.status == "CONFIRMED" else TxStatus.REVERTED,
-                gas_used=receipt.gas_used,
-                block_number=receipt.block_number,
-            )
-            return receipt
         except BroadcastError:
             # Timeout — persist as PENDING, then re-raise.
-            await self._persist_tx(
+            await self._update_execution_status(
                 decision_id=decision_id,
-                signed_order=signed_order,
-                nonce=nonce,
-                gas=gas,
-                tx_hash=None,
                 status=TxStatus.PENDING,
-                gas_used=None,
-                block_number=None,
+                tx_hash=order_id,
                 error_message="Receipt polling timed out",
             )
             raise
+        await self._update_execution_status(
+            decision_id=decision_id,
+            status=(
+                TxStatus.CONFIRMED
+                if receipt.status == "CONFIRMED"
+                else TxStatus.REVERTED
+            ),
+            tx_hash=receipt.tx_hash,
+            gas_used=receipt.gas_used,
+            block_number=receipt.block_number,
+            error_message=None,
+            confirmed_at=(
+                datetime.now(timezone.utc)
+                if receipt.status == "CONFIRMED"
+                else None
+            ),
+        )
+        return receipt
 
     # ------------------------------------------------------------------
     # DB persistence
     # ------------------------------------------------------------------
 
-    async def _persist_tx(
+    async def _insert_pending_execution(
         self,
         decision_id: str,
         signed_order: SignedOrder,
         nonce: int,
         gas: GasPrice,
-        tx_hash: str | None,
-        status: TxStatus,
-        gas_used: int | None,
-        block_number: int | None,
-        error_message: str | None = None,
     ) -> None:
-        order = signed_order.order
-        row = ExecutionTx(
+        row = self._build_execution_row(
             decision_id=decision_id,
-            tx_hash=tx_hash,
-            status=status,
+            signed_order=signed_order,
+            nonce=nonce,
+            gas=gas,
+        )
+
+        async with self._db_factory() as session:
+            repo = self._execution_repo_factory(session)
+            await repo.insert_execution(row)
+            await session.commit()
+
+    async def _update_execution_status(
+        self,
+        decision_id: str,
+        status: TxStatus,
+        tx_hash: str | None = None,
+        gas_used: int | None = None,
+        block_number: int | None = None,
+        error_message: str | None = None,
+        confirmed_at: datetime | None = None,
+    ) -> None:
+        async with self._db_factory() as session:
+            repo = self._execution_repo_factory(session)
+            updated = await repo.update_execution_status(
+                decision_id=decision_id,
+                status=status,
+                tx_hash=tx_hash,
+                gas_used=gas_used,
+                block_number=block_number,
+                error_message=error_message,
+                confirmed_at=confirmed_at,
+            )
+            if updated is None:
+                raise BroadcastError(
+                    f"Missing execution row for decision_id={decision_id}"
+                )
+            await session.commit()
+
+    def _build_execution_row(
+        self,
+        decision_id: str,
+        signed_order: SignedOrder,
+        nonce: int,
+        gas: GasPrice,
+    ) -> ExecutionTx:
+        order = signed_order.order
+        return ExecutionTx(
+            decision_id=decision_id,
+            tx_hash=None,
+            status=TxStatus.PENDING,
             side="BUY" if order.side.value == 0 else "SELL",
-            size_usdc=order.maker_amount / 1_000_000,
+            size_usdc=Decimal(str(order.maker_amount)) / Decimal('1e6'),
             limit_price=0.0,  # CLOB manages price matching
             condition_id=str(order.token_id),
             outcome_token="YES",
             gas_limit=None,
             gas_price_gwei=gas.max_fee_per_gas_gwei,
-            gas_used=gas_used,
+            gas_used=None,
             nonce=nonce,
-            block_number=block_number,
-            error_message=error_message,
-            confirmed_at=datetime.now(timezone.utc) if status == TxStatus.CONFIRMED else None,
+            block_number=None,
+            error_message=None,
+            confirmed_at=None,
         )
-
-        async with self._db_factory() as session:
-            session.add(row)
-            await session.commit()

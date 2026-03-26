@@ -8,7 +8,7 @@ queue routing, DB persistence, and retry behaviour.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
@@ -111,7 +111,10 @@ async def test_evaluation_persists_decision_log(
     """After evaluation, an AgentDecisionLog row must be persisted."""
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
-    client = ClaudeClient(in_queue=in_q, out_queue=out_q, config=test_config)
+    client = ClaudeClient(
+        in_queue=in_q, out_queue=out_q, config=test_config,
+        db_session_factory=db_session_factory,
+    )
 
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(
@@ -124,14 +127,8 @@ async def test_evaluation_persists_decision_log(
         session.add(_make_snapshot_row(snapshot_id))
         await session.commit()
 
-    # Patch get_db_session to use our test DB
-    async def _test_db_session():
-        async with db_session_factory() as session:
-            yield session
-
-    with patch("src.agents.evaluation.claude_client.get_db_session", _test_db_session):
-        item = {"prompt": "Evaluate this market", "snapshot_id": snapshot_id}
-        await client._process_evaluation(item)
+    item = {"prompt": "Evaluate this market", "snapshot_id": snapshot_id}
+    await client._process_evaluation(item)
 
     # Verify decision log row
     async with db_session_factory() as session:
