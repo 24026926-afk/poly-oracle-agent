@@ -12,16 +12,12 @@ above code elegance.
 
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
-- `docs/PRD-v2.0.md`            ← Phase 2 scope and acceptance criteria
-- `docs/PRD-v3.0.md`            ← Phase 3 scope and acceptance criteria
+- `docs/archive/ARCHIVE_PHASES_1_TO_3.md` ← Historical context & Phase 1-3 invariants
 - `docs/PRD-v4.0.md`            ← Phase 4 scope and acceptance criteria
-- `docs/business_logic/business_logic_wi09.md` ← WI-09 business logic and acceptance criteria
-- `docs/business_logic/business_logic_wi10.md` ← WI-10 business logic and acceptance criteria
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
 - `docs/business_logic.md`      ← EV rule: the single source of trade truth
 - `STATE.md`                    ← Current system state and progress
-
 
 These documents are the law. Code must conform to them, not the other way around.
 
@@ -51,6 +47,24 @@ These are the ONLY valid class names. Do NOT rename, alias, or create variants.
 
 ---
 
+## 🤖 Multi-Agent Audit Protocol (MAAP)
+
+Before any `git commit` on core logic (schemas, agents, execution, db):
+
+1. **Maker** (Claude) produces the implementation and runs the test suite to confirm green.
+2. **Maker** outputs `git diff` of all staged changes.
+3. **Checker** (Gemini 2.5 Pro / GPT-5.4) reviews the diff against `PRD-v4.0.md` and `ARCHIVE_PHASES_1_TO_3.md`.
+4. **Checker** must explicitly clear or flag the following before commit is allowed:
+   - **Decimal violations** — any `float` used for monetary calculations
+   - **Gatekeeper bypasses** — any path that routes to execution without passing `LLMEvaluationResponse` validation
+   - **Business logic drift** — any deviation from Kelly formula, 5 safety filters, or exposure caps defined in `ARCHIVE_PHASES_1_TO_3.md`
+5. Any finding in step 4 **must be fixed** before the commit proceeds. No "fix in follow-up" exceptions for these three categories.
+
+MAAP applies to: `src/schemas/`, `src/agents/`, `src/db/`, `src/orchestrator.py`, `src/core/`.
+MAAP is optional for: `docs/`, `tests/`, `scripts/`, config files.
+
+---
+
 ## 🔀 Git Rules
 - All work goes on `develop`. Never commit directly to `master`.
 - PRs only: `feat|fix|perf|docs|chore(scope): description`
@@ -76,7 +90,7 @@ pytest tests/unit/test_nonce_manager.py -v
 New code must not decrease coverage below 80%.
 
 ## Update Documentation
-Update: STATE.md and README.md after every task completed.
+After every completed Work Item, update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status/current WI set).
 
 ---
 
