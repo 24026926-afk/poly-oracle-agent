@@ -1,8 +1,8 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-26
-**Version:** 0.4.0-draft
-**Status:** Phase 4 Active — Cognitive Architecture
+**Version:** 0.4.0
+**Status:** Phase 4 Active — Cognitive Architecture (WI-11 & WI-12 Complete)
 
 ---
 
@@ -19,8 +19,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 92 (76 unit + 16 integration) |
-| Coverage | 90% (target ≥ 80%) |
+| Total tests | 115 (107 existing + 8 new sentiment chain) |
+| Coverage | 90%+ (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
 
@@ -37,10 +37,15 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - Gatekeeper (`LLMEvaluationResponse`) remains final validation gate regardless of route
   - Key files: `src/schemas/llm.py`, `src/agents/context/prompt_factory.py`, `src/agents/evaluation/claude_client.py`
 
-- [ ] **WI-12 — Chained Prompt Factory**
-  - Stage A: extract structured market facts from routed context (schema-validated output)
-  - Stage B: probabilistic + EV/Kelly reasoning from Stage A artifacts only
-  - Typed handoff contract between stages; existing Gatekeeper and audit logging preserved
+- [x] **WI-12 — Chained Prompt Factory** (completed 2026-03-26)
+  - `SentimentResponse` schema with `Decimal` sentiment_score, int tweet_volume_delta, str top_narrative_summary
+  - `GrokClient` async interface (mock-first, 2.0s timeout, httpx-ready, fallback on all failures)
+  - `PromptFactory` injects `### SENTIMENT ORACLE (LAST 60 MIN)` block with sentiment values
+  - `ClaudeClient._fetch_sentiment()` — category-gated Grok calls (CRYPTO/POLITICS only)
+  - Normalized audit logging: `{status, reason, sentiment_score, tweet_volume_delta, top_narrative_summary}`
+  - Gatekeeper (`LLMEvaluationResponse`) remains terminal gate; sentiment is upstream cognitive signal only
+  - 8 integration tests (RED→GREEN), 115 total tests pass, zero regression
+  - Key files: `src/schemas/llm.py`, `src/agents/evaluation/grok_client.py`, `src/agents/context/prompt_factory.py`, `src/agents/evaluation/claude_client.py`, `src/core/config.py`
 
 - [ ] **WI-13 — Reflection Auditor**
   - Internal LLM reflection pass after Stage B, before Gatekeeper validation
@@ -49,10 +54,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ### Phase 4 Completion Gate
 
-- [ ] WI-12 implemented, tests pass, no coverage regression
+- [x] WI-12 implemented, tests pass (115 passed), no coverage regression ✅
 - [ ] WI-13 implemented, tests pass, no coverage regression
 - [ ] `STATE.md` updated: version `0.4.0`, status `Phase 4 Complete`
-- [ ] PRs merged to `develop`, then `develop → main`
+- [ ] PRs merged to `develop` ✅, then `develop → main`
 
 ---
 
@@ -71,9 +76,11 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | File | Purpose |
 |---|---|
-| `src/schemas/llm.py` | `MarketCategory` enum + `LLMEvaluationResponse` Gatekeeper |
-| `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware prompt construction |
-| `src/agents/evaluation/claude_client.py` | `ClaudeClient` — routing + evaluation + retry logic |
+| `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
+| `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
+| `src/agents/evaluation/claude_client.py` | `ClaudeClient` — routing + sentiment fetch + evaluation + retry logic |
+| `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
+| `src/core/config.py` | `AppConfig` — Grok fields (api_key, base_url, model, mocked) |
 | `src/orchestrator.py` | Main entry point; spins up 5 async tasks |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |

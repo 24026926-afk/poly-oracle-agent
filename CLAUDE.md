@@ -7,8 +7,8 @@ Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves toke
 
 Current branch: develop
 Active phase: Phase 4 — Cognitive Architecture
-Completed: WI-11 (Market Router) ✅
-Current WI set: WI-12 (Chained Prompt Factory), WI-13 (Reflection Auditor)
-Next task: pick the next unchecked WI from STATE.md and execute with AGENTS.md constraints.
+Completed: WI-11 (Market Router) ✅, WI-12 (Chained Prompt Factory) ✅
+Current WI set: WI-13 (Reflection Auditor)
+Next task: Execute WI-13 (Reflection Auditor) following AGENTS.md constraints and P13-WI-13 prompt plan.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
