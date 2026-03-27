@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-26
-**Version:** 0.4.0
-**Status:** Phase 4 Complete — Cognitive Architecture (WI-11–WI-13 Complete)
-**Next Task:** Phase 5 Preparation (WI-14)
+**Version:** 0.5.0
+**Status:** Phase 5 In Progress — Market Data Integration
+**Active WI:** WI-14 Complete
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 119 |
-| Coverage | 90%+ (target ≥ 80%) |
+| Total tests | 153 |
+| Coverage | 91% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
 
@@ -62,6 +62,24 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
+## Phase 5: Market Data Integration
+
+### Work Items
+
+- [x] **WI-14 — Polymarket Market Data Client** (completed 2026-03-26)
+  - `PolymarketClient` read-only async client in `src/agents/execution/polymarket_client.py`
+  - `MarketSnapshot` Pydantic model with Decimal-typed bid/ask/midpoint/spread
+  - `fetch_order_book(token_id)` async method via official `pyclob` SDK (500ms timeout)
+  - Decimal-only midpoint: `(best_bid + best_ask) / Decimal("2")`, no float in money path
+  - Non-positive prices (≤ 0), crossed books, missing/malformed fields → `None` (non-tradable)
+  - `ClaudeClient._process_evaluation` fetches fresh market data before `PromptFactory.build_evaluation_prompt`
+  - Missing `yes_token_id` or fetch failure → conservative skip, no execution enqueue
+  - `LLMEvaluationResponse` Gatekeeper remains terminal gate, unchanged
+  - 34 new tests (24 unit + 6 integration + 4 MAAP fixes), 153 total, 91% coverage
+  - Key files: `src/agents/execution/polymarket_client.py`, `src/agents/evaluation/claude_client.py`, `pyproject.toml`
+
+---
+
 ## Active Constraints (always enforced)
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
@@ -73,15 +91,16 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
-## Key File Map (Phase 4)
+## Key File Map (Phase 5)
 
 | File | Purpose |
 |---|---|
+| `src/agents/execution/polymarket_client.py` | `PolymarketClient` — read-only CLOB market data + `MarketSnapshot` |
 | `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
-| `src/agents/evaluation/claude_client.py` | `ClaudeClient` — routing + sentiment fetch + evaluation + retry logic |
+| `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields (api_key, base_url, model, mocked) |
+| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs |
 | `src/orchestrator.py` | Main entry point; spins up 5 async tasks |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |

@@ -20,6 +20,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import SecretStr
@@ -263,3 +264,31 @@ APPROVED_REFLECTION_JSON: str = json.dumps({
 def mock_reflection_approved_json() -> str:
     """Canned ReflectionResponse JSON that approves the candidate unchanged."""
     return APPROVED_REFLECTION_JSON
+
+
+# ---------------------------------------------------------------------------
+# WI-14: Mock PolymarketClient fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def mock_polymarket(monkeypatch):
+    """Patch PolymarketClient in ClaudeClient to return a valid MarketSnapshot."""
+    from src.agents.execution.polymarket_client import MarketSnapshot as _Snap
+
+    snapshot = _Snap(
+        token_id="tok-yes-001",
+        best_bid=Decimal("0.45"),
+        best_ask=Decimal("0.455"),
+        midpoint_probability=Decimal("0.4525"),
+        spread=Decimal("0.005"),
+        fetched_at_utc=datetime.now(timezone.utc),
+        source="clob_orderbook",
+    )
+
+    mock_instance = MagicMock()
+    mock_instance.fetch_order_book = AsyncMock(return_value=snapshot)
+    mock_class = MagicMock(return_value=mock_instance)
+    monkeypatch.setattr(
+        "src.agents.evaluation.claude_client.PolymarketClient", mock_class
+    )
+    return mock_instance

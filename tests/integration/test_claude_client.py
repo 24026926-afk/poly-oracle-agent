@@ -63,7 +63,7 @@ def _make_snapshot_row(snapshot_id: str) -> MarketSnapshot:
 
 @pytest.mark.asyncio
 async def test_evaluation_approved_trade_reaches_execution_queue(
-    test_config, mock_anthropic_buy_json
+    test_config, mock_anthropic_buy_json, mock_polymarket
 ):
     """An approved BUY evaluation must land on the execution queue."""
     in_q: asyncio.Queue = asyncio.Queue()
@@ -85,6 +85,7 @@ async def test_evaluation_approved_trade_reaches_execution_queue(
     item = {
         "snapshot_id": "snap-buy-001",
         "prompt": "Evaluate this market",
+        "yes_token_id": "tok-yes-001",
         "state": {
             "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
             "best_bid": 0.45,
@@ -104,7 +105,7 @@ async def test_evaluation_approved_trade_reaches_execution_queue(
 
 @pytest.mark.asyncio
 async def test_evaluation_rejected_trade_not_enqueued(
-    test_config, mock_anthropic_hold_json
+    test_config, mock_anthropic_hold_json, mock_polymarket
 ):
     """A HOLD evaluation (low confidence) must NOT reach the execution queue."""
     in_q: asyncio.Queue = asyncio.Queue()
@@ -123,6 +124,7 @@ async def test_evaluation_rejected_trade_not_enqueued(
     item = {
         "snapshot_id": "snap-hold-001",
         "prompt": "Evaluate this market",
+        "yes_token_id": "tok-yes-001",
         "state": {
             "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
             "best_bid": 0.45,
@@ -140,7 +142,8 @@ async def test_evaluation_rejected_trade_not_enqueued(
 
 @pytest.mark.asyncio
 async def test_evaluation_persists_decision_log(
-    test_config, mock_anthropic_buy_json, async_engine, db_session_factory
+    test_config, mock_anthropic_buy_json, async_engine, db_session_factory,
+    mock_polymarket,
 ):
     """After evaluation, an AgentDecisionLog row must be persisted."""
     in_q: asyncio.Queue = asyncio.Queue()
@@ -167,6 +170,7 @@ async def test_evaluation_persists_decision_log(
     item = {
         "snapshot_id": snapshot_id,
         "prompt": "Evaluate this market",
+        "yes_token_id": "tok-yes-001",
         "state": {
             "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
             "best_bid": 0.45,
@@ -189,7 +193,7 @@ async def test_evaluation_persists_decision_log(
 
 @pytest.mark.asyncio
 async def test_evaluation_retries_on_json_parse_error(
-    test_config, mock_anthropic_buy_json
+    test_config, mock_anthropic_buy_json, mock_polymarket
 ):
     """First call returns unparseable text; retry returns valid JSON → success."""
     in_q: asyncio.Queue = asyncio.Queue()
@@ -209,6 +213,7 @@ async def test_evaluation_retries_on_json_parse_error(
     item = {
         "snapshot_id": "snap-retry-001",
         "prompt": "Evaluate this market",
+        "yes_token_id": "tok-yes-001",
         "state": {
             "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
             "best_bid": 0.45,

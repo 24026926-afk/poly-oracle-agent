@@ -51,6 +51,7 @@ def _crypto_market_item() -> dict:
     """Market item that routes to CRYPTO via keyword matching."""
     return {
         "snapshot_id": "snap-crypto-001",
+        "yes_token_id": "tok-yes-001",
         "state": {
             "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
             "title": "Will Bitcoin exceed $100k by July?",
@@ -68,6 +69,7 @@ def _politics_market_item() -> dict:
     """Market item that routes to POLITICS via keyword matching."""
     return {
         "snapshot_id": "snap-politics-001",
+        "yes_token_id": "tok-yes-002",
         "state": {
             "condition_id": "0xbbbb2222cccc3333dddd4444eeee5555ffff6666",
             "title": "Will the president win the election?",
@@ -85,6 +87,7 @@ def _sports_market_item() -> dict:
     """Market item that routes to SPORTS via keyword matching."""
     return {
         "snapshot_id": "snap-sports-001",
+        "yes_token_id": "tok-yes-003",
         "state": {
             "condition_id": "0xcccc3333dddd4444eeee5555ffff6666aaaa7777",
             "title": "Will the NBA finals go to game 7?",
@@ -102,6 +105,7 @@ def _general_market_item() -> dict:
     """Market item that routes to GENERAL (no domain keywords)."""
     return {
         "snapshot_id": "snap-general-001",
+        "yes_token_id": "tok-yes-004",
         "state": {
             "condition_id": "0xdddd4444eeee5555ffff6666aaaa7777bbbb8888",
             "title": "Will the new product launch succeed?",
@@ -115,7 +119,7 @@ def _general_market_item() -> dict:
     }
 
 
-def _setup_client(test_config, mock_anthropic_buy_json):
+def _setup_client(test_config, mock_anthropic_buy_json, *, extra_side_effects=None):
     """Create a ClaudeClient with real GrokClient and mocked Anthropic API.
 
     Provides side_effect responses for both the primary evaluation call
@@ -129,13 +133,12 @@ def _setup_client(test_config, mock_anthropic_buy_json):
     assert isinstance(client._grok_client, GrokClient)
 
     # Mock Anthropic API — primary eval + approved reflection
+    side_effects = extra_side_effects or [
+        _mock_anthropic_response(mock_anthropic_buy_json),
+        _mock_anthropic_response(APPROVED_REFLECTION_JSON),
+    ]
     client.client = MagicMock()
-    client.client.messages.create = AsyncMock(
-        side_effect=[
-            _mock_anthropic_response(mock_anthropic_buy_json),
-            _mock_anthropic_response(APPROVED_REFLECTION_JSON),
-        ],
-    )
+    client.client.messages.create = AsyncMock(side_effect=side_effects)
     client._persist_decision = AsyncMock()
 
     return client, in_q, out_q
@@ -147,7 +150,7 @@ def _setup_client(test_config, mock_anthropic_buy_json):
 
 @pytest.mark.asyncio
 async def test_crypto_triggers_grok_sentiment_call(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """CRYPTO market MUST trigger GrokClient — prompt contains mock sentiment values."""
     client, _, out_q = _setup_client(test_config, mock_anthropic_buy_json)
@@ -173,7 +176,7 @@ async def test_crypto_triggers_grok_sentiment_call(
 
 @pytest.mark.asyncio
 async def test_politics_triggers_grok_sentiment_call(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """POLITICS market MUST trigger GrokClient — prompt contains mock sentiment values."""
     client, _, out_q = _setup_client(test_config, mock_anthropic_buy_json)
@@ -196,7 +199,7 @@ async def test_politics_triggers_grok_sentiment_call(
 
 @pytest.mark.asyncio
 async def test_sports_skips_grok_sentiment(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """SPORTS market MUST NOT call GrokClient — prompt contains neutral fallback."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
@@ -221,7 +224,7 @@ async def test_sports_skips_grok_sentiment(
 
 @pytest.mark.asyncio
 async def test_general_skips_grok_sentiment(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """GENERAL market MUST NOT call GrokClient — prompt contains neutral fallback."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
@@ -244,7 +247,7 @@ async def test_general_skips_grok_sentiment(
 
 @pytest.mark.asyncio
 async def test_grok_timeout_falls_back_to_neutral_sentiment(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """When Grok times out, pipeline continues with neutral sentiment."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
@@ -272,7 +275,7 @@ async def test_grok_timeout_falls_back_to_neutral_sentiment(
 
 @pytest.mark.asyncio
 async def test_malformed_grok_json_falls_back_to_neutral(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """When Grok returns invalid data, pipeline continues with neutral sentiment."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
@@ -298,7 +301,7 @@ async def test_malformed_grok_json_falls_back_to_neutral(
 
 @pytest.mark.asyncio
 async def test_prompt_includes_sentiment_oracle_block(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """The evaluation prompt sent to Claude must contain the sentiment oracle section
     with actual _MOCK_SENTIMENT values from the real GrokClient."""
@@ -324,7 +327,7 @@ async def test_prompt_includes_sentiment_oracle_block(
 
 @pytest.mark.asyncio
 async def test_gatekeeper_remains_terminal_after_sentiment_injection(
-    test_config, mock_anthropic_buy_json,
+    test_config, mock_anthropic_buy_json, mock_polymarket,
 ):
     """LLMEvaluationResponse.model_validate_json remains the terminal gate.
     Sentiment enrichment must not bypass or alter gatekeeper validation."""
