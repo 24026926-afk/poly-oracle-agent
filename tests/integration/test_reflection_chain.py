@@ -60,6 +60,7 @@ def _crypto_market_item() -> dict:
     """Market item that routes to CRYPTO via keyword matching."""
     return {
         "snapshot_id": "snap-reflect-001",
+        "yes_token_id": "tok-yes-001",
         "state": {
             "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
             "title": "Will Bitcoin exceed $100k by July?",
@@ -160,7 +161,7 @@ def _setup_client(test_config):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_reflection_approved_passes_to_gatekeeper(test_config):
+async def test_reflection_approved_passes_to_gatekeeper(test_config, mock_polymarket):
     """When reflection returns APPROVED, the original Stage B candidate passes
     through unchanged and LLMEvaluationResponse Gatekeeper validates it.
     Trade reaches execution queue."""
@@ -209,7 +210,7 @@ async def test_reflection_approved_passes_to_gatekeeper(test_config):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_reflection_rejected_bias_forces_hold(test_config):
+async def test_reflection_rejected_bias_forces_hold(test_config, mock_polymarket):
     """When reflection returns REJECTED with bias flags, the pipeline must
     force a HOLD candidate — trade must NOT reach execution queue.
     REJECTED verdict guarantees non-execution regardless of original candidate."""
@@ -254,7 +255,7 @@ async def test_reflection_rejected_bias_forces_hold(test_config):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_reflection_adjusted_uses_corrected_candidate(test_config):
+async def test_reflection_adjusted_uses_corrected_candidate(test_config, mock_polymarket):
     """When reflection returns ADJUSTED, the corrected candidate JSON is used
     for Gatekeeper validation instead of the original. The corrected candidate
     must still pass LLMEvaluationResponse terminal validation."""
@@ -307,7 +308,7 @@ async def test_reflection_adjusted_uses_corrected_candidate(test_config):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_reflection_timeout_yields_conservative_hold(test_config):
+async def test_reflection_timeout_yields_conservative_hold(test_config, mock_polymarket):
     """When the shared 2.0s latency budget is exhausted before reflection
     completes, the system must default to conservative HOLD behavior.
     Audit artifact with BUDGET_EXHAUSTED reason must be persisted."""

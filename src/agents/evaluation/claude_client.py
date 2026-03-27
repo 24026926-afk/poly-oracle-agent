@@ -29,6 +29,7 @@ from src.schemas.llm import (
 )
 from src.agents.context.prompt_factory import PromptFactory
 from src.agents.evaluation.grok_client import GrokClient, NEUTRAL_SENTIMENT
+from src.agents.execution.polymarket_client import PolymarketClient
 from src.db.models import AgentDecisionLog
 from src.db.repositories.decision_repo import DecisionRepository
 
@@ -223,6 +224,39 @@ class ClaudeClient:
         t0 = time.monotonic()
         market_state = item.get("state", item)
         snapshot_id = item.get("snapshot_id", "local_test_no_id")
+
+        # WI-14: Fresh market data fetch before evaluation
+        yes_token_id = item.get("yes_token_id")
+        if not yes_token_id:
+            logger.warning(
+                "Missing yes_token_id — non-tradable input, skipping evaluation.",
+                snapshot_id=snapshot_id,
+            )
+            return
+
+        try:
+            pm_client = PolymarketClient(host=self.config.clob_rest_url)
+            wi14_snapshot = await pm_client.fetch_order_book(yes_token_id)
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning(
+                "WI-14 market data fetch error — conservative skip.",
+                snapshot_id=snapshot_id,
+                error=str(exc),
+            )
+            return
+
+        if wi14_snapshot is None:
+            logger.warning(
+                "WI-14 market data unavailable — conservative skip.",
+                snapshot_id=snapshot_id,
+            )
+            return
+
+        # Enrich market_state with fresh WI-14 pricing
+        market_state["best_bid"] = wi14_snapshot.best_bid
+        market_state["best_ask"] = wi14_snapshot.best_ask
+        market_state["midpoint"] = wi14_snapshot.midpoint_probability
+        market_state["spread"] = wi14_snapshot.spread
 
         # Stage 0: Route market category
         category = await self._route_market(market_state)
