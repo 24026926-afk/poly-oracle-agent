@@ -7,8 +7,8 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.5.3
-- **Status:** Phase 5 In Progress (Execution Routing)
+- **Version:** 0.6.0
+- **Status:** Phase 5 Complete (Market Data Integration & Execution Routing)
 - **Tests:** 230 automated tests passing
 - **Coverage:** 92% (target: ≥ 80%)
 

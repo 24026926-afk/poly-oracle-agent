@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-27
-**Version:** 0.5.3
-**Status:** Phase 5 In Progress — Execution Routing
-**Active WI:** WI-16 Complete
+**Version:** 0.6.0
+**Status:** Phase 5 Complete — Market Data Integration & Execution Routing
+**Active WI:** Phase 5 Complete
 
 ---
 
@@ -114,6 +114,17 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - `Orchestrator` wires `BankrollSyncProvider` into `BankrollPortfolioTracker` at startup; queue topology unchanged
   - 11 new WI-18 tests (8 unit + 3 integration), 211 total, 91% coverage, full regression green
   - Key files: `src/agents/execution/bankroll_sync.py`, `src/agents/execution/bankroll_tracker.py`, `src/orchestrator.py`, `src/core/exceptions.py`
+
+### Phase 5 Completion Gate
+
+- [x] WI-14 implemented and merged into `develop`
+- [x] WI-15 implemented and merged into `develop`
+- [x] WI-16 implemented and merged into `develop`
+- [x] WI-18 implemented and merged into `develop`
+- [x] Full regression green: 230 tests passing
+- [x] Coverage maintained at 92% (target ≥ 80%)
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
+- [x] `docs/archive/ARCHIVE_PHASE_5.md` created
 
 ---
 
