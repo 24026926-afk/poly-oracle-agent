@@ -16,6 +16,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -67,7 +68,7 @@ def _make_execution_tx(
     )
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def db_factory():
     """In-memory async SQLite engine + session factory for tests."""
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)

@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-26
-**Version:** 0.5.0
-**Status:** Phase 5 In Progress — Market Data Integration
-**Active WI:** WI-14 Complete
+**Last Updated:** 2026-03-27
+**Version:** 0.5.3
+**Status:** Phase 5 In Progress — Execution Routing
+**Active WI:** WI-16 Complete
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 153 |
-| Coverage | 91% (target ≥ 80%) |
+| Total tests | 230 |
+| Coverage | 92% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
 
@@ -78,6 +78,43 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - 34 new tests (24 unit + 6 integration + 4 MAAP fixes), 153 total, 91% coverage
   - Key files: `src/agents/execution/polymarket_client.py`, `src/agents/evaluation/claude_client.py`, `pyproject.toml`
 
+- [x] **WI-15 — Wallet Signer** (completed 2026-03-27)
+  - `TransactionSigner` is the single canonical WI-15 signer in `src/agents/execution/signer.py`
+  - `KeyProvider` protocol: vault or encrypted keystore only — no `os.environ`, no `.env`
+  - `SignRequest` Pydantic model: chain_id=137 enforcement, Decimal-only amounts, float rejected at boundary
+  - `SignedArtifact` typed output: signature, owner, signed_at_utc, key_source_type
+  - `sign_order_secure()` async WI-15 entry point, fail-closed, no transmission/broadcast capability
+  - Source type enforcement: rejects all key sources except `vault` and `encrypted_keystore`
+  - Address mismatch guard: derived key must match expected_address
+  - Module isolation: zero imports from evaluation, context, or market-data modules
+  - Orchestrator dry_run gate: `TransactionSigner` not constructed when `dry_run=True`
+  - 46 WI-15 tests (31 unit + 15 integration) + 29 async fixture fixes, 200 total, zero regression
+  - Key files: `src/agents/execution/signer.py`, `src/orchestrator.py`
+
+- [x] **WI-16 — Execution Router** (completed 2026-03-27)
+  - `ExecutionRouter` is the canonical WI-16 execution orchestrator in `src/agents/execution/execution_router.py`
+  - `ExecutionResult` / `ExecutionAction` typed routing contract added in `src/schemas/execution.py`
+  - Entry gate skips non-BUY and low-confidence decisions before any upstream order-book, bankroll, or signer call
+  - Decimal-only Kelly sizing: `edge = midpoint - threshold`, `odds = (1 - midpoint) / midpoint`, `kelly_scaled = (edge / odds) * config.kelly_fraction`
+  - Slippage guard rejects when `best_ask > midpoint_probability + max_slippage_tolerance`
+  - Order size capped at `min(kelly_fraction * bankroll, max_order_usdc)` with `maker_amount = int(order_size * Decimal("1e6"))`
+  - `dry_run=True` returns a typed `DRY_RUN` result with a full `OrderData` payload and never calls `sign_order()`
+  - `signer=None` is tolerated in dry run and returns `FAILED(reason="signer_unavailable")` when live routing is attempted without a signer
+  - New config: `max_order_usdc=Decimal("50")`, `max_slippage_tolerance=Decimal("0.02")`
+  - 19 new WI-16 tests (4 unit + 15 integration), 230 total, 92% coverage, full regression green
+  - Key files: `src/agents/execution/execution_router.py`, `src/schemas/execution.py`, `src/core/config.py`, `src/core/exceptions.py`, `src/orchestrator.py`
+
+- [x] **WI-18 — Bankroll Sync** (completed 2026-03-27)
+  - `BankrollSyncProvider` is the canonical WI-18 balance reader in `src/agents/execution/bankroll_sync.py`
+  - Read-only Polygon USDC `balanceOf` call only; no `approve`, `transfer`, `transferFrom`, or state mutation
+  - Typed `BalanceReadRequest` / `BalanceReadResult` contracts enforce chain_id `137`, canonical USDC proxy, and Decimal-only balance fields
+  - `asyncio.wait_for(..., timeout=0.5)` wraps the live RPC read; timeout and RPC failures raise `BalanceFetchError`
+  - `dry_run=True` returns `AppConfig.initial_bankroll_usdc` as a mock balance before any `Web3` construction or RPC contact
+  - `BankrollPortfolioTracker.get_total_bankroll()` now delegates to `BankrollSyncProvider.fetch_balance()` for live Kelly bankroll
+  - `Orchestrator` wires `BankrollSyncProvider` into `BankrollPortfolioTracker` at startup; queue topology unchanged
+  - 11 new WI-18 tests (8 unit + 3 integration), 211 total, 91% coverage, full regression green
+  - Key files: `src/agents/execution/bankroll_sync.py`, `src/agents/execution/bankroll_tracker.py`, `src/orchestrator.py`, `src/core/exceptions.py`
+
 ---
 
 ## Active Constraints (always enforced)
@@ -88,6 +125,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 4. **No hardcoded `condition_id`** — market discovery via `MarketDiscoveryEngine` only
 5. **`dry_run=True` blocks execution** — `OrderBroadcaster` enforces; always set in dev/test
 6. **Async-only** — no blocking I/O in any agent task; `asyncio.Lock` for shared state
+7. **Live bankroll sync** — Kelly sizing uses fresh Polygon USDC balance; `initial_bankroll_usdc` is mock-only when `dry_run=True`
 
 ---
 
@@ -95,13 +133,17 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | File | Purpose |
 |---|---|
+| `src/agents/execution/bankroll_sync.py` | `BankrollSyncProvider` — read-only Polygon USDC bankroll sync with typed request/result contracts |
+| `src/agents/execution/execution_router.py` | `ExecutionRouter` — BUY-only execution routing, Decimal Kelly sizing, slippage guard, dry-run bypass |
+| `src/agents/execution/signer.py` | `TransactionSigner` — canonical signer: legacy `sign_order()` + WI-15 `sign_order_secure()` |
 | `src/agents/execution/polymarket_client.py` | `PolymarketClient` — read-only CLOB market data + `MarketSnapshot` |
+| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` — typed router outputs with Decimal financial fields |
 | `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs |
-| `src/orchestrator.py` | Main entry point; spins up 5 async tasks |
+| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs, WI-16 order cap and slippage tolerance |
+| `src/orchestrator.py` | Main entry point; spins up 5 async tasks and wires bankroll sync plus execution router at startup |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

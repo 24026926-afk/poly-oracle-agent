@@ -23,6 +23,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -48,7 +49,7 @@ def anyio_backend():
 # Database fixtures (unit + integration)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def async_engine():
     """Create an in-memory async SQLite engine and provision all tables."""
     engine = create_async_engine(
@@ -66,7 +67,7 @@ async def async_engine():
     await engine.dispose()
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def async_session(async_engine):
     """Yield an AsyncSession that rolls back after each test."""
     session_factory = async_sessionmaker(
@@ -82,8 +83,8 @@ async def async_session(async_engine):
             await session.rollback()
 
 
-@pytest.fixture()
-def db_session_factory(async_engine):
+@pytest_asyncio.fixture()
+async def db_session_factory(async_engine):
     """Return an async_sessionmaker bound to the in-memory test engine."""
     return async_sessionmaker(
         bind=async_engine,

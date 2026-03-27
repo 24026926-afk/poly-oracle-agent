@@ -91,6 +91,16 @@ class AppConfig(BaseSettings):
         description="Seed bankroll in USDC (override via INITIAL_BANKROLL_USDC env var)",
     )
 
+    # --- Execution Router (WI-16) ---
+    max_order_usdc: Decimal = Field(
+        default=Decimal("50"),
+        description="Hard cap on any single order in USDC",
+    )
+    max_slippage_tolerance: Decimal = Field(
+        default=Decimal("0.02"),
+        description="Max allowed deviation of best_ask above midpoint (2%)",
+    )
+
     # --- Gas ---
     max_gas_price_gwei: float = Field(
         default=500.0, description="Hard safety ceiling for gas price in Gwei"

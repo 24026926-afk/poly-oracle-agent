@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: develop
-Active phase: Phase 4 — Cognitive Architecture
-Completed: WI-11 (Market Router) ✅, WI-12 (Chained Prompt Factory) ✅
-Current WI set: WI-13 (Reflection Auditor)
-Next task: Execute WI-13 (Reflection Auditor) following AGENTS.md constraints and P13-WI-13 prompt plan.
+Current branch: feat/wi16-execution-router
+Active phase: Phase 5 — Execution Routing
+Completed: WI-11 through WI-16, plus WI-18 ✅
+Current WI set: WI-16 (Execution Router) — Complete
+Next task: Await next Phase 5 WI after MAAP-cleared WI-16 commit.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 
@@ -21,4 +21,4 @@ Before declaring ANY Work Item (WI) or Phase complete, and BEFORE asking the use
 4. **PHASE COMPLETION AUTOMATION:** If the completed Work Item marks the end of a Phase (e.g., Phase 4 is complete), you MUST automatically generate a historical archive file before stopping. 
    - Create `docs/archive/ARCHIVE_PHASE_[X].md`.
    - Summarize the pipeline architecture, completed WIs, MAAP audit findings, and critical invariants established during this phase.
-   - NEVER modify older archive files like `ARCHIVE_PHASES_1_TO_3.md`.
+   - NEVER modify older archive files like `ARCHIVE_PHASES`.
