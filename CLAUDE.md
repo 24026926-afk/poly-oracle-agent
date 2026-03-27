@@ -21,4 +21,4 @@ Before declaring ANY Work Item (WI) or Phase complete, and BEFORE asking the use
 4. **PHASE COMPLETION AUTOMATION:** If the completed Work Item marks the end of a Phase (e.g., Phase 4 is complete), you MUST automatically generate a historical archive file before stopping. 
    - Create `docs/archive/ARCHIVE_PHASE_[X].md`.
    - Summarize the pipeline architecture, completed WIs, MAAP audit findings, and critical invariants established during this phase.
-   - NEVER modify older archive files like `ARCHIVE_PHASES_1_TO_3.md`.
+   - NEVER modify older archive files like `ARCHIVE_PHASES`.

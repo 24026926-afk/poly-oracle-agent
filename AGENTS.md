@@ -12,7 +12,7 @@ above code elegance.
 
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
-- `docs/archive/ARCHIVE_PHASES_1_TO_3.md` ← Historical context & Phase 1-3 invariants
+- `docs/archive/` ← Historical context 
 - `docs/PRD-v4.0.md`            ← Phase 4 scope and acceptance criteria
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
@@ -53,11 +53,11 @@ Before any `git commit` on core logic (schemas, agents, execution, db):
 
 1. **Maker** (Claude) produces the implementation and runs the test suite to confirm green.
 2. **Maker** outputs `git diff` of all staged changes.
-3. **Checker** (Gemini 2.5 Pro / GPT-5.4) reviews the diff against `PRD-v4.0.md` and `ARCHIVE_PHASES_1_TO_3.md`.
+3. **Checker** (Gemini 2.5 Pro / GPT-5.4) reviews the diff against `PRD-v4.0.md` and `ARCHIVE_PHASES`.
 4. **Checker** must explicitly clear or flag the following before commit is allowed:
    - **Decimal violations** — any `float` used for monetary calculations
    - **Gatekeeper bypasses** — any path that routes to execution without passing `LLMEvaluationResponse` validation
-   - **Business logic drift** — any deviation from Kelly formula, 5 safety filters, or exposure caps defined in `ARCHIVE_PHASES_1_TO_3.md`
+   - **Business logic drift** — any deviation from Kelly formula, 5 safety filters, or exposure caps defined in `ARCHIVE_PHASES`
 5. Any finding in step 4 **must be fixed** before the commit proceeds. No "fix in follow-up" exceptions for these three categories.
 
 MAAP applies to: `src/schemas/`, `src/agents/`, `src/db/`, `src/orchestrator.py`, `src/core/`.
@@ -199,4 +199,4 @@ Before declaring ANY Work Item (WI) or Phase complete, and BEFORE asking the use
 4. **PHASE COMPLETION AUTOMATION:** If the completed Work Item marks the end of a Phase (e.g., Phase 4 is complete), you MUST automatically generate a historical archive file before stopping. 
    - Create `docs/archive/ARCHIVE_PHASE_[X].md`.
    - Summarize the pipeline architecture, completed WIs, MAAP audit findings, and critical invariants established during this phase.
-   - NEVER modify older archive files like `ARCHIVE_PHASES_1_TO_3.md`.
+   - NEVER modify older archive files like `ARCHIVE_PHASES`.
