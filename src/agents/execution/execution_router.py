@@ -14,7 +14,7 @@ from typing import Any
 
 import structlog
 
-from src.agents.execution.bankroll_sync import BankrollSyncProvider
+from src.agents.execution.bankroll_sync import BalanceReadResult, BankrollSyncProvider
 from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.signer import TransactionSigner
 from src.core.config import AppConfig
@@ -350,7 +350,7 @@ class ExecutionRouter:
             maker=self._config.wallet_address,
             signer=self._config.wallet_address,
             taker="0x0000000000000000000000000000000000000000",
-            token_id=int(str(market_context.condition_id), 0),
+            token_id=int(str(market_context.condition_id)),
             maker_amount=maker_amount,
             taker_amount=taker_amount,
             expiration=0,
@@ -361,11 +361,13 @@ class ExecutionRouter:
         )
 
     @staticmethod
-    def _extract_balance_usdc(balance_result: Any) -> Decimal:
+    def _extract_balance_usdc(balance_result: BalanceReadResult | Decimal) -> Decimal:
         if isinstance(balance_result, Decimal):
             return balance_result
-        if hasattr(balance_result, "balance_usdc"):
-            balance_usdc = getattr(balance_result, "balance_usdc")
+        if isinstance(balance_result, BalanceReadResult):
+            balance_usdc = balance_result.balance_usdc
+            if isinstance(balance_usdc, float):
+                raise TypeError("Float bankroll balances are forbidden")
             if isinstance(balance_usdc, Decimal):
                 return balance_usdc
             return Decimal(str(balance_usdc))
