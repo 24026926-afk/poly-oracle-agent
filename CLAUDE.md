@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: feat/wi18-bankroll-sync
-Active phase: Phase 5 — Market Data Integration
-Completed: WI-11 through WI-15, plus WI-18 ✅
-Current WI set: WI-18 (Bankroll Sync) — Complete
-Next task: MAAP review / commit preparation for WI-18, then proceed to the next Phase 5 WI.
+Current branch: feat/wi16-execution-router
+Active phase: Phase 5 — Execution Routing
+Completed: WI-11 through WI-16, plus WI-18 ✅
+Current WI set: WI-16 (Execution Router) — Complete
+Next task: Await next Phase 5 WI after MAAP-cleared WI-16 commit.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

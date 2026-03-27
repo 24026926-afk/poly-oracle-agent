@@ -7,10 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.5.2
-- **Status:** Phase 5 In Progress (Market Data Integration)
-- **Tests:** 211 automated tests passing
-- **Coverage:** 91% (target: ≥ 80%)
+- **Version:** 0.5.3
+- **Status:** Phase 5 In Progress (Execution Routing)
+- **Tests:** 230 automated tests passing
+- **Coverage:** 92% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -141,6 +141,13 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 |---|---|---|---|---|
 | `INITIAL_BANKROLL_USDC` | Decimal | `1000` | No | Mock bankroll used when `DRY_RUN=true`; live sizing reads Polygon USDC balance on each evaluation |
 
+#### Execution Router
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `MAX_ORDER_USDC` | Decimal | `50` | No | Hard cap on any single WI-16 routed order in USDC |
+| `MAX_SLIPPAGE_TOLERANCE` | Decimal | `0.02` | No | Maximum allowed `best_ask` deviation above midpoint before routing fails closed |
+
 #### Gas
 
 | Variable | Type | Default | Required | Description |
@@ -213,8 +220,8 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 211 tests
-- 91% coverage (target: ≥ 80%)
+- 230 tests
+- 92% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 
@@ -325,7 +332,7 @@ graph TB
 | **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via injectable `MarketRepository` factory |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
 | **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via injectable `DecisionRepository` factory; route approved trades |
-| **4. Execution** | `BankrollSyncProvider`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, build/sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` with explicit commit-before-return boundaries |
+| **4. Execution** | `ExecutionRouter`, `BankrollSyncProvider`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, route validated BUY decisions into capped/slippage-checked order payloads, sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` with explicit commit-before-return boundaries |
 
 ### Safety Filters (Gatekeeper)
 

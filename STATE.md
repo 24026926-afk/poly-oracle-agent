@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-27
-**Version:** 0.5.2
-**Status:** Phase 5 In Progress — Market Data Integration
-**Active WI:** WI-18 Complete
+**Version:** 0.5.3
+**Status:** Phase 5 In Progress — Execution Routing
+**Active WI:** WI-16 Complete
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 211 |
-| Coverage | 91% (target ≥ 80%) |
+| Total tests | 230 |
+| Coverage | 92% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
 
@@ -91,6 +91,19 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - 46 WI-15 tests (31 unit + 15 integration) + 29 async fixture fixes, 200 total, zero regression
   - Key files: `src/agents/execution/signer.py`, `src/orchestrator.py`
 
+- [x] **WI-16 — Execution Router** (completed 2026-03-27)
+  - `ExecutionRouter` is the canonical WI-16 execution orchestrator in `src/agents/execution/execution_router.py`
+  - `ExecutionResult` / `ExecutionAction` typed routing contract added in `src/schemas/execution.py`
+  - Entry gate skips non-BUY and low-confidence decisions before any upstream order-book, bankroll, or signer call
+  - Decimal-only Kelly sizing: `edge = midpoint - threshold`, `odds = (1 - midpoint) / midpoint`, `kelly_scaled = (edge / odds) * config.kelly_fraction`
+  - Slippage guard rejects when `best_ask > midpoint_probability + max_slippage_tolerance`
+  - Order size capped at `min(kelly_fraction * bankroll, max_order_usdc)` with `maker_amount = int(order_size * Decimal("1e6"))`
+  - `dry_run=True` returns a typed `DRY_RUN` result with a full `OrderData` payload and never calls `sign_order()`
+  - `signer=None` is tolerated in dry run and returns `FAILED(reason="signer_unavailable")` when live routing is attempted without a signer
+  - New config: `max_order_usdc=Decimal("50")`, `max_slippage_tolerance=Decimal("0.02")`
+  - 19 new WI-16 tests (4 unit + 15 integration), 230 total, 92% coverage, full regression green
+  - Key files: `src/agents/execution/execution_router.py`, `src/schemas/execution.py`, `src/core/config.py`, `src/core/exceptions.py`, `src/orchestrator.py`
+
 - [x] **WI-18 — Bankroll Sync** (completed 2026-03-27)
   - `BankrollSyncProvider` is the canonical WI-18 balance reader in `src/agents/execution/bankroll_sync.py`
   - Read-only Polygon USDC `balanceOf` call only; no `approve`, `transfer`, `transferFrom`, or state mutation
@@ -121,14 +134,16 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | File | Purpose |
 |---|---|
 | `src/agents/execution/bankroll_sync.py` | `BankrollSyncProvider` — read-only Polygon USDC bankroll sync with typed request/result contracts |
+| `src/agents/execution/execution_router.py` | `ExecutionRouter` — BUY-only execution routing, Decimal Kelly sizing, slippage guard, dry-run bypass |
 | `src/agents/execution/signer.py` | `TransactionSigner` — canonical signer: legacy `sign_order()` + WI-15 `sign_order_secure()` |
 | `src/agents/execution/polymarket_client.py` | `PolymarketClient` — read-only CLOB market data + `MarketSnapshot` |
+| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` — typed router outputs with Decimal financial fields |
 | `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs |
-| `src/orchestrator.py` | Main entry point; spins up 5 async tasks and wires bankroll sync into execution sizing |
+| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs, WI-16 order cap and slippage tolerance |
+| `src/orchestrator.py` | Main entry point; spins up 5 async tasks and wires bankroll sync plus execution router at startup |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

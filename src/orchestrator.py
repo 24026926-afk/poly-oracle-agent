@@ -23,8 +23,10 @@ from src.agents.evaluation.claude_client import ClaudeClient
 from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
+from src.agents.execution.execution_router import ExecutionRouter
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
+from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.signer import TransactionSigner
 from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
@@ -74,12 +76,19 @@ class Orchestrator:
             db_session_factory=AsyncSessionLocal,
             bankroll_sync=self.bankroll_sync,
         )
+        self.polymarket_client = PolymarketClient(host=self.config.clob_rest_url)
 
         # WI-15: signer constructed only when not in dry_run mode.
         # dry_run=True → no key material loaded, no signer instantiated.
         self.signer: TransactionSigner | None = None
         if not self.config.dry_run:
             self.signer = TransactionSigner(config=self.config)
+        self.execution_router = ExecutionRouter(
+            config=self.config,
+            polymarket_client=self.polymarket_client,
+            bankroll_provider=self.bankroll_sync,
+            transaction_signer=self.signer,
+        )
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
