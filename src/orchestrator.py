@@ -63,7 +63,6 @@ class Orchestrator:
         self._tasks: list[asyncio.Task[Any]] = []
 
         self.w3 = AsyncWeb3(AsyncHTTPProvider(self.config.polygon_rpc_url))
-        self.signer = TransactionSigner(config=self.config)
         self.nonce_manager = NonceManager(
             self.w3, self.config.wallet_address, dry_run=self.config.dry_run,
         )
@@ -72,6 +71,12 @@ class Orchestrator:
             config=self.config,
             db_session_factory=AsyncSessionLocal,
         )
+
+        # WI-15: signer constructed only when not in dry_run mode.
+        # dry_run=True → no key material loaded, no signer instantiated.
+        self.signer: TransactionSigner | None = None
+        if not self.config.dry_run:
+            self.signer = TransactionSigner(config=self.config)
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
@@ -187,6 +192,10 @@ class Orchestrator:
                             if eval_resp else "unknown"
                         ),
                     )
+                    continue
+
+                if self.signer is None:
+                    logger.error("execution.signer_not_initialized")
                     continue
 
                 signed_order = await self.signer.build_order_from_decision(

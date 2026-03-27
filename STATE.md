@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-26
-**Version:** 0.5.0
+**Last Updated:** 2026-03-27
+**Version:** 0.5.1
 **Status:** Phase 5 In Progress — Market Data Integration
-**Active WI:** WI-14 Complete
+**Active WI:** WI-15 Complete
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 153 |
+| Total tests | 200 |
 | Coverage | 91% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
@@ -78,6 +78,19 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - 34 new tests (24 unit + 6 integration + 4 MAAP fixes), 153 total, 91% coverage
   - Key files: `src/agents/execution/polymarket_client.py`, `src/agents/evaluation/claude_client.py`, `pyproject.toml`
 
+- [x] **WI-15 — Wallet Signer** (completed 2026-03-27)
+  - `TransactionSigner` is the single canonical WI-15 signer in `src/agents/execution/signer.py`
+  - `KeyProvider` protocol: vault or encrypted keystore only — no `os.environ`, no `.env`
+  - `SignRequest` Pydantic model: chain_id=137 enforcement, Decimal-only amounts, float rejected at boundary
+  - `SignedArtifact` typed output: signature, owner, signed_at_utc, key_source_type
+  - `sign_order_secure()` async WI-15 entry point, fail-closed, no transmission/broadcast capability
+  - Source type enforcement: rejects all key sources except `vault` and `encrypted_keystore`
+  - Address mismatch guard: derived key must match expected_address
+  - Module isolation: zero imports from evaluation, context, or market-data modules
+  - Orchestrator dry_run gate: `TransactionSigner` not constructed when `dry_run=True`
+  - 46 WI-15 tests (31 unit + 15 integration) + 29 async fixture fixes, 200 total, zero regression
+  - Key files: `src/agents/execution/signer.py`, `src/orchestrator.py`
+
 ---
 
 ## Active Constraints (always enforced)
@@ -95,6 +108,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | File | Purpose |
 |---|---|
+| `src/agents/execution/signer.py` | `TransactionSigner` — canonical signer: legacy `sign_order()` + WI-15 `sign_order_secure()` |
 | `src/agents/execution/polymarket_client.py` | `PolymarketClient` — read-only CLOB market data + `MarketSnapshot` |
 | `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |

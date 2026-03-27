@@ -6,15 +6,21 @@ EIP-712 Typed Data Signer for Polymarket CTF Exchange orders.
 Signs orders from first principles using ``eth_account`` — no dependency
 on ``py-order-utils`` or ``py-clob-client``.  Domain and type definitions
 match the on-chain CTF Exchange contract deployed on Polygon PoS.
+
+WI-15 additions: secure key-provider protocol, typed ``SignRequest`` /
+``SignedArtifact`` contracts, source-type enforcement, and async
+``sign_order(request)`` entry point.
 """
 
 import secrets
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict
+from typing import Any, Dict, Literal, Protocol
 
 import structlog
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
+from pydantic import BaseModel, Field, field_validator
 
 from src.core.config import AppConfig
 from src.core.exceptions import DryRunActiveError
@@ -53,6 +59,8 @@ EIP712_ORDER_TYPES: Dict[str, list] = {
     ],
 }
 
+_VALID_SOURCE_TYPES = frozenset({"vault", "encrypted_keystore"})
+
 
 def _build_eip712_domain(neg_risk: bool = False) -> Dict[str, Any]:
     """Return the EIP-712 domain separator dict for the CTF Exchange."""
@@ -84,51 +92,201 @@ def _order_to_message(order: OrderData) -> Dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# WI-15: Key Provider Protocol
+# ---------------------------------------------------------------------------
+class KeyProvider(Protocol):
+    """Secure key provider interface (vault or encrypted keystore only)."""
+
+    async def load_private_key(self, key_ref: str) -> str: ...
+
+    async def source_type(self) -> Literal["vault", "encrypted_keystore"]: ...
+
+
+# ---------------------------------------------------------------------------
+# WI-15: Data Contracts (Pydantic V2)
+# ---------------------------------------------------------------------------
+class SignRequest(BaseModel):
+    """Typed unsigned signing request — validated at schema boundary."""
+
+    order: OrderData = Field(..., description="Full canonical Polymarket order payload")
+    chain_id: int = Field(default=CHAIN_ID, description="Must be 137 (Polygon PoS)")
+    neg_risk: bool = Field(default=False, description="Use neg-risk exchange")
+    key_ref: str = Field(..., description="Opaque vault/keystore secret reference")
+    maker_amount_usdc: Decimal = Field(
+        ..., gt=Decimal("0"), description="Maker USDC amount (must be positive)",
+    )
+    taker_amount_usdc: Decimal = Field(
+        ..., gt=Decimal("0"), description="Taker USDC amount (must be positive)",
+    )
+
+    @field_validator("chain_id")
+    @classmethod
+    def _validate_polygon_chain(cls, v: int) -> int:
+        if v != CHAIN_ID:
+            raise ValueError(f"chain_id must be {CHAIN_ID} (Polygon), got {v}")
+        return v
+
+    @field_validator("maker_amount_usdc", "taker_amount_usdc", mode="before")
+    @classmethod
+    def _reject_float_amounts(cls, v: Any) -> Decimal:
+        if isinstance(v, float):
+            raise ValueError("Float amounts forbidden in signer path — use Decimal")
+        return v
+
+    model_config = {"frozen": True}
+
+
+class SignedArtifact(BaseModel):
+    """Typed signed output — signature and audit metadata only."""
+
+    signature: str = Field(
+        ..., min_length=2, description="Hex EIP-712 signature (0x-prefixed)",
+    )
+    owner: str = Field(..., description="Checksummed signer address")
+    signed_at_utc: datetime = Field(..., description="UTC timestamp of signing")
+    key_source_type: str = Field(
+        ..., description="Key source: 'vault' or 'encrypted_keystore'",
+    )
+
+    model_config = {"frozen": True}
+
+
+# ---------------------------------------------------------------------------
+# TransactionSigner — canonical signer class
+# ---------------------------------------------------------------------------
 class TransactionSigner:
     """
     Constructs and signs Polymarket CLOB orders via EIP-712 typed data.
 
-    The signer holds its own ``LocalAccount`` derived from the private key
-    stored in ``AppConfig``.  All signing is local — no RPC call required.
+    Supports two construction modes:
+
+    * **Legacy** — ``TransactionSigner(config=cfg)`` reads key from
+      ``AppConfig`` eagerly.  Used by existing pipeline callers.
+    * **WI-15 secure** — ``TransactionSigner(key_provider=provider)``
+      defers key retrieval to the async ``sign_order()`` path.
     """
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self,
+        config: AppConfig | None = None,
+        *,
+        key_provider: KeyProvider | None = None,
+        expected_address: str | None = None,
+    ) -> None:
         self._config = config
-        raw_key: str = config.wallet_private_key.get_secret_value()
-        self._account: LocalAccount = Account.from_key(raw_key)
-        logger.info(
-            "transaction_signer.initialised",
-            address=self._account.address,
-        )
+        self._key_provider = key_provider
+        self._expected_address = expected_address
+        self._account: LocalAccount | None = None
+
+        # Legacy mode: eagerly load key from config
+        if config is not None and key_provider is None:
+            raw_key: str = config.wallet_private_key.get_secret_value()
+            self._account = Account.from_key(raw_key)
+            logger.info(
+                "transaction_signer.initialised",
+                address=self._account.address,
+            )
 
     # -- public properties --------------------------------------------------
 
     @property
     def address(self) -> str:
+        if self._account is None:
+            raise RuntimeError("Address unavailable in key-provider mode")
         return self._account.address
 
-    # -- signing ------------------------------------------------------------
+    # -- WI-15 async signing entry point ------------------------------------
+
+    async def sign_order_secure(self, request: SignRequest) -> SignedArtifact:
+        """
+        Sign the full canonical order payload via EIP-712 for Polygon.
+
+        Loads key just-in-time from the configured provider, validates
+        source type, signs the order, and returns a typed artifact.
+        No side effects — no transmission or state mutation.
+        """
+        if self._key_provider is None:
+            raise RuntimeError("sign_order_secure() requires key_provider")
+
+        # Check source type BEFORE loading key material
+        source_type = await self._key_provider.source_type()
+        if source_type not in _VALID_SOURCE_TYPES:
+            raise ValueError(
+                f"Forbidden key source type: {source_type!r} "
+                f"(allowed: {sorted(_VALID_SOURCE_TYPES)})"
+            )
+
+        raw_key: str | None = None
+        try:
+            raw_key = await self._key_provider.load_private_key(request.key_ref)
+        except Exception:
+            logger.error(
+                "signer.key_provider_failed",
+                key_ref_hash=hash(request.key_ref),
+            )
+            raise
+
+        try:
+            account: LocalAccount = Account.from_key(raw_key)
+        except Exception:
+            logger.error("signer.key_derivation_failed")
+            raise
+        finally:
+            raw_key = None  # noqa: F841
+
+        # Address mismatch guard
+        if (
+            self._expected_address is not None
+            and account.address.lower() != self._expected_address.lower()
+        ):
+            logger.error(
+                "signer.address_mismatch",
+                expected=self._expected_address,
+                derived=account.address,
+            )
+            raise ValueError(
+                f"Derived address {account.address} does not match "
+                f"expected {self._expected_address}"
+            )
+
+        # Sign the full canonical order
+        domain = _build_eip712_domain(request.neg_risk)
+        message = _order_to_message(request.order)
+
+        signed = account.sign_typed_data(
+            domain_data=domain,
+            message_types=EIP712_ORDER_TYPES,
+            message_data=message,
+        )
+
+        sig_hex: str = signed.signature.hex()
+        if not sig_hex.startswith("0x"):
+            sig_hex = "0x" + sig_hex
+
+        logger.info(
+            "signer.signed",
+            owner=account.address,
+            key_source_type=source_type,
+            sig_prefix=sig_hex[:10],
+        )
+
+        return SignedArtifact(
+            signature=sig_hex,
+            owner=account.address,
+            signed_at_utc=datetime.now(timezone.utc),
+            key_source_type=source_type,
+        )
+
+    # -- legacy signing -------------------------------------------------------
 
     def sign_order(
         self,
         order: OrderData,
         neg_risk: bool = False,
     ) -> SignedOrder:
-        """
-        Produce an EIP-712 signature for *order*.
-
-        Args:
-            order: Validated ``OrderData`` with all fields populated.
-            neg_risk: ``True`` to use the neg-risk exchange contract.
-
-        Returns:
-            ``SignedOrder`` containing the original order, hex signature,
-            and the checksummed signer address.
-
-        Raises:
-            DryRunActiveError: If ``dry_run`` is enabled in config.
-        """
-        if self._config.dry_run:
+        """Sync signing — used by ``build_order_from_decision`` and legacy callers."""
+        if self._config is not None and self._config.dry_run:
             logger.info(
                 "signer.dry_run_skip",
                 dry_run=True,
@@ -136,6 +294,9 @@ class TransactionSigner:
                 side=order.side.name,
             )
             raise DryRunActiveError("Order signing blocked: dry_run=True")
+
+        if self._account is None:
+            raise RuntimeError("Legacy signing requires config-based construction")
 
         domain = _build_eip712_domain(neg_risk)
         message = _order_to_message(order)
@@ -147,7 +308,6 @@ class TransactionSigner:
         )
 
         sig_hex: str = signed.signature.hex()
-        # Ensure 0x prefix
         if not sig_hex.startswith("0x"):
             sig_hex = "0x" + sig_hex
 
@@ -177,18 +337,12 @@ class TransactionSigner:
         """
         Map an approved agent decision into a signed ``OrderData``.
 
-        ``decision`` is expected to carry:
-        - ``evaluation`` — an ``LLMEvaluationResponse``
-        - ``snapshot_id`` — for traceability (not encoded on-chain)
+        ``decision`` is expected to carry an evaluation response and a
+        ``snapshot_id`` for traceability (not encoded on-chain).
 
         A random 256-bit salt guarantees order uniqueness.
-
-        Raises:
-            DryRunActiveError: If ``dry_run`` is enabled in config.
-            ValueError: If ``bankroll_tracker`` is not provided.
-            ExposureLimitError: If trade exceeds bankroll/exposure limits.
         """
-        if self._config.dry_run:
+        if self._config is not None and self._config.dry_run:
             logger.info(
                 "signer.dry_run_skip",
                 dry_run=True,
