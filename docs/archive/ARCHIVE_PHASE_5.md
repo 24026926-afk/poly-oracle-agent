@@ -7,7 +7,7 @@
 
 ---
 
-## Phase 5 Objectives
+## Phase 5 Summary
 
 Phase 5 hardened the execution surface by wiring fresh market data, secure signing, live bankroll awareness, and pre-broadcast order routing into the existing 4-layer async pipeline.
 
@@ -23,6 +23,8 @@ The goal was to move from cognitive approval alone to an execution-aware system 
 ## Completed Work Items
 
 ### WI-14: Polymarket Market Data Client
+**Status:** COMPLETE
+
 **Objective:** Introduce a read-only CLOB market data client for fresh execution-time pricing.
 
 **Deliverables:**
@@ -36,6 +38,8 @@ The goal was to move from cognitive approval alone to an execution-aware system 
 - No signer, private key, or broadcast capability was introduced into the market-data client
 
 ### WI-15: Wallet Signer
+**Status:** COMPLETE
+
 **Objective:** Create a secure canonical signer surface for Polymarket EIP-712 orders.
 
 **Deliverables:**
@@ -49,7 +53,24 @@ The goal was to move from cognitive approval alone to an execution-aware system 
 - `TransactionSigner` is not constructed when `dry_run=True`
 - No broadcast or state mutation capability was added to the signer itself
 
+### WI-18: Bankroll Sync
+**Status:** COMPLETE
+
+**Objective:** Replace static mock bankroll sizing with a live Polygon USDC balance read.
+
+**Deliverables:**
+- `BankrollSyncProvider` in `src/agents/execution/bankroll_sync.py`
+- `BalanceReadRequest` / `BalanceReadResult` typed contracts
+- live `balanceOf` read wrapped in a 500 ms timeout
+
+**Key Outcomes:**
+- Kelly sizing can use fresh bankroll data instead of a hardcoded mock amount
+- `dry_run=True` returns the configured mock bankroll before any RPC contact
+- No approvals, transfers, or on-chain state mutation were introduced
+
 ### WI-16: Execution Router
+**Status:** COMPLETE
+
 **Objective:** Connect validated BUY decisions to sized, slippage-checked, signable order payloads.
 
 **Deliverables:**
@@ -65,18 +86,24 @@ The goal was to move from cognitive approval alone to an execution-aware system 
 - `dry_run=True` builds and logs a full order payload but never calls `sign_order()`
 - Live routing without a signer fails closed with `FAILED(reason="signer_unavailable")`
 
-### WI-18: Bankroll Sync
-**Objective:** Replace static mock bankroll sizing with a live Polygon USDC balance read.
+---
 
-**Deliverables:**
-- `BankrollSyncProvider` in `src/agents/execution/bankroll_sync.py`
-- `BalanceReadRequest` / `BalanceReadResult` typed contracts
-- live `balanceOf` read wrapped in a 500 ms timeout
+## Key Architectural Decisions Made
 
-**Key Outcomes:**
-- Kelly sizing can use fresh bankroll data instead of a hardcoded mock amount
-- `dry_run=True` returns the configured mock bankroll before any RPC contact
-- No approvals, transfers, or on-chain state mutation were introduced
+1. **Fresh market data was injected before reasoning, not after routing**
+   - `ClaudeClient` fetches `PolymarketClient` order-book data before prompt construction so midpoint and spread are part of the evaluated decision context, not an after-the-fact execution patch.
+
+2. **Signing stayed isolated from routing and broadcasting**
+   - `TransactionSigner` owns typed EIP-712 signing only, while `ExecutionRouter` owns orchestration and `OrderBroadcaster` remains the submission boundary.
+
+3. **Live bankroll was promoted into Phase 5 and treated as a first-class execution dependency**
+   - `BankrollSyncProvider` replaced static bankroll assumptions in live mode so Kelly sizing is based on current Polygon USDC balance.
+
+4. **Execution routing was formalized as a typed contract instead of an implicit side effect**
+   - `ExecutionAction` and `ExecutionResult` make skip, dry-run, failure, and executed outcomes explicit and auditable.
+
+5. **Phase 5 preserved the existing queue topology and Gatekeeper authority**
+   - The system remained a 4-layer async pipeline with `LLMEvaluationResponse` as the immutable terminal validation boundary before Layer 4 execution work.
 
 ---
 
@@ -132,7 +159,7 @@ Phase 5 preserved the queue topology and async runtime model:
 
 ---
 
-## Critical Invariants Established / Preserved
+## Invariants Established / Preserved
 
 1. **Decimal-only financial math**
    - Market data pricing, bankroll reads, Kelly sizing, slippage checks, and order sizing all remain Decimal-safe.
@@ -160,12 +187,26 @@ Phase 5 preserved the queue topology and async runtime model:
 
 ---
 
-## Metrics
+## Final Metrics
 
 - **Total Tests:** 230
 - **Passing:** 230/230 ✅
 - **Coverage:** 92% ✅
 - **Regression Gate:** `pytest --asyncio-mode=auto tests/ -q` green
+
+---
+
+## Next Phase (Phase 6)
+
+**Objective:** Move from pre-broadcast execution readiness into full position lifecycle management and exit-decision logic while preserving Phase 5 execution safety guarantees.
+
+**Planned WIs:**
+- `WI-17 — Position Tracker`
+  Persist and reconstruct open-position state from execution outcomes, maintain position lifecycle visibility, and add the missing tracking layer explicitly deferred by WI-16.
+- `WI-19 — Exit Strategy Engine`
+  Introduce the decision layer for managing open positions after entry, including conservative exit evaluation and typed exit-path orchestration.
+
+Detailed scope is to be finalized in the Phase 6 PRD.
 
 ---
 
