@@ -7,10 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.4.0-draft
-- **Status:** Phase 4 Planning (Cognitive Architecture)
-- **Tests:** 92 automated tests passing
-- **Coverage:** 90% (target: ≥ 80%)
+- **Version:** 0.5.2
+- **Status:** Phase 5 In Progress (Market Data Integration)
+- **Tests:** 211 automated tests passing
+- **Coverage:** 91% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -139,7 +139,7 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `INITIAL_BANKROLL_USDC` | Decimal | `1000` | No | Starting bankroll in USDC for position sizing |
+| `INITIAL_BANKROLL_USDC` | Decimal | `1000` | No | Mock bankroll used when `DRY_RUN=true`; live sizing reads Polygon USDC balance on each evaluation |
 
 #### Gas
 
@@ -195,25 +195,26 @@ Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clie
 Run full suite:
 
 ```bash
-pytest --asyncio-mode=auto tests/
+python -m pytest --asyncio-mode=auto tests/
 ```
 
 Run with coverage:
 
 ```bash
-coverage run -m pytest && coverage report -m
+python -m coverage run -m pytest tests/ --asyncio-mode=auto
+python -m coverage report -m
 ```
 
 Run focused tests:
 
 ```bash
-pytest tests/unit/test_schemas.py -v
-pytest tests/unit/test_nonce_manager.py -v
+python -m pytest tests/unit/test_schemas.py -v
+python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 92 tests
-- 90% coverage (target: ≥ 80%)
+- 211 tests
+- 91% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 
@@ -324,7 +325,7 @@ graph TB
 | **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via injectable `MarketRepository` factory |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
 | **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via injectable `DecisionRepository` factory; route approved trades |
-| **4. Execution** | `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Build/sign EIP-712 orders; manage nonces; estimate gas; broadcast to CLOB; persist and query via `ExecutionRepository` (`insert_execution`, status updates, `get_aggregate_exposure`) with explicit commit-before-return boundaries |
+| **4. Execution** | `BankrollSyncProvider`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, build/sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` with explicit commit-before-return boundaries |
 
 ### Safety Filters (Gatekeeper)
 
@@ -414,5 +415,5 @@ Alembic is the only supported schema management path. Never use `Base.metadata.c
 | `orchestrator.no_eligible_markets_at_startup` | No markets pass discovery filters | Verify Gamma API is reachable; check `MIN_TTR_HOURS` and `MAX_EXPOSURE_PCT` thresholds |
 | WebSocket disconnects / reconnect loops | Network instability or CLOB endpoint down | Built-in exponential backoff (1s → 60s); check `CLOB_WS_URL` |
 | `GasEstimatorError` | Gas price exceeds `MAX_GAS_PRICE_GWEI` ceiling (500 Gwei) | Polygon network congestion; wait or raise ceiling |
-| `ExposureLimitError` | Trade exceeds exposure cap or available bankroll | Expected safety behavior; increase `INITIAL_BANKROLL_USDC` or wait for positions to resolve |
-| Empty test results | Dependencies not installed | Run `pip install -e .` then `pytest --asyncio-mode=auto tests/` |
+| `ExposureLimitError` | Trade exceeds exposure cap or available bankroll | Expected safety behavior; wait for positions to resolve or, in `DRY_RUN=true`, adjust `INITIAL_BANKROLL_USDC` mock balance |
+| Empty test results | Dependencies not installed | Run `pip install -e .` then `python -m pytest --asyncio-mode=auto tests/` |

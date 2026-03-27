@@ -20,6 +20,7 @@ from web3 import AsyncHTTPProvider, AsyncWeb3
 from src.agents.context.aggregator import DataAggregator
 from src.agents.context.prompt_factory import PromptFactory
 from src.agents.evaluation.claude_client import ClaudeClient
+from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
 from src.agents.execution.gas_estimator import GasEstimator
@@ -67,9 +68,11 @@ class Orchestrator:
             self.w3, self.config.wallet_address, dry_run=self.config.dry_run,
         )
         self.gas_estimator = GasEstimator(self.w3)
+        self.bankroll_sync = BankrollSyncProvider(config=self.config)
         self.bankroll_tracker = BankrollPortfolioTracker(
             config=self.config,
             db_session_factory=AsyncSessionLocal,
+            bankroll_sync=self.bankroll_sync,
         )
 
         # WI-15: signer constructed only when not in dry_run mode.

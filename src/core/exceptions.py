@@ -47,6 +47,24 @@ class ExposureLimitError(PolyOracleError):
     """Raised when a trade would exceed exposure or bankroll limits."""
 
 
+class BalanceFetchError(PolyOracleError):
+    """Raised when the live bankroll balance cannot be fetched safely."""
+
+    def __init__(
+        self,
+        reason: str,
+        wallet_address: str | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        message = reason
+        if wallet_address:
+            message = f"{reason} (wallet_address={wallet_address})"
+        super().__init__(message)
+        self.reason = reason
+        self.wallet_address = wallet_address
+        self.cause = cause
+
+
 class WebSocketError(PolyOracleError):
     """Raised on CLOB WebSocket connection failures."""
 
