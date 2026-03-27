@@ -20,8 +20,10 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -47,7 +49,7 @@ def anyio_backend():
 # Database fixtures (unit + integration)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def async_engine():
     """Create an in-memory async SQLite engine and provision all tables."""
     engine = create_async_engine(
@@ -65,7 +67,7 @@ async def async_engine():
     await engine.dispose()
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def async_session(async_engine):
     """Yield an AsyncSession that rolls back after each test."""
     session_factory = async_sessionmaker(
@@ -81,8 +83,8 @@ async def async_session(async_engine):
             await session.rollback()
 
 
-@pytest.fixture()
-def db_session_factory(async_engine):
+@pytest_asyncio.fixture()
+async def db_session_factory(async_engine):
     """Return an async_sessionmaker bound to the in-memory test engine."""
     return async_sessionmaker(
         bind=async_engine,
@@ -119,6 +121,10 @@ def test_config() -> AppConfig:
         initial_bankroll_usdc=Decimal("10000"),
         max_gas_price_gwei=500.0,
         fallback_gas_price_gwei=50.0,
+        grok_api_key=SecretStr("grok-test-fake-key-000"),
+        grok_base_url="http://localhost:9996",
+        grok_model="grok-3",
+        grok_mocked=True,
         database_url="sqlite+aiosqlite://",
         log_level="DEBUG",
         dry_run=True,
@@ -239,3 +245,51 @@ def mock_anthropic_hold_json() -> str:
         action="BUY",
         confidence=0.50,  # below 0.75 → gatekeeper overrides to HOLD
     )
+
+
+# ---------------------------------------------------------------------------
+# Mock Reflection Auditor response (integration — WI-13)
+# ---------------------------------------------------------------------------
+
+APPROVED_REFLECTION_JSON: str = json.dumps({
+    "verdict": "APPROVED",
+    "bias_flags": [],
+    "consistency_flags": [],
+    "risk_flags": [],
+    "audit_note": "No issues found.",
+    "latency_ms": 50,
+})
+
+
+@pytest.fixture()
+def mock_reflection_approved_json() -> str:
+    """Canned ReflectionResponse JSON that approves the candidate unchanged."""
+    return APPROVED_REFLECTION_JSON
+
+
+# ---------------------------------------------------------------------------
+# WI-14: Mock PolymarketClient fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def mock_polymarket(monkeypatch):
+    """Patch PolymarketClient in ClaudeClient to return a valid MarketSnapshot."""
+    from src.agents.execution.polymarket_client import MarketSnapshot as _Snap
+
+    snapshot = _Snap(
+        token_id="tok-yes-001",
+        best_bid=Decimal("0.45"),
+        best_ask=Decimal("0.455"),
+        midpoint_probability=Decimal("0.4525"),
+        spread=Decimal("0.005"),
+        fetched_at_utc=datetime.now(timezone.utc),
+        source="clob_orderbook",
+    )
+
+    mock_instance = MagicMock()
+    mock_instance.fetch_order_book = AsyncMock(return_value=snapshot)
+    mock_class = MagicMock(return_value=mock_instance)
+    monkeypatch.setattr(
+        "src.agents.evaluation.claude_client.PolymarketClient", mock_class
+    )
+    return mock_instance

@@ -23,6 +23,7 @@ from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
 from src.db.models import AgentDecisionLog, ExecutionTx, MarketSnapshot
 from src.schemas.market import MarketMetadata
+from tests.conftest import APPROVED_REFLECTION_JSON
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,11 @@ def _mock_anthropic_response(raw_json: str):
     resp.content = [content_block]
     resp.usage = usage
     return resp
+
+
+def _approved_reflection():
+    """Return a mock Anthropic response wrapping an APPROVED reflection."""
+    return _mock_anthropic_response(APPROVED_REFLECTION_JSON)
 
 
 def _book_frame_json() -> str:
@@ -67,6 +73,7 @@ async def test_full_pipeline_dry_run_proof(
     mock_anthropic_buy_json,
     async_engine,
     db_session_factory,
+    mock_polymarket,
 ):
     """
     Full 4-layer pipeline proof in dry_run mode:
@@ -130,11 +137,15 @@ async def test_full_pipeline_dry_run_proof(
     )
     claude.client = MagicMock()
     claude.client.messages.create = AsyncMock(
-        return_value=_mock_anthropic_response(mock_anthropic_buy_json)
+        side_effect=[
+            _mock_anthropic_response(mock_anthropic_buy_json),
+            _approved_reflection(),
+        ],
     )
 
     # Use the snapshot_id from ingestion for FK linkage
     prompt_item["snapshot_id"] = snapshot_id
+    prompt_item["yes_token_id"] = "tok-yes-001"
     await claude._process_evaluation(prompt_item)
 
     assert execution_queue.qsize() == 1
@@ -215,6 +226,7 @@ async def test_persistence_all_three_tables(
     mock_anthropic_buy_json,
     async_engine,
     db_session_factory,
+    mock_polymarket,
 ):
     """After a pipeline flow, verify rows exist in all three tables as expected."""
     # -- Ingestion: persist a snapshot --
@@ -241,12 +253,16 @@ async def test_persistence_all_three_tables(
     )
     claude.client = MagicMock()
     claude.client.messages.create = AsyncMock(
-        return_value=_mock_anthropic_response(mock_anthropic_buy_json)
+        side_effect=[
+            _mock_anthropic_response(mock_anthropic_buy_json),
+            _approved_reflection(),
+        ],
     )
 
     await claude._process_evaluation({
         "prompt": "Evaluate this market",
         "snapshot_id": snapshot_id,
+        "yes_token_id": "tok-yes-001",
     })
 
     # -- Verify all three tables --

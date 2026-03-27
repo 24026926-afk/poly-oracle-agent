@@ -91,6 +91,16 @@ class AppConfig(BaseSettings):
         description="Seed bankroll in USDC (override via INITIAL_BANKROLL_USDC env var)",
     )
 
+    # --- Execution Router (WI-16) ---
+    max_order_usdc: Decimal = Field(
+        default=Decimal("50"),
+        description="Hard cap on any single order in USDC",
+    )
+    max_slippage_tolerance: Decimal = Field(
+        default=Decimal("0.02"),
+        description="Max allowed deviation of best_ask above midpoint (2%)",
+    )
+
     # --- Gas ---
     max_gas_price_gwei: float = Field(
         default=500.0, description="Hard safety ceiling for gas price in Gwei"
@@ -103,6 +113,24 @@ class AppConfig(BaseSettings):
     database_url: str = Field(
         default="sqlite+aiosqlite:///./poly_oracle.db",
         description="Async database connection string",
+    )
+
+    # --- Grok Sentiment Oracle (WI-12) ---
+    grok_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="API key for Grok sentiment oracle",
+    )
+    grok_base_url: str = Field(
+        default="https://api.x.ai/v1",
+        description="Grok API base URL",
+    )
+    grok_model: str = Field(
+        default="grok-3",
+        description="Grok model identifier",
+    )
+    grok_mocked: bool = Field(
+        default=True,
+        description="Use deterministic mock sentiment responses (set False for live API)",
     )
 
     # --- Operational ---

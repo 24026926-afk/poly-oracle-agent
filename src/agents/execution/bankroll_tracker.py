@@ -17,10 +17,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import Decimal
+from typing import Any
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.core.config import AppConfig
 from src.core.exceptions import ExposureLimitError
 from src.db.repositories.execution_repo import ExecutionRepository
@@ -42,18 +44,27 @@ class BankrollPortfolioTracker:
         execution_repo_factory: Callable[
             [AsyncSession], ExecutionRepository
         ] = ExecutionRepository,
+        bankroll_sync: BankrollSyncProvider | None = None,
     ) -> None:
         self._config = config
         self._db_factory = db_session_factory
         self._execution_repo_factory = execution_repo_factory
+        self._bankroll_sync = bankroll_sync or BankrollSyncProvider(config)
 
     # ------------------------------------------------------------------
     # Bankroll queries
     # ------------------------------------------------------------------
 
     async def get_total_bankroll(self) -> Decimal:
-        """Return the configured seed bankroll (USDC)."""
-        return self._config.initial_bankroll_usdc
+        """Return the current bankroll from the active sync provider."""
+        balance_result = await self._bankroll_sync.fetch_balance()
+        total_bankroll = self._extract_balance_usdc(balance_result)
+        logger.debug(
+            "bankroll.total_queried",
+            total_usdc=str(total_bankroll),
+            source="bankroll_sync",
+        )
+        return total_bankroll
 
     async def get_exposure(self, condition_id: str) -> Decimal:
         """Sum of PENDING + CONFIRMED execution sizes for *condition_id*."""
@@ -162,3 +173,11 @@ class BankrollPortfolioTracker:
             available_usdc=str(available),
             exposure_cap_usdc=str(exposure_cap),
         )
+
+    @staticmethod
+    def _extract_balance_usdc(balance_result: Any) -> Decimal:
+        if isinstance(balance_result, Decimal):
+            return balance_result
+        if hasattr(balance_result, "balance_usdc"):
+            return balance_result.balance_usdc
+        raise TypeError("Unsupported bankroll sync result type")

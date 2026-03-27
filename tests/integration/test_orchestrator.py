@@ -49,7 +49,8 @@ async def test_orchestrator_instantiation_no_crash(test_config):
     assert orch.execution_queue is not None
     assert orch.ws_client is not None
     assert orch.claude_client is not None
-    assert orch.signer is not None
+    # dry_run=True → signer must NOT be instantiated (WI-15 gate)
+    assert orch.signer is None
     assert orch.nonce_manager is not None
     assert orch.gas_estimator is not None
     assert orch.bankroll_tracker is not None
@@ -173,10 +174,10 @@ async def test_execution_consumer_dry_run_skips(test_config):
     with patch.multiple("src.orchestrator", **patches):
         orch = Orchestrator(test_config)
 
-    # Mock the broadcaster
+    # Mock the broadcaster; signer is None under dry_run (WI-15 gate)
     orch.broadcaster = AsyncMock()
     orch.broadcaster.broadcast = AsyncMock()
-    orch.signer.build_order_from_decision = AsyncMock()
+    assert orch.signer is None  # WI-15: not constructed under dry_run
 
     # Build a fake evaluation response with the expected shape
     fake_eval = MagicMock()
@@ -198,6 +199,25 @@ async def test_execution_consumer_dry_run_skips(test_config):
     except asyncio.CancelledError:
         pass
 
-    # dry_run=True → signer and broadcaster must NOT be called
-    orch.signer.build_order_from_decision.assert_not_awaited()
+    # dry_run=True → signer is None, broadcaster must NOT be called
+    assert orch.signer is None
     orch.broadcaster.broadcast.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dry_run_signer_never_constructed_no_key_access(test_config):
+    """WI-15: Orchestrator(dry_run=True) must never construct TransactionSigner
+    and must never access any key provider or key file."""
+    patches = _patch_heavy_deps()
+
+    with patch.multiple("src.orchestrator", **patches), \
+         patch("src.agents.execution.signer.TransactionSigner.__init__", return_value=None) as mock_init, \
+         patch("src.agents.execution.signer.Account.from_key") as mock_from_key:
+        orch = Orchestrator(test_config)
+
+    # TransactionSigner.__init__ must not have been called (dry_run gate)
+    mock_init.assert_not_called()
+    # Account.from_key must not have been called (no key material loaded)
+    mock_from_key.assert_not_called()
+    # signer attribute must be None
+    assert orch.signer is None
