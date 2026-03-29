@@ -13,7 +13,7 @@ above code elegance.
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
 - `docs/archive/` ← Historical context 
-- `docs/PRD`            ← Phase 4 scope and acceptance criteria
+- `docs/PRD-v4.0.md`            ← Phase 4 scope and acceptance criteria
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
 - `docs/business_logic.md`      ← EV rule: the single source of trade truth
@@ -34,8 +34,6 @@ These are the ONLY valid class names. Do NOT rename, alias, or create variants.
 | `src/agents/evaluation/claude_client.py`| `ClaudeClient`       |
 | `src/agents/context/aggregator.py`  | `DataAggregator`         |
 | `src/agents/context/prompt_factory.py`| `PromptFactory`        |
-| `src/agents/execution/position_tracker.py`| `PositionTracker`  |
-| `src/db/repositories/position_repository.py`| `PositionRepository` |
 
 ---
 
