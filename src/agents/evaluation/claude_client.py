@@ -251,6 +251,7 @@ class ClaudeClient:
                 snapshot_id=snapshot_id,
             )
             return
+        snapshot_yes_token_id = str(wi14_snapshot.token_id)
 
         # Enrich market_state with fresh WI-14 pricing
         market_state["best_bid"] = wi14_snapshot.best_bid
@@ -311,6 +312,14 @@ class ClaudeClient:
             )
             return
 
+        eval_resp = eval_resp.model_copy(
+            update={
+                "market_context": eval_resp.market_context.model_copy(
+                    update={"yes_token_id": snapshot_yes_token_id}
+                )
+            }
+        )
+
         # Build reflection audit envelope for persistence
         reflection_envelope = (
             f"[REFLECTION_AUDIT]{reflection.model_dump_json()}[/REFLECTION_AUDIT]"
@@ -347,6 +356,7 @@ class ClaudeClient:
             await self.out_queue.put({
                 "snapshot_id": snapshot_id,
                 "evaluation": eval_resp,
+                "yes_token_id": snapshot_yes_token_id,
             })
         else:
             logger.info("Trade REJECTED/HOLD by Gatekeeper.", snapshot_id=snapshot_id)

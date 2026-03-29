@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.schemas.position import PositionRecord, PositionStatus
 from src.schemas.web3 import OrderData, SignedOrder
 
 
@@ -60,3 +61,7 @@ class ExecutionResult(BaseModel):
         return Decimal(str(value))
 
     model_config = {"frozen": True}
+
+
+# Resolve the forward reference to ExecutionAction in PositionRecord.
+PositionRecord.model_rebuild(_types_namespace={"ExecutionAction": ExecutionAction})

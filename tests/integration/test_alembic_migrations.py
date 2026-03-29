@@ -13,6 +13,7 @@ EXPECTED_TABLES = {
     "market_snapshots",
     "agent_decision_logs",
     "execution_txs",
+    "positions",
 }
 
 
