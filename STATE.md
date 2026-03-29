@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-27
-**Version:** 0.6.0
-**Status:** Phase 5 Complete — Market Data Integration & Execution Routing
-**Active WI:** Phase 5 Complete
+**Last Updated:** 2026-03-29
+**Version:** 0.7.0
+**Status:** Phase 6 In Progress — Position Lifecycle
+**Active WI:** WI-17 Complete
 
 ---
 
@@ -20,10 +20,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 230 |
+| Total tests | 257 |
 | Coverage | 92% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
-| DB | `poly_oracle.db` (SQLite, 3 tables, Alembic-managed) |
+| DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
 ---
 
@@ -128,10 +128,31 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
+## Phase 6: Position Lifecycle
+
+### Work Items
+
+- [x] **WI-17 — Position Tracker** (completed 2026-03-29)
+  - `PositionTracker` persists execution outcomes as typed `PositionRecord` entries in `positions` table
+  - `PositionStatus` enum (`OPEN | CLOSED | FAILED`) and `PositionRecord` Pydantic model in `src/schemas/position.py`, re-exported from `src/schemas/execution.py`
+  - `Position` SQLAlchemy ORM model with `Numeric(38,18)` for all 5 financial columns, 3 indexes
+  - `PositionRepository` async CRUD in `src/db/repositories/position_repository.py` (5 methods, follows `ExecutionRepository` pattern)
+  - Alembic migration `0002_add_positions_table.py` (parent: `0001`)
+  - `record_execution(result, condition_id, token_id) -> PositionRecord | None` — sole public async entry point
+  - SKIP → `None`, EXECUTED/DRY_RUN → `OPEN`, FAILED → `FAILED` with `Decimal("0")` sentinels for None financials
+  - `dry_run=True` logs full record via structlog, zero DB writes, zero session creation
+  - Unreachable state guards: `EXECUTED+dry_run` and `DRY_RUN+live` log error and return `None`
+  - Orchestrator: constructed in `__init__()`, called in `_execution_consumer_loop()` before dry_run gate
+  - MAAP audit caught 2 orchestrator wiring defects (token_id field, dry_run bypass) — both fixed and re-cleared
+  - 27 new tests (unit + integration), 257 total, 92% coverage, full regression green
+  - Key files: `src/agents/execution/position_tracker.py`, `src/schemas/position.py`, `src/schemas/execution.py`, `src/db/models.py`, `src/db/repositories/position_repository.py`, `migrations/versions/0002_add_open_positions_table.py`, `src/orchestrator.py`
+
+---
+
 ## Active Constraints (always enforced)
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
-2. **Repository pattern** — `market_snapshots`, `agent_decision_logs`, `execution_txs` only through their respective repositories
+2. **Repository pattern** — `market_snapshots`, `agent_decision_logs`, `execution_txs`, `positions` only through their respective repositories
 3. **Pydantic Gatekeeper** — `LLMEvaluationResponse` is the final validation gate; no bypass
 4. **No hardcoded `condition_id`** — market discovery via `MarketDiscoveryEngine` only
 5. **`dry_run=True` blocks execution** — `OrderBroadcaster` enforces; always set in dev/test

@@ -34,6 +34,8 @@ These are the ONLY valid class names. Do NOT rename, alias, or create variants.
 | `src/agents/evaluation/claude_client.py`| `ClaudeClient`       |
 | `src/agents/context/aggregator.py`  | `DataAggregator`         |
 | `src/agents/context/prompt_factory.py`| `PromptFactory`        |
+| `src/agents/execution/position_tracker.py`| `PositionTracker`  |
+| `src/db/repositories/position_repository.py`| `PositionRepository` |
 
 ---
 

@@ -34,6 +34,10 @@ Invoke me for:
 7. All math uses Decimal. Never float.
 8. Pydantic dicts used for risk/sizing must include explicit @field_validators that recursively coerce floats to Decimals to prevent silent precision loss on JSON re-serialization.
 
+## WI-17 MAAP Findings (2026-03-29)
+- **Orchestrator token_id bug:** `record_execution()` was called with `condition_id` as the `token_id` parameter. These are distinct Polymarket identifiers. Always pass the YES token ID, not the condition ID, when recording a position.
+- **Orchestrator dry_run wiring:** `record_execution()` must be called in BOTH dry_run and live paths. The tracker's internal guard handles dry_run logging; the orchestrator must not short-circuit before the tracker call.
+
 ## Output Format
 - ✅ CORRECT or ❌ BUG per formula
 - Expected value vs computed value with example inputs

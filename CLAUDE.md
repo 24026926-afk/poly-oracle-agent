@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: feat/wi16-execution-router
-Active phase: Phase 5 — Complete
-Completed: WI-11 through WI-16, plus WI-18 ✅
-Current WI set: Phase 5 — Complete
-Next task: Await Phase 6 planning / next PRD-defined work item.
+Current branch: feat/wi17-position-tracker
+Active phase: Phase 6 — Position Lifecycle
+Completed: WI-11 through WI-18 ✅
+Current WI set: Phase 6 — WI-17 Complete
+Next task: Await next WI assignment (WI-19 or Phase 6 continuation).
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 
