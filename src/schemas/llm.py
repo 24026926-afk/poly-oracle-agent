@@ -128,6 +128,7 @@ class SentimentResponse(BaseModel):
 # ---------------------------------------------------------------------------
 class MarketContext(BaseModel):
     condition_id: str = Field(..., min_length=10)
+    yes_token_id: Optional[str] = None
     outcome_evaluated: OutcomeLabel
     best_bid: Annotated[float, Field(gt=0.0, lt=1.0)]
     best_ask: Annotated[float, Field(gt=0.0, lt=1.0)]

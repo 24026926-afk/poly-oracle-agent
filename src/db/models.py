@@ -12,6 +12,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
@@ -22,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -311,3 +313,57 @@ class ExecutionTx(Base):
             f"<ExecutionTx hash={self.tx_hash!r} "
             f"status={self.status.value} size={self.size_usdc:.2f} USDC>"
         )
+
+
+# ---------------------------------------------------------------------------
+# Table 4: Position
+# ---------------------------------------------------------------------------
+
+class Position(Base):
+    """Execution-time position tracking snapshot (WI-17)."""
+
+    __tablename__ = "positions"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_new_uuid
+    )
+    condition_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    token_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+
+    entry_price: Mapped[Decimal] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=False,
+    )
+    order_size_usdc: Mapped[Decimal] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=False,
+    )
+    kelly_fraction: Mapped[Decimal] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=False,
+    )
+    best_ask_at_entry: Mapped[Decimal] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=False,
+    )
+    bankroll_usdc_at_entry: Mapped[Decimal] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=False,
+    )
+
+    execution_action: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    routed_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+
+    __table_args__ = (
+        Index("ix_positions_condition_id", "condition_id"),
+        Index("ix_positions_status", "status"),
+        Index("ix_positions_condition_id_status", "condition_id", "status"),
+    )

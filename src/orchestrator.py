@@ -27,6 +27,7 @@ from src.agents.execution.execution_router import ExecutionRouter
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
 from src.agents.execution.polymarket_client import PolymarketClient
+from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
 from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
@@ -88,6 +89,10 @@ class Orchestrator:
             polymarket_client=self.polymarket_client,
             bankroll_provider=self.bankroll_sync,
             transaction_signer=self.signer,
+        )
+        self.position_tracker = PositionTracker(
+            config=self.config,
+            db_session_factory=AsyncSessionLocal,
         )
 
         self.ws_client = CLOBWebSocketClient(
@@ -186,37 +191,65 @@ class Orchestrator:
                     logger.error("execution.broadcaster_not_initialized")
                     continue
 
+                eval_resp = item.get("evaluation")
+                if eval_resp is None:
+                    logger.error("execution.missing_evaluation")
+                    continue
+
+                execution_result = await self.execution_router.route(
+                    response=eval_resp,
+                    market_context=eval_resp.market_context,
+                )
+                item["execution_result"] = execution_result
+
+                condition_id = str(eval_resp.market_context.condition_id)
+                yes_token_id = item.get("yes_token_id")
+                if yes_token_id is None:
+                    yes_token_id = getattr(eval_resp.market_context, "yes_token_id", None)
+                if yes_token_id is None:
+                    logger.warning(
+                        "execution.position_tracking_skipped_missing_yes_token_id",
+                        condition_id=condition_id,
+                    )
+                else:
+                    try:
+                        await self.position_tracker.record_execution(
+                            result=execution_result,
+                            condition_id=condition_id,
+                            token_id=str(yes_token_id),
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "execution.position_tracking_error",
+                            error=str(exc),
+                        )
+
                 if self.config.dry_run:
-                    eval_resp = item.get("evaluation")
                     logger.info(
                         "execution.dry_run_skip",
                         dry_run=True,
-                        condition_id=str(
-                            eval_resp.market_context.condition_id
-                            if eval_resp else "unknown"
-                        ),
-                        proposed_action=(
-                            eval_resp.recommended_action.value
-                            if eval_resp else "unknown"
-                        ),
+                        condition_id=condition_id,
+                        proposed_action=eval_resp.recommended_action.value,
                         would_be_size_usdc=(
-                            str(eval_resp.position_size_pct)
-                            if eval_resp else "unknown"
+                            str(execution_result.order_size_usdc)
+                            if execution_result.order_size_usdc is not None
+                            else "unknown"
                         ),
                     )
                     continue
 
-                if self.signer is None:
-                    logger.error("execution.signer_not_initialized")
+                if execution_result.signed_order is None:
+                    logger.error(
+                        "execution.signed_order_missing",
+                        condition_id=condition_id,
+                        action=execution_result.action.value,
+                        reason=execution_result.reason,
+                    )
                     continue
 
-                signed_order = await self.signer.build_order_from_decision(
-                    item,
-                    bankroll_tracker=self.bankroll_tracker,
-                )
                 decision_id = str(item.get("snapshot_id", "unknown"))
                 await self.broadcaster.broadcast(
-                    signed_order=signed_order,
+                    signed_order=execution_result.signed_order,
                     decision_id=decision_id,
                 )
             except Exception as exc:
