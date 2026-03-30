@@ -361,6 +361,21 @@ class Position(Base):
         nullable=False,
         default=_utcnow,
     )
+    realized_pnl: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=True,
+        comment="Realized PnL in USDC: (exit_price - entry_price) * position_size_tokens",
+    )
+    exit_price: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=True,
+        comment="SELL-side exit price (best_bid at exit routing time)",
+    )
+    closed_at_utc: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="UTC timestamp when settlement was recorded",
+    )
 
     __table_args__ = (
         Index("ix_positions_condition_id", "condition_id"),

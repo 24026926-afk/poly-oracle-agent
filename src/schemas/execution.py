@@ -167,3 +167,34 @@ class ExitOrderResult(BaseModel):
         return Decimal(str(value))
 
     model_config = {"frozen": True}
+
+
+class PnLRecord(BaseModel):
+    """Typed realized PnL outcome returned by ``PnLCalculator.settle()``."""
+
+    position_id: str
+    condition_id: str
+    entry_price: Decimal
+    exit_price: Decimal
+    order_size_usdc: Decimal
+    position_size_tokens: Decimal
+    realized_pnl: Decimal
+    closed_at_utc: datetime
+
+    @field_validator(
+        "entry_price",
+        "exit_price",
+        "order_size_usdc",
+        "position_size_tokens",
+        "realized_pnl",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}

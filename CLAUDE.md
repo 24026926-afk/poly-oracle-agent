@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: develop
-Active phase: Phase 7 In Progress — Exit Path Completion
-Completed: WI-11 through WI-22 ✅ (Phases 4, 5, 6 sealed; WI-22 + WI-20 complete in Phase 7)
-Current WI set: WI-21 pending
-Next task: Implement WI-21 (Realized PnL & Settlement).
+Current branch: feat/wi21-pnl-calculator
+Active phase: Phase 7 Complete — Exit Path Decoupling sealed
+Completed: WI-11 through WI-22 ✅ (Phases 4, 5, 6, and 7 sealed)
+Current WI set: None active (Phase 8 planning next)
+Next task: Define Phase 8 WI scope (starting with WI-23 planning).
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

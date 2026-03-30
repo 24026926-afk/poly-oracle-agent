@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-30
-**Version:** 0.7.2
-**Status:** Phase 7 In Progress — WI-22 + WI-20 Complete
-**Active WI:** WI-21 (Realized PnL & Settlement) — pending implementation
+**Version:** 0.8.0
+**Status:** Phase 7 Complete — WI-22 + WI-20 + WI-21 Sealed
+**Active WI:** Phase 8 Planning — WI-23 TBD
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 331 |
+| Total tests | 362 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -210,12 +210,37 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
     - `pytest --asyncio-mode=auto tests/ -q` → 331 passed
     - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 93%
 
+- [x] **WI-21 — Realized PnL & Settlement** (completed 2026-03-30)
+  - Added `PnLCalculator` in `src/agents/execution/pnl_calculator.py`
+  - Added frozen `PnLRecord` schema with float-rejecting Decimal validators in `src/schemas/execution.py`
+  - Added `PnLCalculationError` to exception taxonomy in `src/core/exceptions.py`
+  - Extended `PositionRecord` with optional settlement fields:
+    - `realized_pnl: Decimal | None`
+    - `exit_price: Decimal | None`
+    - `closed_at_utc: datetime | None`
+  - Extended `Position` ORM with nullable settlement columns:
+    - `realized_pnl Numeric(38,18)`
+    - `exit_price Numeric(38,18)`
+    - `closed_at_utc DateTime(timezone=True)`
+  - Added Alembic migration `0003_add_pnl_columns.py` (parent `0002`)
+  - Added additive `PositionRepository.record_settlement()` with idempotency guard (`position.settlement_already_recorded`)
+  - Orchestrator wiring:
+    - `PnLCalculator` constructed in `Orchestrator.__init__()`
+    - `_exit_scan_loop()` settles PnL after `ExitOrderRouter.route_exit()` when action is `SELL_ROUTED`/`DRY_RUN` with non-null `exit_price`
+    - Settlement failures logged as `exit_scan.pnl_settlement_error` and do not block scan/broadcast path
+  - Test additions:
+    - `tests/unit/test_pnl_calculator.py` (19 tests)
+    - `tests/integration/test_pnl_settlement_integration.py` (12 tests)
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 362 passed
+    - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 93%
+
 ### Phase 7 Progress Gate
 
 - [x] WI-22 implemented and validated
 - [x] WI-20 implemented and validated
-- [ ] WI-21 implemented
-- [ ] Full phase regression + archive seal
+- [x] WI-21 implemented and validated
+- [x] Full phase regression + archive seal
 
 ---
 
@@ -242,11 +267,13 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/position_tracker.py` | `PositionTracker` — persists execution outcomes as typed `PositionRecord` entries |
 | `src/agents/execution/exit_strategy_engine.py` | `ExitStrategyEngine` — rule-based exit evaluation for open positions |
 | `src/agents/execution/exit_order_router.py` | `ExitOrderRouter` — SELL-side exit routing from `ExitResult` + `PositionRecord` to signed/unsigned `OrderData` |
+| `src/agents/execution/pnl_calculator.py` | `PnLCalculator` — WI-21 realized PnL computation + settlement persistence orchestration |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
-| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` |
+| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` / `PnLRecord` |
 | `src/db/repositories/position_repository.py` | `PositionRepository` — async CRUD for `positions` table |
-| `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial columns |
+| `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial + WI-21 settlement columns |
 | `migrations/versions/0002_add_open_positions_table.py` | Alembic migration adding `positions` table |
+| `migrations/versions/0003_add_pnl_columns.py` | Alembic migration adding `realized_pnl`, `exit_price`, `closed_at_utc` |
 | `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |

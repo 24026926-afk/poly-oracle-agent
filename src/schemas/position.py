@@ -42,6 +42,9 @@ class PositionRecord(BaseModel):
     reason: str | None = None
     routed_at_utc: datetime
     recorded_at_utc: datetime
+    realized_pnl: Decimal | None = None
+    exit_price: Decimal | None = None
+    closed_at_utc: datetime | None = None
 
     @field_validator(
         "entry_price",
@@ -49,10 +52,14 @@ class PositionRecord(BaseModel):
         "kelly_fraction",
         "best_ask_at_entry",
         "bankroll_usdc_at_entry",
+        "realized_pnl",
+        "exit_price",
         mode="before",
     )
     @classmethod
     def _reject_float_financials(cls, value: Any) -> Any:
+        if value is None:
+            return value
         if isinstance(value, float):
             raise ValueError("Float financial values are forbidden; use Decimal")
         if isinstance(value, Decimal):

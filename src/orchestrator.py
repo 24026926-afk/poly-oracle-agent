@@ -29,6 +29,7 @@ from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
+from src.agents.execution.pnl_calculator import PnLCalculator
 from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
@@ -114,6 +115,10 @@ class Orchestrator:
             config=self.config,
             polymarket_client=self.polymarket_client,
             transaction_signer=self.signer,
+        )
+        self.pnl_calculator = PnLCalculator(
+            config=self.config,
+            db_session_factory=AsyncSessionLocal,
         )
 
         self.ws_client = CLOBWebSocketClient(
@@ -348,6 +353,25 @@ class Orchestrator:
                         continue
 
                     if (
+                        exit_order_result.action in (
+                            ExitOrderAction.SELL_ROUTED,
+                            ExitOrderAction.DRY_RUN,
+                        )
+                        and exit_order_result.exit_price is not None
+                    ):
+                        try:
+                            await self.pnl_calculator.settle(
+                                position=position,
+                                exit_price=exit_order_result.exit_price,
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                "exit_scan.pnl_settlement_error",
+                                position_id=exit_result.position_id,
+                                error=str(exc),
+                            )
+
+                    if (
                         exit_order_result.action == ExitOrderAction.SELL_ROUTED
                         and exit_order_result.signed_order is not None
                         and not self.config.dry_run
@@ -409,6 +433,17 @@ class Orchestrator:
             reason=position.reason,
             routed_at_utc=position.routed_at_utc,
             recorded_at_utc=position.recorded_at_utc,
+            realized_pnl=(
+                Decimal(str(position.realized_pnl))
+                if position.realized_pnl is not None
+                else None
+            ),
+            exit_price=(
+                Decimal(str(position.exit_price))
+                if position.exit_price is not None
+                else None
+            ),
+            closed_at_utc=position.closed_at_utc,
         )
 
     async def shutdown(self) -> None:

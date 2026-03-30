@@ -6,6 +6,9 @@ Async repository for Position persistence.
 
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,5 +75,45 @@ class PositionRepository:
             "position.updated",
             position_id=position.id,
             new_status=position.status,
+        )
+        return position
+
+    async def record_settlement(
+        self,
+        *,
+        position_id: str,
+        realized_pnl: Decimal,
+        exit_price: Decimal,
+        closed_at_utc: datetime,
+    ) -> Position | None:
+        """Persist WI-21 settlement columns on an existing position row."""
+        position = await self.get_by_id(position_id)
+        if position is None:
+            return None
+
+        if position.realized_pnl is not None:
+            logger.warning(
+                "position.settlement_already_recorded",
+                position_id=position.id,
+                condition_id=position.condition_id,
+                existing_realized_pnl=str(position.realized_pnl),
+            )
+            return position
+
+        position.realized_pnl = realized_pnl
+        position.exit_price = exit_price
+        position.closed_at_utc = closed_at_utc
+        await self._session.flush()
+        logger.debug(
+            "position.settlement_recorded",
+            position_id=position.id,
+            condition_id=position.condition_id,
+            realized_pnl=str(position.realized_pnl),
+            exit_price=str(position.exit_price),
+            closed_at_utc=(
+                position.closed_at_utc.isoformat()
+                if position.closed_at_utc is not None
+                else None
+            ),
         )
         return position

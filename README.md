@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.7.1
-- **Status:** Phase 7 In Progress (WI-22 + WI-20 complete: periodic exit scan + exit order routing)
-- **Tests:** 331 automated tests passing
+- **Version:** 0.8.0
+- **Status:** Phase 7 Complete (WI-22 + WI-20 + WI-21 complete: periodic exit scan + exit order routing + realized PnL settlement)
+- **Tests:** 362 automated tests passing
 - **Coverage:** 93% (target: ≥ 80%)
 
 Core stack:
@@ -234,7 +234,7 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 331 tests
+- 362 tests
 - 93% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
