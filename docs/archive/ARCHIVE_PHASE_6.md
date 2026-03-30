@@ -189,6 +189,12 @@ Queue topology unchanged:
 
 ---
 
+## Archive Seal
+
+- Phase 6 is sealed with the addition of `docs/PRD-v6.0.md`, documenting WI-17 and WI-19 scope, acceptance criteria, and compliance notes.
+- This archive snapshot (completed 2026-03-30) plus `docs/PRD-v6.0.md` form the complete historical record of the Position Lifecycle phase.
+- Reference both files when auditing the Phase 6 delivery or when preparing Phase 7 work items that rely on the sealed position lifecycle behavior.
+
 ## Phase 6 Status
 
 ✅ **SEALED**
