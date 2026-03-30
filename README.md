@@ -8,8 +8,8 @@ The agent operates as a fully async (`asyncio`) pipeline with four isolated proc
 
 Current project state:
 - **Version:** 0.7.1
-- **Status:** Phase 7 In Progress (WI-22 complete: periodic exit scan task)
-- **Tests:** 308 automated tests passing
+- **Status:** Phase 7 In Progress (WI-22 + WI-20 complete: periodic exit scan + exit order routing)
+- **Tests:** 331 automated tests passing
 - **Coverage:** 93% (target: ≥ 80%)
 
 Core stack:
@@ -155,6 +155,12 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 |---|---|---|---|---|
 | `EXIT_SCAN_INTERVAL_SECONDS` | Decimal | `60` | No | Periodic cadence for `ExitStrategyEngine.scan_open_positions()` in `ExitScanTask` |
 
+#### Exit Order Router (WI-20)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `EXIT_MIN_BID_TOLERANCE` | Decimal | `0.01` | No | Minimum acceptable `best_bid` for SELL-side exit routing; lower bids fail with `exit_bid_below_tolerance` |
+
 #### Gas
 
 | Variable | Type | Default | Required | Description |
@@ -228,7 +234,7 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 308 tests
+- 331 tests
 - 93% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
@@ -340,7 +346,7 @@ graph TB
 | **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via injectable `MarketRepository` factory |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
 | **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via injectable `DecisionRepository` factory; route approved trades |
-| **4. Execution** | `ExecutionRouter`, `BankrollSyncProvider`, `PositionTracker`, `ExitStrategyEngine`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, route validated BUY decisions into capped/slippage-checked order payloads, track position lifecycle, evaluate exit criteria against live market data, sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` and `PositionRepository` |
+| **4. Execution** | `ExecutionRouter`, `BankrollSyncProvider`, `PositionTracker`, `ExitStrategyEngine`, `ExitOrderRouter`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, route validated BUY decisions into capped/slippage-checked order payloads, track position lifecycle, evaluate exit criteria, route actionable exits into SELL-side orders, sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` and `PositionRepository` |
 
 ### Safety Filters (Gatekeeper)
 

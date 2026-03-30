@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-30
-**Version:** 0.7.1
-**Status:** Phase 7 In Progress — WI-22 Complete (Periodic Exit Scan)
-**Active WI:** WI-20 (Exit Order Router) — pending implementation
+**Version:** 0.7.2
+**Status:** Phase 7 In Progress — WI-22 + WI-20 Complete
+**Active WI:** WI-21 (Realized PnL & Settlement) — pending implementation
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 308 |
+| Total tests | 331 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -184,10 +184,36 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
     - `pytest --asyncio-mode=auto tests/ -q` → 308 passed
     - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 93%
 
+- [x] **WI-20 — Exit Order Router** (completed 2026-03-30)
+  - Added `ExitOrderRouter` in `src/agents/execution/exit_order_router.py`
+  - Added `ExitOrderAction` (`SELL_ROUTED | DRY_RUN | FAILED | SKIP`) and frozen `ExitOrderResult` with float-rejecting Decimal validators
+  - Added `ExitRoutingError` to exception taxonomy in `src/core/exceptions.py`
+  - Added `AppConfig.exit_min_bid_tolerance: Decimal = Decimal("0.01")`
+  - Implemented SELL-only exit routing path:
+    - Entry gate skip for `should_exit=False` and `exit_reason=ERROR`
+    - Fresh `fetch_order_book(position.token_id)` lookup (token_id, never condition_id)
+    - Exit bid floor guard (`best_bid < exit_min_bid_tolerance` fails closed)
+    - Decimal-only sizing from position metadata:
+      - `token_quantity = order_size_usdc / entry_price`
+      - `maker_amount = int(token_quantity * Decimal("1e6"))`
+      - `taker_amount = int((token_quantity * best_bid) * Decimal("1e6"))`
+    - `dry_run=True` returns full payload without signing
+    - `signer=None` live guard and signing-exception fail-closed handling
+  - Orchestrator wiring:
+    - `ExitOrderRouter` constructed in `Orchestrator.__init__()`
+    - `_exit_scan_loop()` now routes actionable exits, catches per-exit routing errors, and continues (fail-open)
+    - Exit broadcast attempted only when `SELL_ROUTED`, `signed_order` exists, `dry_run=False`, and broadcaster is present
+  - Test additions:
+    - `tests/unit/test_exit_order_router.py` (14 tests)
+    - `tests/integration/test_exit_order_router_integration.py` (9 tests)
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 331 passed
+    - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 93%
+
 ### Phase 7 Progress Gate
 
 - [x] WI-22 implemented and validated
-- [ ] WI-20 implemented
+- [x] WI-20 implemented and validated
 - [ ] WI-21 implemented
 - [ ] Full phase regression + archive seal
 
@@ -205,7 +231,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
-## Key File Map (Phase 6)
+## Key File Map (Phase 7)
 
 | File | Purpose |
 |---|---|
@@ -215,8 +241,9 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/polymarket_client.py` | `PolymarketClient` — read-only CLOB market data + `MarketSnapshot` |
 | `src/agents/execution/position_tracker.py` | `PositionTracker` — persists execution outcomes as typed `PositionRecord` entries |
 | `src/agents/execution/exit_strategy_engine.py` | `ExitStrategyEngine` — rule-based exit evaluation for open positions |
+| `src/agents/execution/exit_order_router.py` | `ExitOrderRouter` — SELL-side exit routing from `ExitResult` + `PositionRecord` to signed/unsigned `OrderData` |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
-| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` — typed router and exit outputs |
+| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` |
 | `src/db/repositories/position_repository.py` | `PositionRepository` — async CRUD for `positions` table |
 | `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial columns |
 | `migrations/versions/0002_add_open_positions_table.py` | Alembic migration adding `positions` table |
@@ -224,8 +251,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs, WI-16 order cap/slippage, and WI-22 exit scan interval |
-| `src/orchestrator.py` | Main entry point; spins up 6 async tasks (including `ExitScanTask`) and wires periodic exit scans |
+| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor |
+| `src/orchestrator.py` | Main entry point; spins up 6 async tasks, periodic scans, and WI-20 exit routing/broadcast integration |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

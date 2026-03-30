@@ -8,6 +8,7 @@ using asyncio queues.
 """
 
 import asyncio
+from decimal import Decimal
 import sys
 from typing import Any
 
@@ -24,6 +25,7 @@ from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
 from src.agents.execution.execution_router import ExecutionRouter
+from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
@@ -34,7 +36,15 @@ from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
 from src.core.config import AppConfig, get_config
+from src.db.models import Position
 from src.db.engine import AsyncSessionLocal, engine
+from src.db.repositories.position_repository import PositionRepository
+from src.schemas.execution import (
+    ExecutionAction,
+    ExitOrderAction,
+    PositionRecord,
+    PositionStatus,
+)
 
 # Ensure .env is explicitly loaded if running from root
 load_dotenv()
@@ -99,6 +109,11 @@ class Orchestrator:
             config=self.config,
             polymarket_client=self.polymarket_client,
             db_session_factory=AsyncSessionLocal,
+        )
+        self.exit_order_router = ExitOrderRouter(
+            config=self.config,
+            polymarket_client=self.polymarket_client,
+            transaction_signer=self.signer,
         )
 
         self.ws_client = CLOBWebSocketClient(
@@ -304,6 +319,52 @@ class Orchestrator:
             await asyncio.sleep(float(self.config.exit_scan_interval_seconds))
             try:
                 results = await self.exit_strategy_engine.scan_open_positions()
+                for exit_result in results:
+                    if not exit_result.should_exit:
+                        continue
+
+                    try:
+                        position = await self._fetch_position_record(
+                            exit_result.position_id
+                        )
+                        if position is None:
+                            logger.warning(
+                                "exit_scan.position_not_found",
+                                position_id=exit_result.position_id,
+                                condition_id=exit_result.condition_id,
+                            )
+                            continue
+
+                        exit_order_result = await self.exit_order_router.route_exit(
+                            exit_result=exit_result,
+                            position=position,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "exit_scan.routing_error",
+                            position_id=exit_result.position_id,
+                            error=str(exc),
+                        )
+                        continue
+
+                    if (
+                        exit_order_result.action == ExitOrderAction.SELL_ROUTED
+                        and exit_order_result.signed_order is not None
+                        and not self.config.dry_run
+                        and self.broadcaster is not None
+                    ):
+                        try:
+                            await self.broadcaster.broadcast(
+                                signed_order=exit_order_result.signed_order,
+                                decision_id=f"exit_{exit_result.position_id}",
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                "exit_scan.broadcast_error",
+                                position_id=exit_result.position_id,
+                                error=str(exc),
+                            )
+
                 exits = sum(1 for result in results if result.should_exit)
                 holds = len(results) - exits
                 logger.info(
@@ -318,6 +379,37 @@ class Orchestrator:
                     "exit_scan_loop.error",
                     error=str(exc),
                 )
+
+    async def _fetch_position_record(
+        self, position_id: str
+    ) -> PositionRecord | None:
+        """Lookup and materialize a PositionRecord by id for exit routing."""
+        async with AsyncSessionLocal() as session:
+            repo = PositionRepository(session)
+            position_row = await repo.get_by_id(position_id)
+            if position_row is None:
+                return None
+            return self._to_position_record(position_row)
+
+    @staticmethod
+    def _to_position_record(position: Position) -> PositionRecord:
+        """Convert ORM Position row to immutable PositionRecord schema."""
+        return PositionRecord(
+            id=str(position.id),
+            condition_id=str(position.condition_id),
+            token_id=str(position.token_id),
+            status=PositionStatus(str(position.status)),
+            side=str(position.side),
+            entry_price=Decimal(str(position.entry_price)),
+            order_size_usdc=Decimal(str(position.order_size_usdc)),
+            kelly_fraction=Decimal(str(position.kelly_fraction)),
+            best_ask_at_entry=Decimal(str(position.best_ask_at_entry)),
+            bankroll_usdc_at_entry=Decimal(str(position.bankroll_usdc_at_entry)),
+            execution_action=ExecutionAction(str(position.execution_action)),
+            reason=position.reason,
+            routed_at_utc=position.routed_at_utc,
+            recorded_at_utc=position.recorded_at_utc,
+        )
 
     async def shutdown(self) -> None:
         """Stop running components, cancel tasks, and dispose shared resources."""

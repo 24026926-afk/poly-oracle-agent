@@ -37,6 +37,12 @@ Invoke me for:
 - `_exit_scan_loop()` is sleep-first and fail-open:
   sleep at top of loop, catch `Exception` from scan, log, continue.
 
+## WI-20 Async Findings (2026-03-30)
+- Per-exit routing in `_exit_scan_loop()` must remain fail-open even when
+  position lookup fails. Wrap both position resolution and `route_exit()`
+  in the per-exit `try/except` path; never let one routing error suppress
+  `exit_scan_loop.completed` logging for that scan cycle.
+
 ## Output Format
 - ✅ PASS or ❌ FAIL per class name / queue / task pattern
 - File path + line reference

@@ -7,9 +7,9 @@ Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves toke
 
 Current branch: develop
 Active phase: Phase 7 In Progress — Exit Path Completion
-Completed: WI-11 through WI-22 ✅ (Phases 4, 5, 6 sealed; WI-22 complete in Phase 7)
-Current WI set: WI-20 / WI-21 pending
-Next task: Implement WI-20 (Exit Order Router), then WI-21 (Realized PnL & Settlement).
+Completed: WI-11 through WI-22 ✅ (Phases 4, 5, 6 sealed; WI-22 + WI-20 complete in Phase 7)
+Current WI set: WI-21 pending
+Next task: Implement WI-21 (Realized PnL & Settlement).
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

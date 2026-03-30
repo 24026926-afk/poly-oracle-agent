@@ -129,3 +129,41 @@ class ExitResult(BaseModel):
         return Decimal(str(value))
 
     model_config = {"frozen": True}
+
+
+class ExitOrderAction(str, Enum):
+    """Exit order router outcomes."""
+
+    SELL_ROUTED = "SELL_ROUTED"
+    DRY_RUN = "DRY_RUN"
+    FAILED = "FAILED"
+    SKIP = "SKIP"
+
+
+class ExitOrderResult(BaseModel):
+    """Typed outcome returned by ``ExitOrderRouter.route_exit()``."""
+
+    position_id: str
+    condition_id: str
+    action: ExitOrderAction
+    reason: str | None = None
+    order_payload: OrderData | None = None
+    signed_order: SignedOrder | None = None
+    exit_price: Decimal | None = None
+    order_size_usdc: Decimal | None = None
+    routed_at_utc: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    @field_validator("exit_price", "order_size_usdc", mode="before")
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}

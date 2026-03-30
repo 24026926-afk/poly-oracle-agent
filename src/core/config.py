@@ -118,6 +118,13 @@ class AppConfig(BaseSettings):
         default=Decimal("60"),
         description="Seconds between periodic exit scans of open positions",
     )
+    exit_min_bid_tolerance: Decimal = Field(
+        default=Decimal("0.01"),
+        description=(
+            "Minimum acceptable best_bid for an exit SELL order. "
+            "Orders below this threshold are rejected as degenerate exits."
+        ),
+    )
 
     # --- Gas ---
     max_gas_price_gwei: float = Field(

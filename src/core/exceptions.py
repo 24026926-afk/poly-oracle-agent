@@ -151,6 +151,30 @@ class ExitMutationError(PolyOracleError):
         self.cause = cause
 
 
+class ExitRoutingError(PolyOracleError):
+    """Raised when exit order routing fails."""
+
+    def __init__(
+        self,
+        reason: str,
+        position_id: str | None = None,
+        condition_id: str | None = None,
+        cause: Exception | None = None,
+        **context: object,
+    ) -> None:
+        message = reason
+        if position_id:
+            message = f"{message} (position_id={position_id})"
+        if condition_id:
+            message = f"{message} (condition_id={condition_id})"
+        super().__init__(message)
+        self.reason = reason
+        self.position_id = position_id
+        self.condition_id = condition_id
+        self.cause = cause
+        self.context = context
+
+
 class WebSocketError(PolyOracleError):
     """Raised on CLOB WebSocket connection failures."""
 
