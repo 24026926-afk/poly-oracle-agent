@@ -24,6 +24,7 @@ from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
 from src.agents.execution.execution_router import ExecutionRouter
+from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
 from src.agents.execution.polymarket_client import PolymarketClient
@@ -92,6 +93,11 @@ class Orchestrator:
         )
         self.position_tracker = PositionTracker(
             config=self.config,
+            db_session_factory=AsyncSessionLocal,
+        )
+        self.exit_strategy_engine = ExitStrategyEngine(
+            config=self.config,
+            polymarket_client=self.polymarket_client,
             db_session_factory=AsyncSessionLocal,
         )
 
@@ -223,6 +229,14 @@ class Orchestrator:
                             "execution.position_tracking_error",
                             error=str(exc),
                         )
+
+                try:
+                    await self.exit_strategy_engine.scan_open_positions()
+                except Exception as exc:
+                    logger.error(
+                        "execution.exit_scan_error",
+                        error=str(exc),
+                    )
 
                 if self.config.dry_run:
                     logger.info(

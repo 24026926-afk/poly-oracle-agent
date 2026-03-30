@@ -101,6 +101,20 @@ class AppConfig(BaseSettings):
         description="Max allowed deviation of best_ask above midpoint (2%)",
     )
 
+    # --- Exit Strategy (WI-19) ---
+    exit_position_max_age_hours: Decimal = Field(
+        default=Decimal("48"),
+        description="Max hours before an open position triggers time-decay exit",
+    )
+    exit_stop_loss_drop: Decimal = Field(
+        default=Decimal("0.15"),
+        description="Midpoint drop from entry that triggers stop-loss (0.15 = 15pp)",
+    )
+    exit_take_profit_gain: Decimal = Field(
+        default=Decimal("0.20"),
+        description="Midpoint gain from entry that triggers take-profit (0.20 = 20pp)",
+    )
+
     # --- Gas ---
     max_gas_price_gwei: float = Field(
         default=500.0, description="Hard safety ceiling for gas price in Gwei"

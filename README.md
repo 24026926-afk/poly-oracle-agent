@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.6.0
-- **Status:** Phase 5 Complete (Market Data Integration & Execution Routing)
-- **Tests:** 230 automated tests passing
+- **Version:** 0.7.0
+- **Status:** Phase 6 Complete (Position Lifecycle — Tracking & Exit Engine)
+- **Tests:** 295 automated tests passing
 - **Coverage:** 92% (target: ≥ 80%)
 
 Core stack:
@@ -86,6 +86,7 @@ This applies all migrations from `migrations/versions/` (baseline: `0001_initial
 - `market_snapshots` — point-in-time orderbook captures (accessed via `MarketRepository`)
 - `agent_decision_logs` — full LLM evaluation audit trail (accessed via `DecisionRepository`)
 - `execution_txs` — on-chain transaction records (accessed via `ExecutionRepository`)
+- `positions` — position lifecycle records (accessed via `PositionRepository`)
 
 All runtime persistence is routed through repository classes in `src/db/repositories/`. No agent code accesses the database directly.
 
@@ -220,7 +221,7 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 230 tests
+- 295 tests
 - 92% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
@@ -332,7 +333,7 @@ graph TB
 | **1. Ingestion** | `CLOBWebSocketClient`, `GammaRESTClient`, `MarketDiscoveryEngine` | Stream and validate market events; discover eligible markets; persist snapshots via injectable `MarketRepository` factory |
 | **2. Context** | `DataAggregator`, `PromptFactory` | Maintain orderbook state; emit on time/volatility triggers; build structured CoT prompts |
 | **3. Evaluation** | `ClaudeClient` + Pydantic Gatekeeper (`LLMEvaluationResponse`) | Query Claude; validate and enforce 5 safety filters; persist decisions via injectable `DecisionRepository` factory; route approved trades |
-| **4. Execution** | `ExecutionRouter`, `BankrollSyncProvider`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, route validated BUY decisions into capped/slippage-checked order payloads, sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` with explicit commit-before-return boundaries |
+| **4. Execution** | `ExecutionRouter`, `BankrollSyncProvider`, `PositionTracker`, `ExitStrategyEngine`, `TransactionSigner`, `NonceManager`, `GasEstimator`, `OrderBroadcaster`, `BankrollPortfolioTracker` | Read live Polygon USDC bankroll, route validated BUY decisions into capped/slippage-checked order payloads, track position lifecycle, evaluate exit criteria against live market data, sign EIP-712 orders, manage nonces, estimate gas, broadcast to CLOB, and persist/query execution state via `ExecutionRepository` and `PositionRepository` |
 
 ### Safety Filters (Gatekeeper)
 

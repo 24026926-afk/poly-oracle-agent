@@ -65,3 +65,67 @@ class ExecutionResult(BaseModel):
 
 # Resolve the forward reference to ExecutionAction in PositionRecord.
 PositionRecord.model_rebuild(_types_namespace={"ExecutionAction": ExecutionAction})
+
+
+class ExitReason(str, Enum):
+    """Categorized reason for exiting (or holding) an open position."""
+
+    NO_EDGE = "NO_EDGE"
+    STOP_LOSS = "STOP_LOSS"
+    TIME_DECAY = "TIME_DECAY"
+    TAKE_PROFIT = "TAKE_PROFIT"
+    STALE_MARKET = "STALE_MARKET"
+    ERROR = "ERROR"
+
+
+class ExitSignal(BaseModel):
+    """Typed input for a single position exit evaluation."""
+
+    position: PositionRecord
+    current_midpoint: Decimal
+    current_best_bid: Decimal
+    evaluated_at_utc: datetime
+
+    @field_validator("current_midpoint", "current_best_bid", mode="before")
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class ExitResult(BaseModel):
+    """Typed output for a single position exit evaluation."""
+
+    position_id: str
+    condition_id: str
+    should_exit: bool
+    exit_reason: ExitReason
+    entry_price: Decimal
+    current_midpoint: Decimal
+    current_best_bid: Decimal
+    position_age_hours: Decimal
+    unrealized_edge: Decimal
+    evaluated_at_utc: datetime
+
+    @field_validator(
+        "entry_price",
+        "current_midpoint",
+        "current_best_bid",
+        "position_age_hours",
+        "unrealized_edge",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}

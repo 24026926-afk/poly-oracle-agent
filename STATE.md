@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-03-30
 **Version:** 0.7.0
-**Status:** Phase 6 In Progress — Position Tracking & Exit Engine
-**Active WI:** None (WI-17 and WI-19 Complete)
+**Status:** Phase 6 Complete — Position Lifecycle
+**Active WI:** None (Phase 6 sealed, awaiting Phase 7 PRD)
 
 ---
 
@@ -147,11 +147,15 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - 27 new tests (unit + integration), 257 total, 92% coverage, full regression green
   - Key files: `src/agents/execution/position_tracker.py`, `src/schemas/position.py`, `src/schemas/execution.py`, `src/db/models.py`, `src/db/repositories/position_repository.py`, `migrations/versions/0002_add_open_positions_table.py`, `src/orchestrator.py`
 
-### Phase 6 Completion Snapshot
+### Phase 6 Completion Gate
 
-- WI-17 — Position Tracker — COMPLETE (2026-03-29)
-- WI-19 — Exit Strategy Engine — COMPLETE (2026-03-29)
-- Tests: 295 passing, 92% coverage
+- [x] WI-17 implemented and merged into `develop`
+- [x] WI-19 implemented and merged into `develop`
+- [x] Full regression green: 295 tests passing
+- [x] Coverage maintained at 92% (target ≥ 80%)
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
+- [x] `docs/archive/ARCHIVE_PHASE_6.md` created
+- [ ] PRs merged to `develop` ✅, then `develop → main`
 
 ---
 
@@ -167,7 +171,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
-## Key File Map (Phase 5)
+## Key File Map (Phase 6)
 
 | File | Purpose |
 |---|---|
@@ -175,7 +179,13 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/execution_router.py` | `ExecutionRouter` — BUY-only execution routing, Decimal Kelly sizing, slippage guard, dry-run bypass |
 | `src/agents/execution/signer.py` | `TransactionSigner` — canonical signer: legacy `sign_order()` + WI-15 `sign_order_secure()` |
 | `src/agents/execution/polymarket_client.py` | `PolymarketClient` — read-only CLOB market data + `MarketSnapshot` |
-| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` — typed router outputs with Decimal financial fields |
+| `src/agents/execution/position_tracker.py` | `PositionTracker` — persists execution outcomes as typed `PositionRecord` entries |
+| `src/agents/execution/exit_strategy_engine.py` | `ExitStrategyEngine` — rule-based exit evaluation for open positions |
+| `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
+| `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` — typed router and exit outputs |
+| `src/db/repositories/position_repository.py` | `PositionRepository` — async CRUD for `positions` table |
+| `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial columns |
+| `migrations/versions/0002_add_open_positions_table.py` | Alembic migration adding `positions` table |
 | `src/schemas/llm.py` | `MarketCategory` enum + `SentimentResponse` + `LLMEvaluationResponse` Gatekeeper |
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |

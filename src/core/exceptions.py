@@ -107,6 +107,50 @@ class SlippageExceededError(RoutingAbortedError):
     """Raised when the best ask exceeds the configured slippage tolerance."""
 
 
+class ExitEvaluationError(PolyOracleError):
+    """Raised when exit strategy evaluation fails."""
+
+    def __init__(
+        self,
+        reason: str,
+        position_id: str | None = None,
+        condition_id: str | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        message = reason
+        if position_id:
+            message = f"{message} (position_id={position_id})"
+        if condition_id:
+            message = f"{message} (condition_id={condition_id})"
+        super().__init__(message)
+        self.reason = reason
+        self.position_id = position_id
+        self.condition_id = condition_id
+        self.cause = cause
+
+
+class ExitMutationError(PolyOracleError):
+    """Raised when position state transition fails."""
+
+    def __init__(
+        self,
+        reason: str,
+        position_id: str | None = None,
+        condition_id: str | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        message = reason
+        if position_id:
+            message = f"{message} (position_id={position_id})"
+        if condition_id:
+            message = f"{message} (condition_id={condition_id})"
+        super().__init__(message)
+        self.reason = reason
+        self.position_id = position_id
+        self.condition_id = condition_id
+        self.cause = cause
+
+
 class WebSocketError(PolyOracleError):
     """Raised on CLOB WebSocket connection failures."""
 
