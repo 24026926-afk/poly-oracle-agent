@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-30
-**Version:** 0.7.0
-**Status:** Phase 6 Complete — Position Lifecycle
-**Active WI:** None (Phase 6 sealed, awaiting Phase 7 PRD)
+**Version:** 0.7.1
+**Status:** Phase 7 In Progress — WI-22 Complete (Periodic Exit Scan)
+**Active WI:** WI-20 (Exit Order Router) — pending implementation
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 295 |
-| Coverage | 92% (target ≥ 80%) |
+| Total tests | 308 |
+| Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
@@ -159,6 +159,40 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
+## Phase 7: Exit Path Decoupling
+
+### Work Items
+
+- [x] **WI-22 — Periodic Exit Scan** (completed 2026-03-30)
+  - Added `AppConfig.exit_scan_interval_seconds: Decimal = Decimal("60")`
+  - Added `Orchestrator._exit_scan_loop()` with sleep-first cadence:
+    `await asyncio.sleep(float(self.config.exit_scan_interval_seconds))`
+  - Added orchestrator task registration:
+    `asyncio.create_task(self._exit_scan_loop(), name="ExitScanTask")`
+  - Removed inline `scan_open_positions()` call from `_execution_consumer_loop()`
+  - New structlog events:
+    - `exit_scan_loop.completed` (`total`, `exits`, `holds`, `interval_seconds`)
+    - `exit_scan_loop.error` (`error`)
+  - Preserved invariants:
+    - `ExitStrategyEngine`, `ExecutionRouter`, `PositionTracker`, and schemas unchanged
+    - Queue topology unchanged (`market_queue -> prompt_queue -> execution_queue`)
+    - `dry_run` write gate remains inside `ExitStrategyEngine` internals
+  - Test additions:
+    - `tests/unit/test_exit_scan_loop.py` (8 tests)
+    - `tests/integration/test_exit_scan_integration.py` (5 tests)
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 308 passed
+    - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 93%
+
+### Phase 7 Progress Gate
+
+- [x] WI-22 implemented and validated
+- [ ] WI-20 implemented
+- [ ] WI-21 implemented
+- [ ] Full phase regression + archive seal
+
+---
+
 ## Active Constraints (always enforced)
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
@@ -190,8 +224,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs, WI-16 order cap and slippage tolerance |
-| `src/orchestrator.py` | Main entry point; spins up 5 async tasks and wires bankroll sync plus execution router at startup |
+| `src/core/config.py` | `AppConfig` — Grok fields, CLOB URLs, WI-16 order cap/slippage, and WI-22 exit scan interval |
+| `src/orchestrator.py` | Main entry point; spins up 6 async tasks (including `ExitScanTask`) and wires periodic exit scans |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

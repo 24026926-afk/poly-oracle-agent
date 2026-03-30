@@ -114,6 +114,10 @@ class AppConfig(BaseSettings):
         default=Decimal("0.20"),
         description="Midpoint gain from entry that triggers take-profit (0.20 = 20pp)",
     )
+    exit_scan_interval_seconds: Decimal = Field(
+        default=Decimal("60"),
+        description="Seconds between periodic exit scans of open positions",
+    )
 
     # --- Gas ---
     max_gas_price_gwei: float = Field(

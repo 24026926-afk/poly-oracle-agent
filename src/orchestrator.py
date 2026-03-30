@@ -178,6 +178,10 @@ class Orchestrator:
                 self._discovery_loop(),
                 name="DiscoveryTask",
             ),
+            asyncio.create_task(
+                self._exit_scan_loop(),
+                name="ExitScanTask",
+            ),
         ]
 
         try:
@@ -229,14 +233,6 @@ class Orchestrator:
                             "execution.position_tracking_error",
                             error=str(exc),
                         )
-
-                try:
-                    await self.exit_strategy_engine.scan_open_positions()
-                except Exception as exc:
-                    logger.error(
-                        "execution.exit_scan_error",
-                        error=str(exc),
-                    )
 
                 if self.config.dry_run:
                     logger.info(
@@ -299,6 +295,27 @@ class Orchestrator:
             except Exception as exc:
                 logger.error(
                     "orchestrator.discovery_loop_error",
+                    error=str(exc),
+                )
+
+    async def _exit_scan_loop(self) -> None:
+        """Run periodic open-position exit scans independent of execution flow."""
+        while True:
+            await asyncio.sleep(float(self.config.exit_scan_interval_seconds))
+            try:
+                results = await self.exit_strategy_engine.scan_open_positions()
+                exits = sum(1 for result in results if result.should_exit)
+                holds = len(results) - exits
+                logger.info(
+                    "exit_scan_loop.completed",
+                    total=len(results),
+                    exits=exits,
+                    holds=holds,
+                    interval_seconds=str(self.config.exit_scan_interval_seconds),
+                )
+            except Exception as exc:
+                logger.error(
+                    "exit_scan_loop.error",
                     error=str(exc),
                 )
 

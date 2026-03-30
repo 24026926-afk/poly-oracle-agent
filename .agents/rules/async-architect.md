@@ -29,6 +29,14 @@ Invoke me for:
    CLOBWebSocketClient, GammaRESTClient, DataAggregator,
    PromptFactory, ClaudeClient, OrderBroadcaster.
 
+## WI-22 Async Invariants (2026-03-30)
+- Exit scanning must run in its own periodic task:
+  `asyncio.create_task(self._exit_scan_loop(), name="ExitScanTask")`.
+- `_execution_consumer_loop()` must not call
+  `self.exit_strategy_engine.scan_open_positions()` inline.
+- `_exit_scan_loop()` is sleep-first and fail-open:
+  sleep at top of loop, catch `Exception` from scan, log, continue.
+
 ## Output Format
 - ✅ PASS or ❌ FAIL per class name / queue / task pattern
 - File path + line reference

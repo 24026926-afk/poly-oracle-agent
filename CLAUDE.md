@@ -6,10 +6,10 @@ See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
 Current branch: develop
-Active phase: Phase 6 Complete — Position Lifecycle
-Completed: WI-11 through WI-19 ✅ (Phases 4, 5, 6 sealed)
-Current WI set: None — Phase 6 sealed
-Next task: Await Phase 7 PRD and WI assignment.
+Active phase: Phase 7 In Progress — Exit Path Completion
+Completed: WI-11 through WI-22 ✅ (Phases 4, 5, 6 sealed; WI-22 complete in Phase 7)
+Current WI set: WI-20 / WI-21 pending
+Next task: Implement WI-20 (Exit Order Router), then WI-21 (Realized PnL & Settlement).
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

@@ -7,10 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.7.0
-- **Status:** Phase 6 Complete (Position Lifecycle — Tracking & Exit Engine)
-- **Tests:** 295 automated tests passing
-- **Coverage:** 92% (target: ≥ 80%)
+- **Version:** 0.7.1
+- **Status:** Phase 7 In Progress (WI-22 complete: periodic exit scan task)
+- **Tests:** 308 automated tests passing
+- **Coverage:** 93% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -149,6 +149,12 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `MAX_ORDER_USDC` | Decimal | `50` | No | Hard cap on any single WI-16 routed order in USDC |
 | `MAX_SLIPPAGE_TOLERANCE` | Decimal | `0.02` | No | Maximum allowed `best_ask` deviation above midpoint before routing fails closed |
 
+#### Exit Scan (WI-22)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `EXIT_SCAN_INTERVAL_SECONDS` | Decimal | `60` | No | Periodic cadence for `ExitStrategyEngine.scan_open_positions()` in `ExitScanTask` |
+
 #### Gas
 
 | Variable | Type | Default | Required | Description |
@@ -187,12 +193,13 @@ python -m src.orchestrator
 2. Initializes async database engine and session factory
 3. Runs market discovery via `GammaRESTClient` + `MarketDiscoveryEngine`
 4. Selects the best eligible market (exits if none found)
-5. Wires the four-layer queue pipeline and launches 5 concurrent tasks:
+5. Wires the four-layer queue pipeline and launches 6 concurrent tasks:
    - **IngestionTask** — `CLOBWebSocketClient` streams market events
    - **ContextTask** — `DataAggregator` maintains state + `PromptFactory` builds prompts
    - **EvaluationTask** — `ClaudeClient` evaluates and routes decisions
    - **ExecutionTask** — Signs and broadcasts approved orders (blocked in dry_run)
    - **DiscoveryTask** — Re-runs market discovery every 5 minutes
+   - **ExitScanTask** — Runs periodic open-position exit scans (sleep-first loop)
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -221,8 +228,8 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 295 tests
-- 92% coverage (target: ≥ 80%)
+- 308 tests
+- 93% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 
