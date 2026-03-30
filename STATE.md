@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-03-30
 **Version:** 0.7.0
-**Status:** Phase 6 In Progress — Position Lifecycle
-**Active WI:** WI-17 Complete
+**Status:** Phase 6 In Progress — Position Tracking & Exit Engine
+**Active WI:** None (WI-17 and WI-19 Complete)
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 257 |
+| Total tests | 295 |
 | Coverage | 92% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -146,6 +146,12 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
   - MAAP audit caught 2 orchestrator wiring defects (token_id field, dry_run bypass) — both fixed and re-cleared
   - 27 new tests (unit + integration), 257 total, 92% coverage, full regression green
   - Key files: `src/agents/execution/position_tracker.py`, `src/schemas/position.py`, `src/schemas/execution.py`, `src/db/models.py`, `src/db/repositories/position_repository.py`, `migrations/versions/0002_add_open_positions_table.py`, `src/orchestrator.py`
+
+### Phase 6 Completion Snapshot
+
+- WI-17 — Position Tracker — COMPLETE (2026-03-29)
+- WI-19 — Exit Strategy Engine — COMPLETE (2026-03-29)
+- Tests: 295 passing, 92% coverage
 
 ---
 
