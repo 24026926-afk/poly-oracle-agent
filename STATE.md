@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-30
-**Version:** 0.8.0
-**Status:** Phase 7 Complete — WI-22 + WI-20 + WI-21 Sealed
-**Active WI:** Phase 8 Planning — WI-23 TBD
+**Last Updated:** 2026-03-31
+**Version:** 0.8.1
+**Status:** Phase 8 In Progress — WI-23 Complete
+**Active WI:** WI-24 — Position Lifecycle Reporter
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 362 |
-| Coverage | 93% (target ≥ 80%) |
+| Total tests | 388 |
+| Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
@@ -244,6 +244,39 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
+## Phase 8: Portfolio Analytics
+
+### Work Items
+
+- [x] **WI-23 — Portfolio Aggregator** (completed 2026-03-31)
+  - Added `PortfolioAggregator` in `src/agents/execution/portfolio_aggregator.py`
+  - Added frozen Decimal-safe `PortfolioSnapshot` schema in `src/schemas/risk.py`
+  - Added `AppConfig.enable_portfolio_aggregator: bool = False`
+  - Added `AppConfig.portfolio_aggregation_interval_sec: Decimal = Decimal("30")`
+  - Added `Orchestrator._portfolio_aggregation_loop()` with sleep-first cadence
+  - Added conditional task registration:
+    `asyncio.create_task(self._portfolio_aggregation_loop(), name="PortfolioAggregatorTask")`
+  - Fail-open semantics:
+    - Per-position price fetch failure logs `portfolio.price_fetch_failed`
+    - Fallback to `entry_price` preserves snapshot computation
+    - Loop catches iteration failures and logs `portfolio_aggregation_loop.error`
+  - Snapshot audit event:
+    - `portfolio.snapshot_computed`
+  - Read-only guarantees:
+    - Loads via `PositionRepository.get_open_positions()`
+    - Zero DB writes (`INSERT/UPDATE/DELETE`) in `compute_snapshot()`
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 388 passed
+    - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 94%
+
+### Phase 8 Progress Gate
+
+- [x] WI-23 implemented and validated
+- [ ] WI-24 pending
+- [ ] WI-25 pending
+
+---
+
 ## Active Constraints (always enforced)
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
@@ -256,7 +289,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
-## Key File Map (Phase 7)
+## Key File Map (Phase 8)
 
 | File | Purpose |
 |---|---|
@@ -268,8 +301,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/exit_strategy_engine.py` | `ExitStrategyEngine` — rule-based exit evaluation for open positions |
 | `src/agents/execution/exit_order_router.py` | `ExitOrderRouter` — SELL-side exit routing from `ExitResult` + `PositionRecord` to signed/unsigned `OrderData` |
 | `src/agents/execution/pnl_calculator.py` | `PnLCalculator` — WI-21 realized PnL computation + settlement persistence orchestration |
+| `src/agents/execution/portfolio_aggregator.py` | `PortfolioAggregator` — WI-23 read-only portfolio exposure aggregation with fail-open price fallback |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
 | `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` / `PnLRecord` |
+| `src/schemas/risk.py` | `PortfolioSnapshot` — WI-23 immutable Decimal-safe portfolio snapshot contract |
 | `src/db/repositories/position_repository.py` | `PositionRepository` — async CRUD for `positions` table |
 | `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial + WI-21 settlement columns |
 | `migrations/versions/0002_add_open_positions_table.py` | Alembic migration adding `positions` table |
@@ -278,8 +313,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor |
-| `src/orchestrator.py` | Main entry point; spins up 6 async tasks, periodic scans, and WI-20 exit routing/broadcast integration |
+| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 portfolio aggregator flags |
+| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, and WI-23 aggregation loop |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

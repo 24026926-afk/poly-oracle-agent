@@ -118,6 +118,15 @@ class AppConfig(BaseSettings):
         default=Decimal("60"),
         description="Seconds between periodic exit scans of open positions",
     )
+    # --- Portfolio Aggregator (WI-23) ---
+    enable_portfolio_aggregator: bool = Field(
+        default=False,
+        description="Enable periodic portfolio snapshot aggregation",
+    )
+    portfolio_aggregation_interval_sec: Decimal = Field(
+        default=Decimal("30"),
+        description="Seconds between periodic portfolio snapshot computations",
+    )
     exit_min_bid_tolerance: Decimal = Field(
         default=Decimal("0.01"),
         description=(
