@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: feat/wi21-pnl-calculator
-Active phase: Phase 7 Complete — Exit Path Decoupling sealed
-Completed: WI-11 through WI-22 ✅ (Phases 4, 5, 6, and 7 sealed)
-Current WI set: None active (Phase 8 planning next)
-Next task: Define Phase 8 WI scope (starting with WI-23 planning).
+Current branch: feat/wi23-portfolio-aggregator
+Active phase: Phase 8 In Progress — Portfolio Analytics
+Completed: WI-11 through WI-23 ✅ (Phases 4, 5, 6, 7 sealed; Phase 8 started)
+Current WI set: WI-23 complete, WI-24 + WI-25 pending
+Next task: Implement WI-24 Position Lifecycle Reporter.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

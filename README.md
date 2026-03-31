@@ -7,10 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.8.0
-- **Status:** Phase 7 Complete (WI-22 + WI-20 + WI-21 complete: periodic exit scan + exit order routing + realized PnL settlement)
-- **Tests:** 362 automated tests passing
-- **Coverage:** 93% (target: ≥ 80%)
+- **Version:** 0.8.1
+- **Status:** Phase 8 In Progress (WI-23 complete: portfolio aggregation added; WI-24/WI-25 pending)
+- **Tests:** 388 automated tests passing
+- **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -155,6 +155,13 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 |---|---|---|---|---|
 | `EXIT_SCAN_INTERVAL_SECONDS` | Decimal | `60` | No | Periodic cadence for `ExitStrategyEngine.scan_open_positions()` in `ExitScanTask` |
 
+#### Portfolio Aggregator (WI-23)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_PORTFOLIO_AGGREGATOR` | bool | `false` | No | Enables optional `PortfolioAggregatorTask` in orchestrator |
+| `PORTFOLIO_AGGREGATION_INTERVAL_SEC` | Decimal | `30` | No | Periodic cadence for `PortfolioAggregator.compute_snapshot()` |
+
 #### Exit Order Router (WI-20)
 
 | Variable | Type | Default | Required | Description |
@@ -199,13 +206,14 @@ python -m src.orchestrator
 2. Initializes async database engine and session factory
 3. Runs market discovery via `GammaRESTClient` + `MarketDiscoveryEngine`
 4. Selects the best eligible market (exits if none found)
-5. Wires the four-layer queue pipeline and launches 6 concurrent tasks:
+5. Wires the four-layer queue pipeline and launches 6 baseline concurrent tasks:
    - **IngestionTask** — `CLOBWebSocketClient` streams market events
    - **ContextTask** — `DataAggregator` maintains state + `PromptFactory` builds prompts
    - **EvaluationTask** — `ClaudeClient` evaluates and routes decisions
    - **ExecutionTask** — Signs and broadcasts approved orders (blocked in dry_run)
    - **DiscoveryTask** — Re-runs market discovery every 5 minutes
    - **ExitScanTask** — Runs periodic open-position exit scans (sleep-first loop)
+   - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots when `ENABLE_PORTFOLIO_AGGREGATOR=true`
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -234,8 +242,8 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 362 tests
-- 93% coverage (target: ≥ 80%)
+- 388 tests
+- 94% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 

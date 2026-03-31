@@ -30,6 +30,7 @@ from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.nonce_manager import NonceManager
 from src.agents.execution.pnl_calculator import PnLCalculator
+from src.agents.execution.portfolio_aggregator import PortfolioAggregator
 from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
@@ -120,6 +121,11 @@ class Orchestrator:
             config=self.config,
             db_session_factory=AsyncSessionLocal,
         )
+        self.portfolio_aggregator = PortfolioAggregator(
+            config=self.config,
+            polymarket_client=self.polymarket_client,
+            db_session_factory=AsyncSessionLocal,
+        )
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
@@ -203,6 +209,13 @@ class Orchestrator:
                 name="ExitScanTask",
             ),
         ]
+        if self.config.enable_portfolio_aggregator:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._portfolio_aggregation_loop(),
+                    name="PortfolioAggregatorTask",
+                )
+            )
 
         try:
             await asyncio.gather(*self._tasks)
@@ -401,6 +414,20 @@ class Orchestrator:
             except Exception as exc:
                 logger.error(
                     "exit_scan_loop.error",
+                    error=str(exc),
+                )
+
+    async def _portfolio_aggregation_loop(self) -> None:
+        """Periodic portfolio snapshot aggregation (WI-23)."""
+        while True:
+            await asyncio.sleep(
+                float(self.config.portfolio_aggregation_interval_sec)
+            )
+            try:
+                await self.portfolio_aggregator.compute_snapshot()
+            except Exception as exc:
+                logger.error(
+                    "portfolio_aggregation_loop.error",
                     error=str(exc),
                 )
 
