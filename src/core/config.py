@@ -170,6 +170,15 @@ class AppConfig(BaseSettings):
         default=Decimal("5"),
         description="Hard timeout in seconds for each Telegram sendMessage call",
     )
+    # --- Circuit Breaker (WI-27) ---
+    enable_circuit_breaker: bool = Field(
+        default=False,
+        description="Enable global circuit breaker to halt BUY routing on CRITICAL drawdown alerts",
+    )
+    circuit_breaker_override_closed: bool = Field(
+        default=False,
+        description="Force circuit breaker to CLOSED state on next evaluate_alerts() call (one-shot override)",
+    )
     exit_min_bid_tolerance: Decimal = Field(
         default=Decimal("0.01"),
         description=(

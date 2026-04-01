@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-01
-**Version:** 0.9.0
-**Status:** Phase 9 In Progress — WI-26 Complete
-**Active WI:** WI-27 — Global Circuit Breaker
+**Version:** 0.9.1
+**Status:** Phase 9 In Progress — WI-27 Complete
+**Active WI:** WI-28 — Net PnL & Fee Accounting
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 493 |
+| Total tests | 521 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -357,12 +357,40 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
     - `pytest --asyncio-mode=auto tests/ -q` → 493 passed
     - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
+- [x] **WI-27 — Global Circuit Breaker** (completed 2026-04-01)
+  - Added `CircuitBreaker` and `CircuitBreakerState` in `src/agents/execution/circuit_breaker.py`
+  - Added config fields:
+    - `enable_circuit_breaker: bool = False`
+    - `circuit_breaker_override_closed: bool = False`
+  - Config-gated `Orchestrator` construction:
+    - sets `self.circuit_breaker = None` and logs `circuit_breaker.disabled` when feature flag is off
+    - constructs in-memory breaker with initial `CLOSED` state when enabled
+  - Entry-path wiring:
+    - `_execution_consumer_loop()` checks `check_entry_allowed()` before `ExecutionRouter.route()`
+    - blocked entries emit `ExecutionResult(action=SKIP, reason="circuit_breaker_open")`
+    - blocked entries log `circuit_breaker.entry_blocked` and still pass through `PositionTracker.record_execution()` for audit continuity
+  - Aggregation-loop wiring:
+    - `_portfolio_aggregation_loop()` calls `evaluate_alerts(alerts)` after Telegram alert fan-out
+    - `evaluate_alerts([])` still runs on all-clear cycles so one-shot overrides are processed without waiting for a new alert
+    - CLOSED → OPEN transitions trigger Telegram execution-event summary: `CIRCUIT BREAKER TRIPPED`
+  - Preserved invariants:
+    - synchronous in-memory state machine only; no DB writes, no HTTP, no new queue, no new task
+    - trips only on `AlertSeverity.CRITICAL` + `rule_name == "drawdown"`
+    - exit path remains fully operational (`ExitStrategyEngine`, `ExitOrderRouter`, `PnLCalculator`, SELL notifications/broadcasts unchanged)
+    - Gatekeeper authority unchanged; breaker is a downstream execution gate only
+  - Test additions:
+    - `tests/unit/test_circuit_breaker.py` (18)
+    - `tests/integration/test_circuit_breaker_integration.py` (10)
+  - Regression:
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 521 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
 ### Phase 9 Progress Gate
 
 - [x] WI-26 implemented and validated
-- [ ] WI-27 implemented and validated
+- [x] WI-27 implemented and validated
 - [ ] WI-28 implemented and validated
-- [x] Full regression green: 493 passed
+- [x] Full regression green: 521 passed
 - [x] Coverage maintained at 94% (target ≥ 80%)
 
 ---
@@ -395,6 +423,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/lifecycle_reporter.py` | `PositionLifecycleReporter` — WI-24 read-only lifecycle aggregation over settled/open positions |
 | `src/agents/execution/alert_engine.py` | `AlertEngine` — WI-25 deterministic rule-based alert evaluation over snapshot/report inputs |
 | `src/agents/execution/telegram_notifier.py` | `TelegramNotifier` — WI-26 async Telegram Bot API sink for alerts and BUY/SELL routing summaries |
+| `src/agents/execution/circuit_breaker.py` | `CircuitBreaker` — WI-27 synchronous in-memory global BUY gate that trips on CRITICAL drawdown alerts |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
 | `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` / `PnLRecord` |
 | `src/schemas/risk.py` | `PortfolioSnapshot`, `PositionLifecycleEntry`, `LifecycleReport`, `AlertSeverity`, `AlertEvent` — immutable Decimal-safe analytics contracts |
@@ -406,8 +435,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 aggregator flags, WI-25 alert thresholds, WI-26 Telegram notifier settings |
-| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, WI-23/WI-24/WI-25 analytics loop, and WI-26 Telegram dispatch within existing loops |
+| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 aggregator flags, WI-25 alert thresholds, WI-26 Telegram notifier settings, and WI-27 circuit breaker flags |
+| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, WI-23/WI-24/WI-25 analytics loop, WI-26 Telegram dispatch, and WI-27 circuit breaker entry/aggregation wiring |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

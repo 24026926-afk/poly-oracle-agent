@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: feat/wi26-telegram-sink
+Current branch: develop
 Active phase: Phase 9 In Progress — Operator Safety & Telemetry
-Completed: WI-11 through WI-26 ✅ (Phases 4, 5, 6, 7, 8 sealed; Phase 9 started)
-Current WI set: WI-26 complete; WI-27 / WI-28 pending
-Next task: WI-27 — Global Circuit Breaker.
+Completed: WI-11 through WI-27 ✅ (Phases 4, 5, 6, 7, 8 sealed; Phase 9 in progress)
+Current WI set: WI-27 complete; WI-28 pending
+Next task: WI-28 — Net PnL & Fee Accounting.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

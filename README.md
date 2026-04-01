@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.9.0
-- **Status:** Phase 9 In Progress (WI-26 delivered: Telegram telemetry sink)
-- **Tests:** 493 automated tests passing
+- **Version:** 0.9.1
+- **Status:** Phase 9 In Progress (WI-27 delivered: Global circuit breaker)
+- **Tests:** 521 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
@@ -180,6 +180,13 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `TELEGRAM_CHAT_ID` | str | `""` | No | Telegram chat ID that receives notifications; feature stays disabled when empty |
 | `TELEGRAM_SEND_TIMEOUT_SEC` | Decimal | `5` | No | Hard timeout for each Telegram `sendMessage` request |
 
+#### Circuit Breaker (WI-27)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_CIRCUIT_BREAKER` | bool | `false` | No | Enables the global in-memory circuit breaker that blocks new BUY routing on CRITICAL drawdown alerts |
+| `CIRCUIT_BREAKER_OVERRIDE_CLOSED` | bool | `false` | No | One-shot manual override that forces the breaker back to `CLOSED` on the next alert-evaluation cycle |
+
 #### Exit Order Router (WI-20)
 
 | Variable | Type | Default | Required | Description |
@@ -233,6 +240,8 @@ python -m src.orchestrator
    - **ExitScanTask** — Runs periodic open-position exit scans (sleep-first loop)
    - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots, lifecycle reports, and WI-25 alert evaluation when `ENABLE_PORTFOLIO_AGGREGATOR=true`
 6. If `ENABLE_TELEGRAM_NOTIFIER=true` and Telegram credentials are present, WI-26 sends Telegram alerts and BUY/SELL routing summaries inline from existing loops using a dedicated `httpx.AsyncClient` and no extra task.
+7. If `ENABLE_CIRCUIT_BREAKER=true`, WI-27 adds a synchronous in-memory gate before `ExecutionRouter.route()`. CRITICAL `drawdown` alerts trip it to `OPEN`, blocking new BUY routing while leaving the SELL-side exit path fully operational.
+8. If `CIRCUIT_BREAKER_OVERRIDE_CLOSED=true`, the next portfolio aggregation cycle force-closes the breaker once, then auto-resets the flag in memory.
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -258,6 +267,8 @@ Run focused tests:
 ```bash
 python -m pytest tests/unit/test_schemas.py -v
 python -m pytest tests/unit/test_nonce_manager.py -v
+python -m pytest tests/unit/test_circuit_breaker.py -v
+python -m pytest tests/integration/test_circuit_breaker_integration.py -v
 ```
 
 Current baseline:

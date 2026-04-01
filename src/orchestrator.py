@@ -25,6 +25,7 @@ from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
 from src.agents.execution.alert_engine import AlertEngine
+from src.agents.execution.circuit_breaker import CircuitBreaker, CircuitBreakerState
 from src.agents.execution.execution_router import ExecutionRouter
 from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
@@ -46,6 +47,7 @@ from src.db.engine import AsyncSessionLocal, engine
 from src.db.repositories.position_repository import PositionRepository
 from src.schemas.execution import (
     ExecutionAction,
+    ExecutionResult,
     ExitOrderAction,
     PositionRecord,
     PositionStatus,
@@ -149,6 +151,12 @@ class Orchestrator:
             )
         else:
             logger.info("telegram.disabled")
+
+        self.circuit_breaker: CircuitBreaker | None = None
+        if self.config.enable_circuit_breaker:
+            self.circuit_breaker = CircuitBreaker(config=self.config)
+        else:
+            logger.info("circuit_breaker.disabled")
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
@@ -262,13 +270,26 @@ class Orchestrator:
                     logger.error("execution.missing_evaluation")
                     continue
 
-                execution_result = await self.execution_router.route(
-                    response=eval_resp,
-                    market_context=eval_resp.market_context,
-                )
+                condition_id = str(eval_resp.market_context.condition_id)
+                if (
+                    self.circuit_breaker is not None
+                    and not self.circuit_breaker.check_entry_allowed()
+                ):
+                    logger.warning(
+                        "circuit_breaker.entry_blocked",
+                        condition_id=condition_id,
+                    )
+                    execution_result = ExecutionResult(
+                        action=ExecutionAction.SKIP,
+                        reason="circuit_breaker_open",
+                    )
+                else:
+                    execution_result = await self.execution_router.route(
+                        response=eval_resp,
+                        market_context=eval_resp.market_context,
+                    )
                 item["execution_result"] = execution_result
 
-                condition_id = str(eval_resp.market_context.condition_id)
                 yes_token_id = item.get("yes_token_id")
                 if yes_token_id is None:
                     yes_token_id = getattr(eval_resp.market_context, "yes_token_id", None)
@@ -523,11 +544,45 @@ class Orchestrator:
                                     await self.telegram_notifier.send_alert(alert)
                                 except Exception:
                                     pass
+                        if self.circuit_breaker is not None:
+                            try:
+                                previous_state = self.circuit_breaker.state
+                                self.circuit_breaker.evaluate_alerts(alerts)
+                                if (
+                                    previous_state == CircuitBreakerState.CLOSED
+                                    and self.circuit_breaker.state
+                                    == CircuitBreakerState.OPEN
+                                    and self.telegram_notifier is not None
+                                ):
+                                    try:
+                                        await self.telegram_notifier.send_execution_event(
+                                            summary=(
+                                                "CIRCUIT BREAKER TRIPPED: "
+                                                "BUY routing halted due to CRITICAL "
+                                                "drawdown alert. Manual reset required."
+                                            ),
+                                            dry_run=self.config.dry_run,
+                                        )
+                                    except Exception:
+                                        pass
+                            except Exception as exc:
+                                logger.error(
+                                    "circuit_breaker.evaluate_error",
+                                    error=str(exc),
+                                )
                     else:
                         logger.info(
                             "alert_engine.all_clear",
                             dry_run=snapshot.dry_run,
                         )
+                        if self.circuit_breaker is not None:
+                            try:
+                                self.circuit_breaker.evaluate_alerts([])
+                            except Exception as exc:
+                                logger.error(
+                                    "circuit_breaker.evaluate_error",
+                                    error=str(exc),
+                                )
                 except Exception as exc:
                     logger.error(
                         "alert_engine.error",
