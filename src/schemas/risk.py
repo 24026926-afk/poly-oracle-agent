@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -125,5 +126,40 @@ class LifecycleReport(BaseModel):
                 "winning_count + losing_count + breakeven_count must equal total_settled_count"
             )
         return self
+
+    model_config = {"frozen": True}
+
+
+class AlertSeverity(str, Enum):
+    """Severity classification for alert events."""
+
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+
+
+class AlertEvent(BaseModel):
+    """Typed immutable alert event emitted by AlertEngine."""
+
+    alert_at_utc: datetime
+    severity: AlertSeverity
+    rule_name: str
+    message: str
+    threshold_value: Decimal
+    actual_value: Decimal
+    dry_run: bool
+
+    @field_validator(
+        "threshold_value",
+        "actual_value",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
 
     model_config = {"frozen": True}

@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-03-31
-**Version:** 0.8.2
-**Status:** Phase 8 In Progress — WI-24 Complete
-**Active WI:** WI-25 — Alert Engine
+**Last Updated:** 2026-04-01
+**Version:** 0.8.3
+**Status:** Phase 8 Complete — WI-25 Complete
+**Active WI:** Phase 9 Planning
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 421 |
+| Total tests | 462 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -292,11 +292,36 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
     - `pytest --asyncio-mode=auto tests/ -q` → 421 passed
     - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 94%
 
+- [x] **WI-25 — Alert Engine** (completed 2026-04-01)
+  - Added `AlertEngine` in `src/agents/execution/alert_engine.py` (synchronous, stateless, read-only)
+  - Added `AlertSeverity` enum (`INFO | WARNING | CRITICAL`) and frozen `AlertEvent` schema in `src/schemas/risk.py`
+  - Added `AppConfig` thresholds:
+    - `alert_drawdown_usdc: Decimal = Decimal("100")`
+    - `alert_stale_price_pct: Decimal = Decimal("0.50")`
+    - `alert_max_open_positions: int = 20`
+    - `alert_loss_rate_pct: Decimal = Decimal("0.60")`
+  - Added orchestrator integration:
+    - constructs `AlertEngine` in `Orchestrator.__init__()`
+    - captures snapshot/report outputs in `_portfolio_aggregation_loop()`
+    - evaluates alerts only when both outputs are non-None
+    - logs `alert_engine.alerts_fired`, `alert_engine.all_clear`, `alert_engine.error`
+  - Preserved fail-open semantics:
+    - snapshot/report failures skip alert evaluation for that cycle
+    - alert evaluation exceptions are caught and logged without terminating the loop
+  - Added WI-25 test suites:
+    - `tests/unit/test_alert_engine.py` (33 tests)
+    - `tests/integration/test_alert_engine_integration.py` (8 tests)
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 462 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
 ### Phase 8 Progress Gate
 
 - [x] WI-23 implemented and validated
 - [x] WI-24 implemented and validated
-- [ ] WI-25 pending
+- [x] WI-25 implemented and validated
+- [x] Full phase regression + coverage gate: 462 passed, 94%
+- [x] `docs/archive/ARCHIVE_PHASE_8.md` created
 
 ---
 
@@ -326,9 +351,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/pnl_calculator.py` | `PnLCalculator` — WI-21 realized PnL computation + settlement persistence orchestration |
 | `src/agents/execution/portfolio_aggregator.py` | `PortfolioAggregator` — WI-23 read-only portfolio exposure aggregation with fail-open price fallback |
 | `src/agents/execution/lifecycle_reporter.py` | `PositionLifecycleReporter` — WI-24 read-only lifecycle aggregation over settled/open positions |
+| `src/agents/execution/alert_engine.py` | `AlertEngine` — WI-25 deterministic rule-based alert evaluation over snapshot/report inputs |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
 | `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` / `PnLRecord` |
-| `src/schemas/risk.py` | `PortfolioSnapshot`, `PositionLifecycleEntry`, `LifecycleReport` — immutable Decimal-safe analytics contracts |
+| `src/schemas/risk.py` | `PortfolioSnapshot`, `PositionLifecycleEntry`, `LifecycleReport`, `AlertSeverity`, `AlertEvent` — immutable Decimal-safe analytics contracts |
 | `src/db/repositories/position_repository.py` | `PositionRepository` — async CRUD for `positions` table |
 | `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial + WI-21 settlement columns |
 | `migrations/versions/0002_add_open_positions_table.py` | Alembic migration adding `positions` table |
@@ -337,8 +363,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 portfolio aggregator flags |
-| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, and WI-23/WI-24 aggregation + reporting loop |
+| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 aggregator flags, WI-25 alert thresholds |
+| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, and WI-23/WI-24/WI-25 analytics loop |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

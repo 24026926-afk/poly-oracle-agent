@@ -24,6 +24,7 @@ from src.agents.evaluation.claude_client import ClaudeClient
 from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
+from src.agents.execution.alert_engine import AlertEngine
 from src.agents.execution.execution_router import ExecutionRouter
 from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
@@ -48,6 +49,7 @@ from src.schemas.execution import (
     PositionRecord,
     PositionStatus,
 )
+from src.schemas.risk import LifecycleReport, PortfolioSnapshot
 
 # Ensure .env is explicitly loaded if running from root
 load_dotenv()
@@ -131,6 +133,7 @@ class Orchestrator:
             config=self.config,
             db_session_factory=AsyncSessionLocal,
         )
+        self.alert_engine = AlertEngine(config=self.config)
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
@@ -423,25 +426,48 @@ class Orchestrator:
                 )
 
     async def _portfolio_aggregation_loop(self) -> None:
-        """Periodic portfolio snapshot aggregation (WI-23) and lifecycle report (WI-24)."""
+        """Periodic portfolio snapshot, lifecycle report, and alert evaluation (WI-23/24/25)."""
         while True:
             await asyncio.sleep(
                 float(self.config.portfolio_aggregation_interval_sec)
             )
+            snapshot: PortfolioSnapshot | None = None
+            report: LifecycleReport | None = None
             try:
-                await self.portfolio_aggregator.compute_snapshot()
+                snapshot = await self.portfolio_aggregator.compute_snapshot()
             except Exception as exc:
                 logger.error(
                     "portfolio_aggregation_loop.error",
                     error=str(exc),
                 )
             try:
-                await self.lifecycle_reporter.generate_report()
+                report = await self.lifecycle_reporter.generate_report()
             except Exception as exc:
                 logger.error(
                     "lifecycle_report_loop.error",
                     error=str(exc),
                 )
+            if snapshot is not None and report is not None:
+                try:
+                    alerts = self.alert_engine.evaluate(snapshot, report)
+                    if alerts:
+                        logger.warning(
+                            "alert_engine.alerts_fired",
+                            alert_count=len(alerts),
+                            rules=[alert.rule_name for alert in alerts],
+                            severities=[alert.severity.value for alert in alerts],
+                            dry_run=snapshot.dry_run,
+                        )
+                    else:
+                        logger.info(
+                            "alert_engine.all_clear",
+                            dry_run=snapshot.dry_run,
+                        )
+                except Exception as exc:
+                    logger.error(
+                        "alert_engine.error",
+                        error=str(exc),
+                    )
 
     async def _fetch_position_record(
         self, position_id: str

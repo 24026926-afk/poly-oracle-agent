@@ -43,6 +43,14 @@ Invoke me for:
   in the per-exit `try/except` path; never let one routing error suppress
   `exit_scan_loop.completed` logging for that scan cycle.
 
+## WI-25 Async Invariants (2026-04-01)
+- `_portfolio_aggregation_loop()` must capture return values from both
+  `compute_snapshot()` and `generate_report()` in local variables.
+- Alert evaluation runs inline (no new `asyncio.create_task`) and only when
+  both captured values are non-`None`.
+- Exceptions from alert evaluation are caught and logged (`alert_engine.error`)
+  so the loop remains fail-open and continues on the next cycle.
+
 ## Output Format
 - ✅ PASS or ❌ FAIL per class name / queue / task pattern
 - File path + line reference

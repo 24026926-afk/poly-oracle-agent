@@ -127,6 +127,32 @@ class AppConfig(BaseSettings):
         default=Decimal("30"),
         description="Seconds between periodic portfolio snapshot computations",
     )
+    # --- Alert Engine (WI-25) ---
+    alert_drawdown_usdc: Decimal = Field(
+        default=Decimal("100"),
+        description=(
+            "USDC drawdown threshold for CRITICAL alert "
+            "(fires when total_unrealized_pnl < -threshold)"
+        ),
+    )
+    alert_stale_price_pct: Decimal = Field(
+        default=Decimal("0.50"),
+        description=(
+            "Stale-price ratio threshold for WARNING alert "
+            "(fires when stale/total > threshold)"
+        ),
+    )
+    alert_max_open_positions: int = Field(
+        default=20,
+        description="Maximum open positions before WARNING alert fires",
+    )
+    alert_loss_rate_pct: Decimal = Field(
+        default=Decimal("0.60"),
+        description=(
+            "Loss rate threshold for WARNING alert "
+            "(fires when losing/settled > threshold)"
+        ),
+    )
     exit_min_bid_tolerance: Decimal = Field(
         default=Decimal("0.01"),
         description=(

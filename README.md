@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.8.2
-- **Status:** Phase 8 In Progress (WI-24 complete: lifecycle reporting added; WI-25 pending)
-- **Tests:** 421 automated tests passing
+- **Version:** 0.8.3
+- **Status:** Phase 8 Complete (WI-23/24/25 delivered: aggregation, lifecycle reporting, and alerting)
+- **Tests:** 462 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
@@ -162,6 +162,15 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `ENABLE_PORTFOLIO_AGGREGATOR` | bool | `false` | No | Enables optional `PortfolioAggregatorTask` in orchestrator |
 | `PORTFOLIO_AGGREGATION_INTERVAL_SEC` | Decimal | `30` | No | Periodic cadence for `PortfolioAggregator.compute_snapshot()` |
 
+#### Alert Engine (WI-25)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ALERT_DRAWDOWN_USDC` | Decimal | `100` | No | Fires CRITICAL drawdown alert when `total_unrealized_pnl < -threshold` |
+| `ALERT_STALE_PRICE_PCT` | Decimal | `0.50` | No | Fires WARNING stale-price alert when `stale/total > threshold` |
+| `ALERT_MAX_OPEN_POSITIONS` | int | `20` | No | Fires WARNING position-count alert when open positions exceed threshold |
+| `ALERT_LOSS_RATE_PCT` | Decimal | `0.60` | No | Fires WARNING loss-rate alert when `losing/settled > threshold` |
+
 #### Exit Order Router (WI-20)
 
 | Variable | Type | Default | Required | Description |
@@ -213,7 +222,7 @@ python -m src.orchestrator
    - **ExecutionTask** — Signs and broadcasts approved orders (blocked in dry_run)
    - **DiscoveryTask** — Re-runs market discovery every 5 minutes
    - **ExitScanTask** — Runs periodic open-position exit scans (sleep-first loop)
-   - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots and lifecycle reports when `ENABLE_PORTFOLIO_AGGREGATOR=true`
+   - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots, lifecycle reports, and WI-25 alert evaluation when `ENABLE_PORTFOLIO_AGGREGATOR=true`
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -242,7 +251,7 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 421 tests
+- 462 tests
 - 94% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.

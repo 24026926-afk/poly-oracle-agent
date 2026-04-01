@@ -5,11 +5,11 @@ See docs/PRD-v4.0.md for Phase 4 scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: feat/wi24-position-lifecycle-reporter
-Active phase: Phase 8 In Progress — Portfolio Analytics
-Completed: WI-11 through WI-24 ✅ (Phases 4, 5, 6, 7 sealed; Phase 8 in progress)
-Current WI set: WI-23 + WI-24 complete, WI-25 pending
-Next task: Implement WI-25 Alert Engine.
+Current branch: feat/wi25-alert-engine
+Active phase: Phase 8 Complete — Portfolio Analytics
+Completed: WI-11 through WI-25 ✅ (Phases 4, 5, 6, 7, 8 sealed)
+Current WI set: WI-23 + WI-24 + WI-25 complete
+Next task: Phase 9 PRD planning and scope breakdown.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 
