@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-03-31
-**Version:** 0.8.1
-**Status:** Phase 8 In Progress — WI-23 Complete
-**Active WI:** WI-24 — Position Lifecycle Reporter
+**Version:** 0.8.2
+**Status:** Phase 8 In Progress — WI-24 Complete
+**Active WI:** WI-25 — Alert Engine
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 388 |
+| Total tests | 421 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -269,10 +269,33 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
     - `pytest --asyncio-mode=auto tests/ -q` → 388 passed
     - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 94%
 
+- [x] **WI-24 — Position Lifecycle Reporter** (completed 2026-03-31)
+  - Added `PositionLifecycleReporter` in `src/agents/execution/lifecycle_reporter.py`
+  - Added frozen Decimal-safe `PositionLifecycleEntry` + `LifecycleReport` schemas in `src/schemas/risk.py`
+  - Added additive repository read methods in `PositionRepository`:
+    - `get_all_positions()`
+    - `get_settled_positions()`
+    - `get_positions_by_status(status)`
+  - Added optional `start_date`/`end_date` filtering on `routed_at_utc` with fail-open invalid-range handling
+  - Added structlog events:
+    - `lifecycle.report_generated`
+    - `lifecycle.report_empty`
+    - `lifecycle_report_loop.error` (orchestrator loop integration)
+  - Added orchestrator integration:
+    - constructs `PositionLifecycleReporter` in `__init__()`
+    - invokes `generate_report()` in `_portfolio_aggregation_loop()` after snapshot computation
+    - independent try/except preserves fail-open semantics
+  - Read-only guarantees:
+    - loads via `PositionRepository.get_all_positions()`
+    - zero DB writes (`INSERT/UPDATE/DELETE`) in `generate_report()`
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 421 passed
+    - `coverage run -m pytest tests/ --asyncio-mode=auto && coverage report -m` → 94%
+
 ### Phase 8 Progress Gate
 
 - [x] WI-23 implemented and validated
-- [ ] WI-24 pending
+- [x] WI-24 implemented and validated
 - [ ] WI-25 pending
 
 ---
@@ -302,9 +325,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/exit_order_router.py` | `ExitOrderRouter` — SELL-side exit routing from `ExitResult` + `PositionRecord` to signed/unsigned `OrderData` |
 | `src/agents/execution/pnl_calculator.py` | `PnLCalculator` — WI-21 realized PnL computation + settlement persistence orchestration |
 | `src/agents/execution/portfolio_aggregator.py` | `PortfolioAggregator` — WI-23 read-only portfolio exposure aggregation with fail-open price fallback |
+| `src/agents/execution/lifecycle_reporter.py` | `PositionLifecycleReporter` — WI-24 read-only lifecycle aggregation over settled/open positions |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
 | `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` / `PnLRecord` |
-| `src/schemas/risk.py` | `PortfolioSnapshot` — WI-23 immutable Decimal-safe portfolio snapshot contract |
+| `src/schemas/risk.py` | `PortfolioSnapshot`, `PositionLifecycleEntry`, `LifecycleReport` — immutable Decimal-safe analytics contracts |
 | `src/db/repositories/position_repository.py` | `PositionRepository` — async CRUD for `positions` table |
 | `src/db/models.py` | `Position` ORM model with `Numeric(38,18)` financial + WI-21 settlement columns |
 | `migrations/versions/0002_add_open_positions_table.py` | Alembic migration adding `positions` table |
@@ -314,7 +338,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
 | `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 portfolio aggregator flags |
-| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, and WI-23 aggregation loop |
+| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, and WI-23/WI-24 aggregation + reporting loop |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

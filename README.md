@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.8.1
-- **Status:** Phase 8 In Progress (WI-23 complete: portfolio aggregation added; WI-24/WI-25 pending)
-- **Tests:** 388 automated tests passing
+- **Version:** 0.8.2
+- **Status:** Phase 8 In Progress (WI-24 complete: lifecycle reporting added; WI-25 pending)
+- **Tests:** 421 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
@@ -213,7 +213,7 @@ python -m src.orchestrator
    - **ExecutionTask** — Signs and broadcasts approved orders (blocked in dry_run)
    - **DiscoveryTask** — Re-runs market discovery every 5 minutes
    - **ExitScanTask** — Runs periodic open-position exit scans (sleep-first loop)
-   - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots when `ENABLE_PORTFOLIO_AGGREGATOR=true`
+   - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots and lifecycle reports when `ENABLE_PORTFOLIO_AGGREGATOR=true`
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -242,7 +242,7 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 388 tests
+- 421 tests
 - 94% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
