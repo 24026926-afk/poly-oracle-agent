@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.8.3
-- **Status:** Phase 8 Complete (WI-23/24/25 delivered: aggregation, lifecycle reporting, and alerting)
-- **Tests:** 462 automated tests passing
+- **Version:** 0.9.0
+- **Status:** Phase 9 In Progress (WI-26 delivered: Telegram telemetry sink)
+- **Tests:** 493 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
@@ -171,6 +171,15 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `ALERT_MAX_OPEN_POSITIONS` | int | `20` | No | Fires WARNING position-count alert when open positions exceed threshold |
 | `ALERT_LOSS_RATE_PCT` | Decimal | `0.60` | No | Fires WARNING loss-rate alert when `losing/settled > threshold` |
 
+#### Telegram Notifier (WI-26)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_TELEGRAM_NOTIFIER` | bool | `false` | No | Enables Telegram delivery for alerts and BUY/SELL routing summaries |
+| `TELEGRAM_BOT_TOKEN` | SecretStr | `""` | No | Telegram Bot API token from `@BotFather`; feature stays disabled when empty |
+| `TELEGRAM_CHAT_ID` | str | `""` | No | Telegram chat ID that receives notifications; feature stays disabled when empty |
+| `TELEGRAM_SEND_TIMEOUT_SEC` | Decimal | `5` | No | Hard timeout for each Telegram `sendMessage` request |
+
 #### Exit Order Router (WI-20)
 
 | Variable | Type | Default | Required | Description |
@@ -223,6 +232,7 @@ python -m src.orchestrator
    - **DiscoveryTask** — Re-runs market discovery every 5 minutes
    - **ExitScanTask** — Runs periodic open-position exit scans (sleep-first loop)
    - **PortfolioAggregatorTask** *(optional)* — Runs periodic read-only portfolio snapshots, lifecycle reports, and WI-25 alert evaluation when `ENABLE_PORTFOLIO_AGGREGATOR=true`
+6. If `ENABLE_TELEGRAM_NOTIFIER=true` and Telegram credentials are present, WI-26 sends Telegram alerts and BUY/SELL routing summaries inline from existing loops using a dedicated `httpx.AsyncClient` and no extra task.
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -251,7 +261,7 @@ python -m pytest tests/unit/test_nonce_manager.py -v
 ```
 
 Current baseline:
-- 462 tests
+- 493 tests
 - 94% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.

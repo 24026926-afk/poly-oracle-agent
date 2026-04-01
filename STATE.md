@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-01
-**Version:** 0.8.3
-**Status:** Phase 8 Complete — WI-25 Complete
-**Active WI:** Phase 9 Planning
+**Version:** 0.9.0
+**Status:** Phase 9 In Progress — WI-26 Complete
+**Active WI:** WI-27 — Global Circuit Breaker
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 462 |
+| Total tests | 493 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -325,6 +325,48 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
+## Phase 9: Operator Safety & Telemetry
+
+### Work Items
+
+- [x] **WI-26 — Telegram Telemetry Sink** (completed 2026-04-01)
+  - Added `TelegramNotifier` in `src/agents/execution/telegram_notifier.py`
+  - Added config fields:
+    - `enable_telegram_notifier: bool = False`
+    - `telegram_bot_token: SecretStr = SecretStr("")`
+    - `telegram_chat_id: str = ""`
+    - `telegram_send_timeout_sec: Decimal = Decimal("5")`
+  - Config-gated `Orchestrator` construction:
+    - builds dedicated `self._telegram_client` only when feature flag and both credentials are present
+    - sets `self.telegram_notifier = None` and logs `telegram.disabled` otherwise
+  - Loop wiring:
+    - `_portfolio_aggregation_loop()` sends each fired `AlertEvent`
+    - `_execution_consumer_loop()` sends BUY-routed summaries for `EXECUTED` and `DRY_RUN`
+    - `_exit_scan_loop()` sends SELL-routed summaries for `SELL_ROUTED` and `DRY_RUN`
+  - Fail-open behavior:
+    - `TelegramNotifier._send()` catches all exceptions and logs `telegram.send_failed`
+    - orchestrator call sites use belt-and-suspenders `try/except Exception: pass`
+    - `dry_run=True` prefixes messages with `[DRY RUN]` but does not suppress sends
+  - Lifecycle:
+    - dedicated `httpx.AsyncClient` is closed in `Orchestrator.shutdown()`
+    - no new task, no new queue, no DB writes, no upstream execution mutation
+  - Test additions:
+    - `tests/unit/test_telegram_notifier.py` (17)
+    - `tests/integration/test_telegram_notifier_integration.py` (14)
+  - Regression:
+    - `pytest --asyncio-mode=auto tests/ -q` → 493 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
+### Phase 9 Progress Gate
+
+- [x] WI-26 implemented and validated
+- [ ] WI-27 implemented and validated
+- [ ] WI-28 implemented and validated
+- [x] Full regression green: 493 passed
+- [x] Coverage maintained at 94% (target ≥ 80%)
+
+---
+
 ## Active Constraints (always enforced)
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
@@ -337,7 +379,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 ---
 
-## Key File Map (Phase 8)
+## Key File Map (Phase 9)
 
 | File | Purpose |
 |---|---|
@@ -352,6 +394,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/execution/portfolio_aggregator.py` | `PortfolioAggregator` — WI-23 read-only portfolio exposure aggregation with fail-open price fallback |
 | `src/agents/execution/lifecycle_reporter.py` | `PositionLifecycleReporter` — WI-24 read-only lifecycle aggregation over settled/open positions |
 | `src/agents/execution/alert_engine.py` | `AlertEngine` — WI-25 deterministic rule-based alert evaluation over snapshot/report inputs |
+| `src/agents/execution/telegram_notifier.py` | `TelegramNotifier` — WI-26 async Telegram Bot API sink for alerts and BUY/SELL routing summaries |
 | `src/schemas/position.py` | `PositionRecord`, `PositionStatus` — position lifecycle schemas |
 | `src/schemas/execution.py` | `ExecutionResult` / `ExecutionAction` / `ExitReason` / `ExitSignal` / `ExitResult` / `ExitOrderAction` / `ExitOrderResult` / `PnLRecord` |
 | `src/schemas/risk.py` | `PortfolioSnapshot`, `PositionLifecycleEntry`, `LifecycleReport`, `AlertSeverity`, `AlertEvent` — immutable Decimal-safe analytics contracts |
@@ -363,8 +406,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 aggregator flags, WI-25 alert thresholds |
-| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, and WI-23/WI-24/WI-25 analytics loop |
+| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 aggregator flags, WI-25 alert thresholds, WI-26 Telegram notifier settings |
+| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, WI-23/WI-24/WI-25 analytics loop, and WI-26 Telegram dispatch within existing loops |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

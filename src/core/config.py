@@ -153,6 +153,23 @@ class AppConfig(BaseSettings):
             "(fires when losing/settled > threshold)"
         ),
     )
+    # --- Telegram Notifier (WI-26) ---
+    enable_telegram_notifier: bool = Field(
+        default=False,
+        description="Enable Telegram notification delivery for alerts and execution events",
+    )
+    telegram_bot_token: SecretStr = Field(
+        default=SecretStr(""),
+        description="Telegram Bot API token (from @BotFather)",
+    )
+    telegram_chat_id: str = Field(
+        default="",
+        description="Telegram chat ID for notification delivery",
+    )
+    telegram_send_timeout_sec: Decimal = Field(
+        default=Decimal("5"),
+        description="Hard timeout in seconds for each Telegram sendMessage call",
+    )
     exit_min_bid_tolerance: Decimal = Field(
         default=Decimal("0.01"),
         description=(

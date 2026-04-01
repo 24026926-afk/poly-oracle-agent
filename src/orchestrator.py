@@ -36,6 +36,7 @@ from src.agents.execution.portfolio_aggregator import PortfolioAggregator
 from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
+from src.agents.execution.telegram_notifier import TelegramNotifier
 from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
@@ -134,6 +135,20 @@ class Orchestrator:
             db_session_factory=AsyncSessionLocal,
         )
         self.alert_engine = AlertEngine(config=self.config)
+        self._telegram_client: httpx.AsyncClient | None = None
+        self.telegram_notifier: TelegramNotifier | None = None
+        if (
+            self.config.enable_telegram_notifier
+            and self.config.telegram_bot_token.get_secret_value()
+            and self.config.telegram_chat_id
+        ):
+            self._telegram_client = httpx.AsyncClient()
+            self.telegram_notifier = TelegramNotifier(
+                config=self.config,
+                http_client=self._telegram_client,
+            )
+        else:
+            logger.info("telegram.disabled")
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
@@ -275,6 +290,28 @@ class Orchestrator:
                             error=str(exc),
                         )
 
+                if (
+                    self.telegram_notifier is not None
+                    and execution_result.action
+                    in (ExecutionAction.EXECUTED, ExecutionAction.DRY_RUN)
+                ):
+                    order_size = (
+                        str(execution_result.order_size_usdc)
+                        if execution_result.order_size_usdc is not None
+                        else "unknown"
+                    )
+                    try:
+                        await self.telegram_notifier.send_execution_event(
+                            summary=(
+                                f"BUY ROUTED: {condition_id} | "
+                                f"{order_size} USDC | "
+                                f"action={execution_result.action.value}"
+                            ),
+                            dry_run=self.config.dry_run,
+                        )
+                    except Exception:
+                        pass
+
                 if self.config.dry_run:
                     logger.info(
                         "execution.dry_run_skip",
@@ -393,6 +430,28 @@ class Orchestrator:
                             )
 
                     if (
+                        self.telegram_notifier is not None
+                        and exit_order_result.action
+                        in (ExitOrderAction.SELL_ROUTED, ExitOrderAction.DRY_RUN)
+                    ):
+                        exit_price = (
+                            str(exit_order_result.exit_price)
+                            if exit_order_result.exit_price is not None
+                            else "unknown"
+                        )
+                        try:
+                            await self.telegram_notifier.send_execution_event(
+                                summary=(
+                                    f"SELL ROUTED: {exit_result.position_id} | "
+                                    f"exit_price={exit_price} | "
+                                    f"action={exit_order_result.action.value}"
+                                ),
+                                dry_run=self.config.dry_run,
+                            )
+                        except Exception:
+                            pass
+
+                    if (
                         exit_order_result.action == ExitOrderAction.SELL_ROUTED
                         and exit_order_result.signed_order is not None
                         and not self.config.dry_run
@@ -458,6 +517,12 @@ class Orchestrator:
                             severities=[alert.severity.value for alert in alerts],
                             dry_run=snapshot.dry_run,
                         )
+                        if self.telegram_notifier is not None:
+                            for alert in alerts:
+                                try:
+                                    await self.telegram_notifier.send_alert(alert)
+                                except Exception:
+                                    pass
                     else:
                         logger.info(
                             "alert_engine.all_clear",
@@ -534,6 +599,10 @@ class Orchestrator:
         if self._httpx_client is not None:
             await self._httpx_client.aclose()
             self._httpx_client = None
+
+        if self._telegram_client is not None:
+            await self._telegram_client.aclose()
+            self._telegram_client = None
 
         if self._http_session is not None:
             await self._http_session.close()
