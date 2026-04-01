@@ -28,6 +28,7 @@ from src.agents.execution.execution_router import ExecutionRouter
 from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
+from src.agents.execution.lifecycle_reporter import PositionLifecycleReporter
 from src.agents.execution.nonce_manager import NonceManager
 from src.agents.execution.pnl_calculator import PnLCalculator
 from src.agents.execution.portfolio_aggregator import PortfolioAggregator
@@ -124,6 +125,10 @@ class Orchestrator:
         self.portfolio_aggregator = PortfolioAggregator(
             config=self.config,
             polymarket_client=self.polymarket_client,
+            db_session_factory=AsyncSessionLocal,
+        )
+        self.lifecycle_reporter = PositionLifecycleReporter(
+            config=self.config,
             db_session_factory=AsyncSessionLocal,
         )
 
@@ -418,7 +423,7 @@ class Orchestrator:
                 )
 
     async def _portfolio_aggregation_loop(self) -> None:
-        """Periodic portfolio snapshot aggregation (WI-23)."""
+        """Periodic portfolio snapshot aggregation (WI-23) and lifecycle report (WI-24)."""
         while True:
             await asyncio.sleep(
                 float(self.config.portfolio_aggregation_interval_sec)
@@ -428,6 +433,13 @@ class Orchestrator:
             except Exception as exc:
                 logger.error(
                     "portfolio_aggregation_loop.error",
+                    error=str(exc),
+                )
+            try:
+                await self.lifecycle_reporter.generate_report()
+            except Exception as exc:
+                logger.error(
+                    "lifecycle_report_loop.error",
                     error=str(exc),
                 )
 

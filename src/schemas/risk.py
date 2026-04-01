@@ -10,7 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class PortfolioSnapshot(BaseModel):
@@ -37,5 +37,93 @@ class PortfolioSnapshot(BaseModel):
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class PositionLifecycleEntry(BaseModel):
+    """Per-position detail record for lifecycle reporting."""
+
+    position_id: str
+    slug: str
+    entry_price: Decimal
+    exit_price: Decimal | None
+    size_tokens: Decimal
+    realized_pnl: Decimal | None
+    status: str
+    opened_at_utc: datetime
+    settled_at_utc: datetime | None
+
+    @field_validator(
+        "entry_price",
+        "size_tokens",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    @field_validator(
+        "exit_price",
+        "realized_pnl",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_nullable_financials(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class LifecycleReport(BaseModel):
+    """Typed aggregate lifecycle performance report."""
+
+    report_at_utc: datetime
+    total_settled_count: int
+    winning_count: int
+    losing_count: int
+    breakeven_count: int
+    total_realized_pnl: Decimal
+    avg_hold_duration_hours: Decimal
+    best_pnl: Decimal
+    worst_pnl: Decimal
+    entries: list[PositionLifecycleEntry]
+    dry_run: bool
+
+    @field_validator(
+        "total_realized_pnl",
+        "avg_hold_duration_hours",
+        "best_pnl",
+        "worst_pnl",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    @model_validator(mode="after")
+    def _validate_settled_count_invariant(self) -> "LifecycleReport":
+        if (
+            self.winning_count + self.losing_count + self.breakeven_count
+            != self.total_settled_count
+        ):
+            raise ValueError(
+                "winning_count + losing_count + breakeven_count must equal total_settled_count"
+            )
+        return self
 
     model_config = {"frozen": True}

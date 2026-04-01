@@ -58,6 +58,27 @@ class PositionRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_all_positions(self) -> list[Position]:
+        """Return all positions regardless of status."""
+        stmt = select(Position)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_settled_positions(self) -> list[Position]:
+        """Return CLOSED positions with non-null realized_pnl."""
+        stmt = select(Position).where(
+            Position.status == "CLOSED",
+            Position.realized_pnl.isnot(None),
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_positions_by_status(self, status: str) -> list[Position]:
+        """Return all positions matching one status string."""
+        stmt = select(Position).where(Position.status == status)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def update_status(
         self,
         position_id: str,
