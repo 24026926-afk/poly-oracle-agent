@@ -26,6 +26,8 @@ dist/
 build/
 *.egg-info/
 uv.lock
+output/
+tmp/
 
 # Pytest
 .pytest_cache/
