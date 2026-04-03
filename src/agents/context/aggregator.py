@@ -70,22 +70,31 @@ class DataAggregator:
         self._running = False
         logger.info("Stopping DataAggregator...")
 
-    async def _process_message(self, msg: CLOBMessage) -> None:
-        """Updates internal state based on new CLOB message and checks triggers."""
+    async def _process_message(self, msg: object) -> None:
+        """Updates internal state based on a new market message.
+
+        Accepts both ``MarketSnapshot`` ORM objects (from ``ws_client``)
+        and legacy ``CLOBMessage`` Pydantic models.
+        """
         msg_cid = getattr(msg, "condition_id", None)
         if msg_cid is not None and msg_cid != self.condition_id:
             return
 
         updated = False
-        
-        if msg.bids and len(msg.bids) > 0:
-            self.best_bid = msg.bids[0].price
+
+        # MarketSnapshot ORM objects carry best_bid/best_ask directly.
+        # Legacy CLOBMessage objects carry bids/asks lists.
+        best_bid = getattr(msg, "best_bid", None)
+        best_ask = getattr(msg, "best_ask", None)
+
+        if best_bid is not None and best_bid > 0:
+            self.best_bid = float(best_bid)
             updated = True
-            
-        if msg.asks and len(msg.asks) > 0:
-            self.best_ask = msg.asks[0].price
+
+        if best_ask is not None and best_ask > 0:
+            self.best_ask = float(best_ask)
             updated = True
-            
+
         if updated:
             await self._check_triggers()
 

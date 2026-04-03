@@ -123,15 +123,18 @@ class ClaudeClient:
         
     async def _consume_queue(self) -> None:
         while self._running:
+            item_fetched = False
             try:
                 item = await self.in_queue.get()
+                item_fetched = True
                 await self._process_evaluation(item)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("Unexpected error in Claude evaluation loop.", error=str(e))
             finally:
-                self.in_queue.task_done()
+                if item_fetched:
+                    self.in_queue.task_done()
 
     async def _route_market(self, item: Dict[str, Any]) -> MarketCategory:
         """Layer 0: classify market into a domain category via keyword matching."""

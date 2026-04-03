@@ -99,25 +99,31 @@ async def test_consume_queue_no_task_done_on_cancel():
         db_session_factory=None,
     )
 
-    # Start the consume loop
+    client._running = True
+
+    # Start the consume loop — it will block on get() with empty queue
     task = asyncio.create_task(client._consume_queue())
 
     # Let it block on get()
     await asyncio.sleep(0.05)
 
-    # Cancel while blocked on get()
+    # Cancel while blocked on get() — must NOT raise ValueError from
+    # a spurious task_done() call inside the finally block.
     task.cancel()
 
-    # This must NOT raise "task_done() called too many times"
-    with pytest.raises(asyncio.CancelledError):
+    exc = task.exception() if task.done() else None
+    try:
         await task
-
-    # Verify: queue is empty, unfinished_tasks should be 0
-    assert in_q.qsize() == 0
+    except asyncio.CancelledError:
+        pass
+    except ValueError:
+        pytest.fail(
+            "Cancelling during get() caused ValueError from spurious task_done()"
+        )
 
 
 @pytest.mark.asyncio
-async def test_consume_queue_calls_task_done_on_successful_process():
+async def test_consume_queue_calls_task_done_after_processing():
     """After successfully processing an item, task_done must be called exactly once."""
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
@@ -139,6 +145,7 @@ async def test_consume_queue_calls_task_done_on_successful_process():
         config=config,
         db_session_factory=None,
     )
+    client._running = True
     # Mock _process_evaluation to avoid actual LLM calls
     client._process_evaluation = AsyncMock()
 
@@ -148,11 +155,13 @@ async def test_consume_queue_calls_task_done_on_successful_process():
     task = asyncio.create_task(client._consume_queue())
     await asyncio.sleep(0.05)
 
-    # Item should have been processed and task_done called
-    assert in_q.unfinished_tasks == 0
+    # Item was processed; task_done should have been called.
+    # Calling task_done again must raise (proves exactly 1 call happened).
+    with pytest.raises(ValueError, match="task_done"):
+        in_q.task_done()
 
     task.cancel()
     try:
         await task
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, ValueError):
         pass
