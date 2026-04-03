@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.9.4
+- **Version:** 0.9.5
 - **Status:** Phase 9 Complete (WI-28 delivered: Net PnL & fee accounting)
-- **Tests:** 553 automated tests passing
+- **Tests:** 552 automated tests passing
 - **Coverage:** 95% (target: ≥ 80%)
 
 Core stack:
@@ -34,14 +34,14 @@ Core stack:
 
 ### Required Secrets
 
-For live trading these must be set in `.env`. In `DRY_RUN=true`, wallet credentials are optional and `AppConfig` hydrates safe placeholder values so the orchestrator can boot without signing capability. If `POLYGON_RPC_URL` is missing or malformed in dry run, `AppConfig` also normalizes it to a syntactically valid HTTP placeholder so `web3.py` transport construction does not fail at startup.
+For live trading these must be set in `.env`. In `DRY_RUN=true`, wallet credentials are optional and `AppConfig` hydrates exact safe fallbacks so the orchestrator can boot without signing capability. If `POLYGON_RPC_URL` is missing or malformed in dry run, `AppConfig` normalizes it to the exact Ankr Polygon endpoint `https://rpc.ankr.com/polygon` so `web3.py` transport construction does not fail at startup.
 
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude evaluations |
-| `POLYGON_RPC_URL` | Polygon PoS JSON-RPC endpoint (required when `DRY_RUN=false`; dry run can fall back to a safe HTTP placeholder) |
-| `WALLET_ADDRESS` | Checksummed EIP-55 Ethereum address (required when `DRY_RUN=false`) |
-| `WALLET_PRIVATE_KEY` | Hex-encoded private key for EIP-712 order signing (required when `DRY_RUN=false`) |
+| `POLYGON_RPC_URL` | Polygon PoS JSON-RPC endpoint (required when `DRY_RUN=false`; dry run falls back to `https://rpc.ankr.com/polygon`) |
+| `WALLET_ADDRESS` | Checksummed EIP-55 Ethereum address (required when `DRY_RUN=false`; dry run falls back to `0x1111111111111111111111111111111111111111`) |
+| `WALLET_PRIVATE_KEY` | Hex-encoded private key for EIP-712 order signing (required when `DRY_RUN=false`; dry run falls back to `0x` + 64 `'1'` chars) |
 
 All other variables have defaults and are documented in [Section 5: Configuration](#5-configuration).
 
@@ -115,9 +115,9 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `POLYGON_RPC_URL` | str | — | Live only | Polygon PoS JSON-RPC URL; dry-run boot uses a safe HTTP placeholder when unset or malformed |
-| `WALLET_ADDRESS` | str | — | Live only | Checksummed EIP-55 address; dry-run boot uses a safe placeholder when unset |
-| `WALLET_PRIVATE_KEY` | SecretStr | — | Live only | Hex private key for signing; dry-run boot uses a safe placeholder when unset |
+| `POLYGON_RPC_URL` | str | — | Live only | Polygon PoS JSON-RPC URL; dry-run boot uses the exact `https://rpc.ankr.com/polygon` fallback when unset or malformed |
+| `WALLET_ADDRESS` | str | — | Live only | Checksummed EIP-55 address; dry-run boot uses the exact `0x1111111111111111111111111111111111111111` fallback when unset |
+| `WALLET_PRIVATE_KEY` | SecretStr | — | Live only | Hex private key for signing; dry-run boot uses the exact `0x` + 64 `'1'` chars fallback when unset |
 
 #### Polymarket CLOB
 

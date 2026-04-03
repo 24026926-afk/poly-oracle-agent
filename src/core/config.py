@@ -21,9 +21,9 @@ from web3 import Web3
 logger = structlog.get_logger(__name__)
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
-_DRY_RUN_POLYGON_RPC_URL = "http://localhost:8545"
-_DRY_RUN_WALLET_ADDRESS = "0x0000000000000000000000000000000000000000"
-_DRY_RUN_WALLET_PRIVATE_KEY = "0x" + "11" * 32
+_DRY_RUN_POLYGON_RPC_URL = "https://rpc.ankr.com/polygon"
+_DRY_RUN_WALLET_ADDRESS = "0x1111111111111111111111111111111111111111"
+_DRY_RUN_WALLET_PRIVATE_KEY = "0x" + "1" * 64
 
 
 def _is_truthy(value: Any) -> bool:

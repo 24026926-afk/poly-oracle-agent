@@ -1,14 +1,14 @@
 # Claude Code Context — poly-oracle-agent
 
 See AGENTS.md for full project rules, constraints, and class name reference.
-See docs/PRD-v4.0.md for Phase 4 scope.
+See docs/PRD for Phase scope.
 See STATE.md for current WI checklist and status.
-Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves tokens vs. reading old PRDs).
+Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs).
 
 Current branch: develop
 Active phase: Phase 9 Complete — Operator Safety & Telemetry
 Completed: WI-11 through WI-28 ✅ (Phases 4, 5, 6, 7, 8, and 9 sealed)
-Current WI set: WI-28 complete; Phase 10 planning next; dry-run config boot blockers fixed
+Current WI set: WI-28 complete; Phase 10 planning next; dry-run config boot blockers fixed with exact Ankr/non-zero-wallet fallbacks
 Next task: Phase 10 PRD / planning.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
