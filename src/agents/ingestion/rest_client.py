@@ -45,7 +45,11 @@ class GammaRESTClient:
         if self._cache and (now - self._cache_ts) < _CACHE_TTL_S:
             return self._cache
 
-        url = f"{self._base_url}/markets?active=true&closed=false"
+        url = (
+            f"{self._base_url}/markets"
+            f"?active=true&closed=false"
+            f"&limit=100&order=volume24hr&ascending=false"
+        )
 
         try:
             resp = await self._http.get(url, timeout=_REQUEST_TIMEOUT)

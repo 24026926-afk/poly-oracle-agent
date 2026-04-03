@@ -191,3 +191,55 @@ async def test_gamma_404_returns_none():
     result = await client.get_market_by_condition_id("nonexistent")
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Gamma query parameter validation — ensures robust market discovery
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_gamma_query_includes_limit_and_volume_sort():
+    """The active-markets URL must request a capped, volume-sorted page
+    so the Gamma API returns the most liquid markets (not an empty page)."""
+    body = [
+        {
+            "conditionId": "cond1",
+            "question": "Q1",
+            "clobTokenIds": ["t1"],
+            "active": True,
+            "closed": False,
+            "volume24hr": 50000.0,
+        }
+    ]
+    http = MagicMock()
+    http.get = AsyncMock(return_value=_FakeResponse(200, body))
+
+    client = GammaRESTClient(_mock_config(), http)
+    await client.get_active_markets()
+
+    called_url: str = http.get.call_args[0][0]
+
+    # Must include pagination limit
+    assert "limit=" in called_url, "query must include a limit parameter"
+    # Must sort by 24h volume descending for liquidity
+    assert "order=volume24hr" in called_url, "query must sort by volume24hr"
+    assert "ascending=false" in called_url, "query must use descending order"
+    # Must still filter for active, non-closed
+    assert "active=true" in called_url
+    assert "closed=false" in called_url
+
+
+@pytest.mark.asyncio
+async def test_gamma_query_has_no_restrictive_tag_or_category_filters():
+    """The active-markets URL must NOT contain tag= or category= params
+    that could exclude valid high-volume markets."""
+    body = []
+    http = MagicMock()
+    http.get = AsyncMock(return_value=_FakeResponse(200, body))
+
+    client = GammaRESTClient(_mock_config(), http)
+    await client.get_active_markets()
+
+    called_url: str = http.get.call_args[0][0]
+
+    assert "tag=" not in called_url, "must not filter by tag"
+    assert "category=" not in called_url, "must not filter by category"
