@@ -117,6 +117,7 @@ async def test_orchestrator_start_registers_portfolio_aggregator_task_when_enabl
     )
 
     fake_gamma_client = MagicMock()
+    fake_gamma_client.get_active_markets = AsyncMock(return_value=[])
     fake_discovery_engine = MagicMock()
     fake_discovery_engine.discover = AsyncMock(return_value=["condition-start-001"])
     fake_broadcaster = MagicMock()
@@ -195,6 +196,7 @@ async def test_orchestrator_start_does_not_register_portfolio_task_when_disabled
     )
 
     fake_gamma_client = MagicMock()
+    fake_gamma_client.get_active_markets = AsyncMock(return_value=[])
     fake_discovery_engine = MagicMock()
     fake_discovery_engine.discover = AsyncMock(return_value=["condition-start-001"])
     fake_broadcaster = MagicMock()

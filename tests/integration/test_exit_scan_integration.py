@@ -95,6 +95,7 @@ async def test_orchestrator_start_registers_six_named_tasks_with_exit_scan(
     )
 
     fake_gamma_client = MagicMock()
+    fake_gamma_client.get_active_markets = AsyncMock(return_value=[])
     fake_discovery_engine = MagicMock()
     fake_discovery_engine.discover = AsyncMock(return_value=["condition-start-001"])
     fake_broadcaster = MagicMock()
@@ -204,6 +205,7 @@ async def test_full_boot_exit_scan_loop_fires_and_calls_scan(
     )
 
     fake_gamma_client = MagicMock()
+    fake_gamma_client.get_active_markets = AsyncMock(return_value=[])
     fake_discovery_engine = MagicMock()
     fake_discovery_engine.discover = AsyncMock(return_value=["condition-boot-001"])
     fake_broadcaster = MagicMock()

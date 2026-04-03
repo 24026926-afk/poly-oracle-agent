@@ -39,11 +39,13 @@ class CLOBWebSocketClient:
         market_repo_factory: Callable[
             [AsyncSession], MarketRepository
         ] = MarketRepository,
+        assets_ids: list[str] | None = None,
     ) -> None:
         self._url = config.clob_ws_url
         self._queue = queue
         self._db_factory = db_session_factory
         self._market_repo_factory = market_repo_factory
+        self._assets_ids: list[str] = assets_ids or []
 
     # ------------------------------------------------------------------
     # Public
@@ -80,16 +82,28 @@ class CLOBWebSocketClient:
     # Internal
     # ------------------------------------------------------------------
 
+    def _build_subscription_message(self) -> str:
+        """Build the CLOB WebSocket subscription payload."""
+        return json.dumps({
+            "type": "subscribe",
+            "channel": "market",
+            "assets_ids": self._assets_ids,
+        })
+
+    def set_assets_ids(self, assets_ids: list[str]) -> None:
+        """Update token IDs for subscription (e.g. after market rotation)."""
+        self._assets_ids = assets_ids
+
     async def _stream(self) -> None:
         async with websockets.connect(self._url) as ws:
             logger.info("ws_client.connected", url=self._url)
 
-            # Subscribe to all active markets
-            sub_msg = json.dumps({
-                "type": "subscribe",
-                "channel": "market",
-                "market_ids": [],
-            })
+            sub_msg = self._build_subscription_message()
+            logger.debug(
+                "ws_client.subscribing",
+                payload=sub_msg,
+                assets_count=len(self._assets_ids),
+            )
             await ws.send(sub_msg)
 
             # Start heartbeat task
@@ -119,7 +133,12 @@ class CLOBWebSocketClient:
         try:
             data = json.loads(raw_msg)
         except json.JSONDecodeError:
-            logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
+            # Plain-text server errors (e.g. "INVALID OPERATION") are not JSON
+            stripped = raw_msg.strip()
+            if stripped and not stripped.startswith("{") and not stripped.startswith("["):
+                logger.warning("ws_client.server_error", response=stripped[:200])
+            else:
+                logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
             return
 
         event_type = data.get("event_type") or data.get("event", "")

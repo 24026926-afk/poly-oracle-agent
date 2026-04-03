@@ -246,6 +246,45 @@ async def test_gamma_query_has_no_restrictive_tag_or_category_filters():
 
 
 # ---------------------------------------------------------------------------
+# WebSocket subscription format
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_ws_subscription_uses_assets_ids_and_logs_message():
+    """The subscription message must use 'assets_ids' (token IDs),
+    not 'market_ids', and the ws_client must accept token IDs at init."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    token_ids = ["tok_yes_123", "tok_no_456"]
+    client = CLOBWebSocketClient(_mock_config(), queue, db, assets_ids=token_ids)
+
+    # Build the subscription message the client would send
+    sub_msg = client._build_subscription_message()
+    parsed = json.loads(sub_msg)
+
+    assert parsed["type"] == "subscribe"
+    assert "assets_ids" in parsed, "must use 'assets_ids', not 'market_ids'"
+    assert parsed["assets_ids"] == token_ids
+    assert "market_ids" not in parsed, "must NOT contain 'market_ids'"
+
+
+@pytest.mark.asyncio
+async def test_ws_handles_non_json_server_error_gracefully():
+    """Non-JSON server responses like 'INVALID OPERATION' must be logged
+    as server errors, not generic invalid_json."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+        await client._handle_message("INVALID OPERATION")
+
+        # Should log as a server error, not just invalid_json
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert call_args[0][0] == "ws_client.server_error"
+
+
+# ---------------------------------------------------------------------------
 # Gamma API real response shape — clobTokenIds is a JSON-encoded string
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
