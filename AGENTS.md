@@ -13,7 +13,7 @@ above code elegance.
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
 - `docs/archive/` ← Historical context 
-- `docs/PRD`            ← Phase 4 scope and acceptance criteria
+- `docs/PRD.md`            ← Current Phase scope and acceptance criteria
 - `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
 - `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
 - `docs/business_logic.md`      ← EV rule: the single source of trade truth
@@ -55,7 +55,7 @@ Before any `git commit` on core logic (schemas, agents, execution, db):
 
 1. **Maker** (Claude) produces the implementation and runs the test suite to confirm green.
 2. **Maker** outputs `git diff` of all staged changes.
-3. **Checker** (Gemini 2.5 Pro / GPT-5.4) reviews the diff against `PRD-v4.0.md` and `ARCHIVE_PHASES`.
+3. **Checker** (Gemini 2.5 Pro / GPT-5.4) reviews the diff against `PRD.md` and `ARCHIVE_PHASES`.
 4. **Checker** must explicitly clear or flag the following before commit is allowed:
    - **Decimal violations** — any `float` used for monetary calculations
    - **Gatekeeper bypasses** — any path that routes to execution without passing `LLMEvaluationResponse` validation
@@ -149,7 +149,7 @@ trading decision. Code explains what — comments explain why.
 ## 📋 Mandatory Read Order (Plan Mode)
 
 1. **STATE.md** — Current project state, test coverage, known gaps
-2. **PRD-v4.0.md** — Phase 4 work items + acceptance criteria
+2. **PRD.md** — Current Phase work items + acceptance criteria
 3. **docs/business_logic/business_logic_wiXX.md** — WI-specific rules
 4. **.agents/rules/[relevant].md** — Role-specific constraints
 5. **docs/prompts/PX-WI-XX.md** — Execution instructions
@@ -157,7 +157,7 @@ trading decision. Code explains what — comments explain why.
 ## 🎯 Session Template
 
 STEP 0: Read AGENTS.md
-STEP 1: Read STATE.md, PRD-v4.0.md, business_logic_wiXX.md, .agents/rules/[relevant].md
+STEP 1: Read STATE.md, PRD.md, business_logic_wiXX.md, .agents/rules/[relevant].md
 STEP 2: Read PX-WI-XX.md
 STEP 3: Enter Plan Mode — propose atomic steps before touching any file
 STEP 4: Await approval → execute one step → test → report
@@ -178,10 +178,8 @@ text
 
 ## 📊 Current Phase Reference
 
-WI-09: grep -r "session.add|session.flush" src/agents/ → zero results
-WI-10: README clean-room validation complete
-Both: pytest → 92 pass, coverage ≥ 80%
-Phase 4: WI-11 / WI-12 / WI-13 planning checklist in STATE.md
+Phase 9: Completed. All Work Items for Phase 9 are finalized.
+Current Test Status: pytest → 92 pass, coverage ≥ 80%
 
 text
 
