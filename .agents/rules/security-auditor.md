@@ -21,9 +21,10 @@ Invoke me for:
    sign_order(), and get_next_nonce(). No order proceeds if True.
 2. When dry_run=True, upstream layers (ingestion, context, 
    evaluation, DB persistence) continue unaffected.
-3. AppConfig may hydrate placeholder wallet credentials only when
-   dry_run=True so boot-time validation does not block paper trading.
-   When dry_run=False, real wallet credentials remain mandatory.
+3. AppConfig may hydrate placeholder wallet credentials and a
+   syntactically valid HTTP Polygon RPC URL only when dry_run=True so
+   boot-time validation does not block paper trading. When dry_run=False,
+   real wallet credentials and a real RPC URL remain mandatory.
 4. Every dry_run intercept MUST emit a structlog entry with:
    dry_run=true | condition_id | proposed_action | 
    would_be_size_usdc.

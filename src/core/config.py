@@ -9,6 +9,7 @@ type safety.  A module-level ``get_config()`` singleton ensures exactly one
 
 import warnings
 from typing import Any
+from urllib.parse import urlparse
 from decimal import Decimal
 from functools import lru_cache
 
@@ -20,6 +21,7 @@ from web3 import Web3
 logger = structlog.get_logger(__name__)
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+_DRY_RUN_POLYGON_RPC_URL = "http://localhost:8545"
 _DRY_RUN_WALLET_ADDRESS = "0x0000000000000000000000000000000000000000"
 _DRY_RUN_WALLET_PRIVATE_KEY = "0x" + "11" * 32
 
@@ -40,6 +42,13 @@ def _is_missing_secret(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip() == ""
     return False
+
+
+def _is_valid_http_url(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlparse(value.strip())
+    return parsed.scheme in {"http", "https"} and parsed.netloc != ""
 
 
 class AppConfig(BaseSettings):
@@ -258,6 +267,8 @@ class AppConfig(BaseSettings):
             return data
 
         hydrated = dict(data)
+        if not _is_valid_http_url(hydrated.get("polygon_rpc_url")):
+            hydrated["polygon_rpc_url"] = _DRY_RUN_POLYGON_RPC_URL
         if _is_missing_secret(hydrated.get("wallet_address")):
             hydrated["wallet_address"] = _DRY_RUN_WALLET_ADDRESS
         if _is_missing_secret(hydrated.get("wallet_private_key")):

@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.9.3
+- **Version:** 0.9.4
 - **Status:** Phase 9 Complete (WI-28 delivered: Net PnL & fee accounting)
-- **Tests:** 551 automated tests passing
+- **Tests:** 553 automated tests passing
 - **Coverage:** 95% (target: ≥ 80%)
 
 Core stack:
@@ -34,12 +34,12 @@ Core stack:
 
 ### Required Secrets
 
-For live trading these must be set in `.env`. In `DRY_RUN=true`, wallet credentials are optional and `AppConfig` hydrates safe placeholder values so the orchestrator can boot without signing capability.
+For live trading these must be set in `.env`. In `DRY_RUN=true`, wallet credentials are optional and `AppConfig` hydrates safe placeholder values so the orchestrator can boot without signing capability. If `POLYGON_RPC_URL` is missing or malformed in dry run, `AppConfig` also normalizes it to a syntactically valid HTTP placeholder so `web3.py` transport construction does not fail at startup.
 
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude evaluations |
-| `POLYGON_RPC_URL` | Polygon PoS JSON-RPC endpoint |
+| `POLYGON_RPC_URL` | Polygon PoS JSON-RPC endpoint (required when `DRY_RUN=false`; dry run can fall back to a safe HTTP placeholder) |
 | `WALLET_ADDRESS` | Checksummed EIP-55 Ethereum address (required when `DRY_RUN=false`) |
 | `WALLET_PRIVATE_KEY` | Hex-encoded private key for EIP-712 order signing (required when `DRY_RUN=false`) |
 
@@ -49,7 +49,8 @@ Quick start:
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in Anthropic + Polygon RPC credentials
+# Edit .env and fill in Anthropic credentials
+# Add a real Polygon RPC URL before any live (`DRY_RUN=false`) execution
 # Add wallet credentials before any live (`DRY_RUN=false`) execution
 # Keep DRY_RUN=true for local development, CI, and validation runs
 ```
@@ -114,7 +115,7 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `POLYGON_RPC_URL` | str | — | Yes | Polygon PoS JSON-RPC URL |
+| `POLYGON_RPC_URL` | str | — | Live only | Polygon PoS JSON-RPC URL; dry-run boot uses a safe HTTP placeholder when unset or malformed |
 | `WALLET_ADDRESS` | str | — | Live only | Checksummed EIP-55 address; dry-run boot uses a safe placeholder when unset |
 | `WALLET_PRIVATE_KEY` | SecretStr | — | Live only | Hex private key for signing; dry-run boot uses a safe placeholder when unset |
 

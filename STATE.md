@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-03
-**Version:** 0.9.3
+**Version:** 0.9.4
 **Status:** Phase 9 Complete — WI-28 Complete
-**Active WI:** Phase 10 Planning (dry-run config hotfix landed)
+**Active WI:** Phase 10 Planning (dry-run config hotfixes landed)
 
 ---
 
@@ -20,13 +20,14 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 551 |
+| Total tests | 553 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
 Recent hotfixes:
 - `AppConfig` now permits missing `WALLET_ADDRESS` / `WALLET_PRIVATE_KEY` when `DRY_RUN=true` by hydrating safe placeholder credentials at validation time; live mode still requires real wallet secrets.
+- `AppConfig` now normalizes missing or invalid `POLYGON_RPC_URL` values to a syntactically valid HTTP URL when `DRY_RUN=true`, preventing `AsyncHTTPProvider` boot failures in paper trading.
 - Alembic test/runtime isolation hardened: an explicitly configured Alembic URL now wins over ambient `.env` `DATABASE_URL`, preventing migration commands from targeting the wrong database during test runs.
 
 ---

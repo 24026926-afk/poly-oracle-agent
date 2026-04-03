@@ -8,7 +8,7 @@ Consult docs/archive/ARCHIVE_PHASES_1_TO_3.md for legacy constraints (saves toke
 Current branch: develop
 Active phase: Phase 9 Complete — Operator Safety & Telemetry
 Completed: WI-11 through WI-28 ✅ (Phases 4, 5, 6, 7, 8, and 9 sealed)
-Current WI set: WI-28 complete; Phase 10 planning next; dry-run config boot blocker fixed
+Current WI set: WI-28 complete; Phase 10 planning next; dry-run config boot blockers fixed
 Next task: Phase 10 PRD / planning.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
