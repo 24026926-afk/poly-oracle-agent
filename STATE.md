@@ -20,12 +20,12 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 563 |
+| Total tests | 577 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
-Recent hotfixes (dry-run boot-to-evaluation stabilization, 2026-04-03):
+Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03):
 - `NonceManager.initialize()` and `sync()` short-circuit when `dry_run=True` — zero RPC calls, nonce set to 0
 - `GammaRESTClient` query updated: `?active=true&closed=false&limit=100&order=volume24hr&ascending=false` (was unbounded, returned empty)
 - `MarketMetadata.token_ids` field validator handles Gamma API's JSON-encoded string `clobTokenIds` (was silently dropping all markets)
@@ -35,6 +35,10 @@ Recent hotfixes (dry-run boot-to-evaluation stabilization, 2026-04-03):
 - Orchestrator resolves token IDs from gamma cache and passes them to WS client via `set_assets_ids()` before `run()`
 - `AppConfig` dry-run boot fallbacks: `wallet_address=0x1111...1111`, `wallet_private_key=0x1111...1111`, `polygon_rpc_url=https://rpc.ankr.com/polygon`
 - Alembic test/runtime isolation hardened: an explicitly configured Alembic URL now wins over ambient `.env` `DATABASE_URL`
+- **WS Client Bug Fixes (2026-04-03):**
+  - BUG 1: `yes_token_id` propagation — added `token_id_to_yes_token_id` dict parameter to `CLOBWebSocketClient`, implemented `set_token_id_mapping()` setter, extended `MarketSnapshotSchema` and `MarketSnapshot` ORM to carry `yes_token_id` through validation to DB
+  - BUG 2: Midpoint computation — fixed `_process_event()` to handle three frame types (book with bids/asks lists, price_change with direct best_bid/best_ask, last_trade_price), added fallback to top-level fields when lists are empty
+  - BUG 3: Diagnostic logging — added `outbound_message` and `subscription_audit` logs for debugging INVALID_OPERATION server errors
 
 ---
 
