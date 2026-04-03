@@ -45,8 +45,8 @@ class DataAggregator:
         self.best_ask = 0.0
         
         # Configurable triggers
-        self.TIME_INTERVAL_SEC = 10.0
-        self.PRICE_CHANGE_THRESHOLD = 0.02  # 2%
+        self.TIME_INTERVAL_SEC = 30.0
+        self.PRICE_CHANGE_THRESHOLD = 0.01  # 1%
 
     async def start(self) -> None:
         """Starts the aggregation loop processing incoming messages."""
@@ -158,5 +158,5 @@ class DataAggregator:
             "state": state
         }
         
-        logger.info("Emitting market state and CoT prompt.", midpoint=current_midpoint, spread=spread)
+        logger.debug("Emitting market state and CoT prompt.", midpoint=current_midpoint, spread=spread)
         await self.output_queue.put(output_payload)

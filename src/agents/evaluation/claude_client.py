@@ -353,6 +353,15 @@ class ClaudeClient:
             output_tokens=token_usage["output"],
         )
 
+        logger.info(
+            "CLAUDE_DECISION",
+            market=market_state.get("condition_id", "unknown"),
+            action=eval_resp.recommended_action.value,
+            confidence=eval_resp.confidence_score,
+            expected_value=eval_resp.expected_value,
+            approved=eval_resp.decision_boolean,
+        )
+
         # 3. Routing
         if eval_resp.decision_boolean:
             logger.info("Trade APPROVED by Gatekeeper. Enqueueing for Execution.", snapshot_id=snapshot_id)

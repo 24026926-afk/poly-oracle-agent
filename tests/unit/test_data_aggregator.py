@@ -165,3 +165,45 @@ async def test_consume_queue_calls_task_done_after_processing():
         await task
     except (asyncio.CancelledError, ValueError):
         pass
+
+
+# ---------------------------------------------------------------------------
+# Throttling: aggregator emits at 30s intervals / 1% price change
+# ---------------------------------------------------------------------------
+
+def test_aggregator_time_interval_is_30_seconds():
+    """Evaluation trigger interval must be 30s to avoid flooding the LLM."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0x1")
+
+    assert agg.TIME_INTERVAL_SEC == 30.0
+
+
+def test_aggregator_price_threshold_is_1_percent():
+    """Price volatility trigger must be 1% (0.01) for meaningful LLM calls."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0x1")
+
+    assert agg.PRICE_CHANGE_THRESHOLD == 0.01
+
+
+@pytest.mark.asyncio
+async def test_aggregator_suppresses_emit_within_interval():
+    """After an emit, a new message within the interval must NOT trigger another emit
+    unless the price moved beyond the threshold."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xcond123")
+
+    # First message — should emit (last_emit_time is 0 which means interval elapsed)
+    snap1 = _make_snapshot(best_bid=0.45, best_ask=0.55)
+    await agg._process_message(snap1)
+    first_emit_count = out_q.qsize()
+
+    # Second message immediately — same price, within interval — should NOT emit
+    snap2 = _make_snapshot(best_bid=0.45, best_ask=0.55)
+    await agg._process_message(snap2)
+
+    assert out_q.qsize() == first_emit_count, "must not emit again within throttle interval"
