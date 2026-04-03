@@ -8,7 +8,7 @@ Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs)
 Current branch: develop
 Active phase: Phase 9 Complete — Operator Safety & Telemetry
 Completed: WI-11 through WI-28 ✅ (Phases 4, 5, 6, 7, 8, and 9 sealed)
-Current WI set: WI-28 complete; Phase 10 planning next; dry-run config boot blockers fixed with exact Ankr/non-zero-wallet fallbacks
+Current WI set: WI-28 complete; dry-run boot-to-evaluation pipeline stabilized (NonceManager, Gamma parsing, WS subscription/list-handling all fixed); 563 tests, 95% coverage
 Next task: Phase 10 PRD / planning.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.

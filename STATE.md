@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-03
-**Version:** 0.9.5
-**Status:** Phase 9 Complete — WI-28 Complete
-**Active WI:** Phase 10 Planning (dry-run config boot blockers fixed)
+**Version:** 0.9.6
+**Status:** Phase 9 Complete — Dry-Run Boot-to-Evaluation Pipeline Stabilized
+**Active WI:** Phase 10 Planning (dry-run pipeline now boots through ingestion)
 
 ---
 
@@ -20,15 +20,21 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 552 |
+| Total tests | 563 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
-Recent hotfixes:
-- `AppConfig` now enforces exact dry-run boot fallbacks: `wallet_address=0x1111111111111111111111111111111111111111`, `wallet_private_key=0x1111111111111111111111111111111111111111111111111111111111111111`, and `polygon_rpc_url=https://rpc.ankr.com/polygon`.
-- The dry-run wallet fallback is intentionally non-zero to avoid public-RPC anti-spam blocks against the zero address during `NonceManager` initialization.
-- Alembic test/runtime isolation hardened: an explicitly configured Alembic URL now wins over ambient `.env` `DATABASE_URL`, preventing migration commands from targeting the wrong database during test runs.
+Recent hotfixes (dry-run boot-to-evaluation stabilization, 2026-04-03):
+- `NonceManager.initialize()` and `sync()` short-circuit when `dry_run=True` — zero RPC calls, nonce set to 0
+- `GammaRESTClient` query updated: `?active=true&closed=false&limit=100&order=volume24hr&ascending=false` (was unbounded, returned empty)
+- `MarketMetadata.token_ids` field validator handles Gamma API's JSON-encoded string `clobTokenIds` (was silently dropping all markets)
+- `GammaRESTClient` parse loop now logs per-market validation errors and skipped count (was bare `except: continue`)
+- `CLOBWebSocketClient` subscription fixed: uses `assets_ids` (token IDs) instead of `market_ids` (was rejected as `INVALID OPERATION`)
+- `CLOBWebSocketClient._handle_message()` normalises list-wrapped WS frames to `list[dict]` before processing (was crashing on `.get()`)
+- Orchestrator resolves token IDs from gamma cache and passes them to WS client via `set_assets_ids()` before `run()`
+- `AppConfig` dry-run boot fallbacks: `wallet_address=0x1111...1111`, `wallet_private_key=0x1111...1111`, `polygon_rpc_url=https://rpc.ankr.com/polygon`
+- Alembic test/runtime isolation hardened: an explicitly configured Alembic URL now wins over ambient `.env` `DATABASE_URL`
 
 ---
 
