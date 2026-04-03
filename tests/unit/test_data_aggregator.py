@@ -1,0 +1,158 @@
+"""
+tests/unit/test_data_aggregator.py
+
+Unit tests for DataAggregator — market snapshot processing and queue safety.
+"""
+
+import asyncio
+from unittest.mock import MagicMock, AsyncMock, patch
+
+import pytest
+
+from src.agents.context.aggregator import DataAggregator
+from src.db.models import MarketSnapshot
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_snapshot(
+    condition_id: str = "0xcond123",
+    best_bid: float = 0.45,
+    best_ask: float = 0.55,
+    midpoint: float = 0.50,
+) -> MarketSnapshot:
+    """Build a MarketSnapshot ORM object matching what ws_client puts on queue."""
+    return MarketSnapshot(
+        condition_id=condition_id,
+        question="Test?",
+        best_bid=best_bid,
+        best_ask=best_ask,
+        last_trade_price=0.50,
+        midpoint=midpoint,
+        outcome_token="YES",
+        raw_ws_payload="{}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bug 1: Aggregator must handle MarketSnapshot objects (not CLOBMessage)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_message_reads_best_bid_ask_from_market_snapshot():
+    """DataAggregator must read best_bid/best_ask directly from MarketSnapshot
+    ORM objects — NOT access .bids[0].price which doesn't exist."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xcond123")
+
+    snap = _make_snapshot(best_bid=0.40, best_ask=0.60)
+    await agg._process_message(snap)
+
+    assert agg.best_bid == 0.40
+    assert agg.best_ask == 0.60
+
+
+@pytest.mark.asyncio
+async def test_process_message_ignores_different_condition_id():
+    """Messages for other markets are silently dropped."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xmine")
+
+    snap = _make_snapshot(condition_id="0xother", best_bid=0.99, best_ask=0.99)
+    await agg._process_message(snap)
+
+    # Internal state should NOT have been updated
+    assert agg.best_bid == 0.0
+    assert agg.best_ask == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: task_done() must not be called when get() was cancelled
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_consume_queue_no_task_done_on_cancel():
+    """When the consume loop is cancelled during get(), task_done must NOT
+    be called — otherwise asyncio raises 'task_done() called too many times'."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+
+    config = MagicMock()
+    config.anthropic_api_key = MagicMock()
+    config.anthropic_api_key.get_secret_value = MagicMock(return_value="fake-key")
+    config.grok_api_key = ""
+    config.grok_base_url = ""
+    config.grok_model = ""
+    config.grok_mocked = True
+    config.clob_rest_url = "https://fake.clob"
+
+    from src.agents.evaluation.claude_client import ClaudeClient
+
+    client = ClaudeClient(
+        in_queue=in_q,
+        out_queue=out_q,
+        config=config,
+        db_session_factory=None,
+    )
+
+    # Start the consume loop
+    task = asyncio.create_task(client._consume_queue())
+
+    # Let it block on get()
+    await asyncio.sleep(0.05)
+
+    # Cancel while blocked on get()
+    task.cancel()
+
+    # This must NOT raise "task_done() called too many times"
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Verify: queue is empty, unfinished_tasks should be 0
+    assert in_q.qsize() == 0
+
+
+@pytest.mark.asyncio
+async def test_consume_queue_calls_task_done_on_successful_process():
+    """After successfully processing an item, task_done must be called exactly once."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+
+    config = MagicMock()
+    config.anthropic_api_key = MagicMock()
+    config.anthropic_api_key.get_secret_value = MagicMock(return_value="fake-key")
+    config.grok_api_key = ""
+    config.grok_base_url = ""
+    config.grok_model = ""
+    config.grok_mocked = True
+    config.clob_rest_url = "https://fake.clob"
+
+    from src.agents.evaluation.claude_client import ClaudeClient
+
+    client = ClaudeClient(
+        in_queue=in_q,
+        out_queue=out_q,
+        config=config,
+        db_session_factory=None,
+    )
+    # Mock _process_evaluation to avoid actual LLM calls
+    client._process_evaluation = AsyncMock()
+
+    # Put an item and start consume
+    await in_q.put({"snapshot_id": "test1", "state": {}})
+
+    task = asyncio.create_task(client._consume_queue())
+    await asyncio.sleep(0.05)
+
+    # Item should have been processed and task_done called
+    assert in_q.unfinished_tasks == 0
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
