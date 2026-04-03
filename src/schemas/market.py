@@ -5,8 +5,9 @@ Pydantic V2 schemas for validating Polymarket CLOB WebSocket data
 and Gamma REST API responses.
 """
 
+import json
 from typing import List, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 class CLOBTick(BaseModel):
     """
@@ -72,5 +73,13 @@ class MarketMetadata(BaseModel):
     active: bool = Field(default=True)
     closed: bool = Field(default=False)
     volume_24h: Optional[float] = Field(default=None, alias="volume24hr")
+
+    @field_validator("token_ids", mode="before")
+    @classmethod
+    def _parse_stringified_token_ids(cls, v: object) -> list:
+        """Gamma API returns clobTokenIds as a JSON-encoded string."""
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
 
     model_config = {"frozen": True, "populate_by_name": True, "extra": "ignore"}

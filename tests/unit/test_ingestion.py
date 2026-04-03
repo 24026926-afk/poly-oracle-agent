@@ -243,3 +243,56 @@ async def test_gamma_query_has_no_restrictive_tag_or_category_filters():
 
     assert "tag=" not in called_url, "must not filter by tag"
     assert "category=" not in called_url, "must not filter by category"
+
+
+# ---------------------------------------------------------------------------
+# Gamma API real response shape — clobTokenIds is a JSON-encoded string
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_gamma_parses_stringified_clob_token_ids():
+    """The real Gamma API returns clobTokenIds as a JSON-encoded STRING,
+    e.g. '["tok1", "tok2"]', NOT a native list. Markets must still parse."""
+    body = [
+        {
+            "conditionId": "0xabc123",
+            "question": "Will X happen?",
+            "clobTokenIds": '["tok_yes", "tok_no"]',  # STRING, not list
+            "endDateIso": "2026-06-01",
+            "active": True,
+            "closed": False,
+            "volume24hr": 1000000.0,
+        }
+    ]
+    http = MagicMock()
+    http.get = AsyncMock(return_value=_FakeResponse(200, body))
+
+    client = GammaRESTClient(_mock_config(), http)
+    result = await client.get_active_markets()
+
+    assert len(result) == 1, "stringified clobTokenIds must not silently drop markets"
+    assert result[0].condition_id == "0xabc123"
+    assert result[0].token_ids == ["tok_yes", "tok_no"]
+
+
+@pytest.mark.asyncio
+async def test_gamma_parses_native_list_clob_token_ids():
+    """Backwards compat: if clobTokenIds is already a native list, still works."""
+    body = [
+        {
+            "conditionId": "0xdef456",
+            "question": "Will Y happen?",
+            "clobTokenIds": ["tok_a", "tok_b"],  # native list
+            "endDateIso": "2026-06-01",
+            "active": True,
+            "closed": False,
+            "volume24hr": 500000.0,
+        }
+    ]
+    http = MagicMock()
+    http.get = AsyncMock(return_value=_FakeResponse(200, body))
+
+    client = GammaRESTClient(_mock_config(), http)
+    result = await client.get_active_markets()
+
+    assert len(result) == 1
+    assert result[0].token_ids == ["tok_a", "tok_b"]

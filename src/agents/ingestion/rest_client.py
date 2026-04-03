@@ -68,12 +68,26 @@ class GammaRESTClient:
             )
             return self._cache
 
+        if raw:
+            logger.debug(
+                "gamma.first_item_keys",
+                keys=sorted(raw[0].keys()) if isinstance(raw[0], dict) else "non-dict",
+            )
+
         markets: list[MarketMetadata] = []
+        skipped = 0
         for item in raw:
             try:
                 markets.append(MarketMetadata.model_validate(item))
-            except Exception:
-                continue  # skip unparseable entries
+            except Exception as exc:
+                skipped += 1
+                if skipped <= 3:
+                    logger.warning(
+                        "gamma.market_parse_error",
+                        error=str(exc),
+                        condition_id=item.get("conditionId", "?") if isinstance(item, dict) else "?",
+                    )
+                continue
 
         self._cache = markets
         self._cache_ts = time.monotonic()
@@ -81,6 +95,7 @@ class GammaRESTClient:
         logger.debug(
             "gamma.active_markets_fetched",
             count=len(markets),
+            skipped=skipped,
         )
         return markets
 
