@@ -125,8 +125,8 @@ async def test_dry_run_does_not_advance_nonce():
     result = await mgr.get_next_nonce()
 
     assert result == -1
-    # Internal nonce must not have changed
-    assert mgr.current_nonce == INITIAL_NONCE
+    # Internal nonce must not have changed (dry-run initialize sets to 0)
+    assert mgr.current_nonce == 0
 
 
 @pytest.mark.asyncio
@@ -139,3 +139,33 @@ async def test_initialize_uses_pending_block_tag():
     w3.eth.get_transaction_count.assert_called_once()
     call_args = w3.eth.get_transaction_count.call_args
     assert call_args[0][1] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Dry-run short-circuit — no RPC calls at all
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_dry_run_initialize_skips_rpc_and_sets_nonce_zero():
+    """When dry_run=True, initialize() must NOT call get_transaction_count
+    and must set nonce to 0."""
+    w3 = _mock_w3(INITIAL_NONCE)
+    mgr = NonceManager(w3, MOCK_ADDRESS, dry_run=True)
+
+    await mgr.initialize()
+
+    w3.eth.get_transaction_count.assert_not_called()
+    assert mgr.current_nonce == 0
+
+
+@pytest.mark.asyncio
+async def test_dry_run_sync_skips_rpc():
+    """When dry_run=True, sync() must NOT call get_transaction_count."""
+    w3 = _mock_w3(INITIAL_NONCE)
+    mgr = NonceManager(w3, MOCK_ADDRESS, dry_run=True)
+    await mgr.initialize()
+
+    await mgr.sync()
+
+    w3.eth.get_transaction_count.assert_not_called()
+    # Nonce should remain 0
+    assert mgr.current_nonce == 0

@@ -51,7 +51,13 @@ class NonceManager:
         """Fetch the current tx count from Polygon RPC (pending pool).
 
         Must be called exactly once before any ``get_next_nonce()`` call.
+        In dry-run mode, skips the RPC call and sets nonce to 0.
         """
+        if self._dry_run:
+            self._nonce = 0
+            logger.info("nonce_manager.initialized_dry_run", nonce=0)
+            return
+
         try:
             self._nonce = await self._w3.eth.get_transaction_count(
                 self._address, "pending"
@@ -89,7 +95,14 @@ class NonceManager:
         return nonce
 
     async def sync(self) -> None:
-        """Re-fetch nonce from chain. Call after a tx revert or RPC error."""
+        """Re-fetch nonce from chain. Call after a tx revert or RPC error.
+
+        In dry-run mode, skips the RPC call entirely.
+        """
+        if self._dry_run:
+            logger.info("nonce_manager.sync_dry_run_skip")
+            return
+
         async with self._lock:
             old_nonce = self._nonce
 
