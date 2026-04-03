@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from configparser import ConfigParser
 import os
 from logging.config import fileConfig
 
@@ -22,7 +23,17 @@ if config.config_file_name is not None:
 # unrelated runtime secrets (Anthropic/Web3 keys).
 def _resolve_database_url() -> str:
     configured_url = config.get_main_option("sqlalchemy.url")
-    return os.getenv("DATABASE_URL", configured_url)
+    env_url = os.getenv("DATABASE_URL")
+
+    if config.config_file_name is not None:
+        file_config = ConfigParser()
+        file_config.read(config.config_file_name)
+        if file_config.has_option(config.config_ini_section, "sqlalchemy.url"):
+            default_url = file_config.get(config.config_ini_section, "sqlalchemy.url")
+            if configured_url and configured_url != default_url:
+                return configured_url
+
+    return env_url or configured_url
 
 
 config.set_main_option("sqlalchemy.url", _resolve_database_url())

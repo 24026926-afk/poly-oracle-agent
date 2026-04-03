@@ -8,17 +8,38 @@ type safety.  A module-level ``get_config()`` singleton ensures exactly one
 """
 
 import warnings
+from typing import Any
 from decimal import Decimal
 from functools import lru_cache
 
 import structlog
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from web3 import Web3
 
 logger = structlog.get_logger(__name__)
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+_DRY_RUN_WALLET_ADDRESS = "0x0000000000000000000000000000000000000000"
+_DRY_RUN_WALLET_PRIVATE_KEY = "0x" + "11" * 32
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _is_missing_secret(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, SecretStr):
+        return value.get_secret_value().strip() == ""
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
 
 
 class AppConfig(BaseSettings):
@@ -229,6 +250,19 @@ class AppConfig(BaseSettings):
     )
 
     # --- Validators ---
+
+    @model_validator(mode="before")
+    @classmethod
+    def _hydrate_dry_run_wallet_credentials(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or not _is_truthy(data.get("dry_run")):
+            return data
+
+        hydrated = dict(data)
+        if _is_missing_secret(hydrated.get("wallet_address")):
+            hydrated["wallet_address"] = _DRY_RUN_WALLET_ADDRESS
+        if _is_missing_secret(hydrated.get("wallet_private_key")):
+            hydrated["wallet_private_key"] = _DRY_RUN_WALLET_PRIVATE_KEY
+        return hydrated
 
     @field_validator("wallet_address")
     @classmethod
