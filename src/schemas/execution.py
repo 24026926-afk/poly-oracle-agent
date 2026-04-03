@@ -11,7 +11,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.schemas.position import PositionRecord, PositionStatus
 from src.schemas.web3 import OrderData, SignedOrder
@@ -179,7 +179,38 @@ class PnLRecord(BaseModel):
     order_size_usdc: Decimal
     position_size_tokens: Decimal
     realized_pnl: Decimal
+    gas_cost_usdc: Decimal = Decimal("0")
+    fees_usdc: Decimal = Decimal("0")
+    net_realized_pnl: Decimal | None = None
     closed_at_utc: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_net_pnl_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        def _coerce_decimal(value: Any, *, default: Decimal) -> Decimal:
+            if value is None:
+                return default
+            if isinstance(value, float):
+                raise ValueError("Float financial values are forbidden; use Decimal")
+            if isinstance(value, Decimal):
+                return value
+            return Decimal(str(value))
+
+        realized_pnl = _coerce_decimal(data.get("realized_pnl"), default=Decimal("0"))
+        gas_cost_usdc = _coerce_decimal(
+            data.get("gas_cost_usdc"),
+            default=Decimal("0"),
+        )
+        fees_usdc = _coerce_decimal(data.get("fees_usdc"), default=Decimal("0"))
+
+        data["gas_cost_usdc"] = gas_cost_usdc
+        data["fees_usdc"] = fees_usdc
+        if data.get("net_realized_pnl") is None:
+            data["net_realized_pnl"] = realized_pnl - gas_cost_usdc - fees_usdc
+        return data
 
     @field_validator(
         "entry_price",
@@ -187,10 +218,15 @@ class PnLRecord(BaseModel):
         "order_size_usdc",
         "position_size_tokens",
         "realized_pnl",
+        "gas_cost_usdc",
+        "fees_usdc",
+        "net_realized_pnl",
         mode="before",
     )
     @classmethod
     def _reject_float_financials(cls, value: Any) -> Any:
+        if value is None:
+            return value
         if isinstance(value, float):
             raise ValueError("Float financial values are forbidden; use Decimal")
         if isinstance(value, Decimal):

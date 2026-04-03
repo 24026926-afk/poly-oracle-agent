@@ -7,10 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.9.1
-- **Status:** Phase 9 In Progress (WI-27 delivered: Global circuit breaker)
-- **Tests:** 521 automated tests passing
-- **Coverage:** 94% (target: ≥ 80%)
+- **Version:** 0.9.2
+- **Status:** Phase 9 Complete (WI-28 delivered: Net PnL & fee accounting)
+- **Tests:** 549 automated tests passing
+- **Coverage:** 95% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+

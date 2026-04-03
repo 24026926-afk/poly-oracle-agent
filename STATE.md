@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-04-01
-**Version:** 0.9.1
-**Status:** Phase 9 In Progress — WI-27 Complete
-**Active WI:** WI-28 — Net PnL & Fee Accounting
+**Last Updated:** 2026-04-03
+**Version:** 0.9.2
+**Status:** Phase 9 Complete — WI-28 Complete
+**Active WI:** Phase 10 Planning
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 521 |
-| Coverage | 94% (target ≥ 80%) |
+| Total tests | 549 |
+| Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
 
@@ -385,13 +385,32 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
     - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 521 passed
     - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
+- [x] **WI-28 — Net PnL & Fee Accounting** (completed 2026-04-03)
+  - Added Alembic migration `0004_add_fee_columns.py` with nullable `gas_cost_usdc` and `fees_usdc` on `positions`
+  - Extended `Position` ORM model and `PositionRecord` / `PnLRecord` / `PositionLifecycleEntry` / `LifecycleReport` schemas with fee-aware fields
+  - `PnLCalculator.settle()` now accepts optional `gas_cost_usdc` and `fees_usdc`, normalizes missing values to `Decimal("0")`, and computes `net_realized_pnl`
+  - `PositionRepository.record_settlement()` persists gas and fee values through the repository-only settlement path
+  - `PositionLifecycleReporter` coalesces legacy `NULL` fee fields to zero and exposes explicit gas, fee, and net-PnL aggregates
+  - Preserved invariants:
+    - `realized_pnl` remains gross PnL for backward compatibility
+    - live settlement return values are aligned to the persisted `Numeric(38,18)` row to avoid audit/report drift
+    - legacy pre-WI-28 rows deserialize with `gas_cost_usdc == Decimal("0")` and `fees_usdc == Decimal("0")`
+  - Test additions:
+    - `tests/unit/test_wi28_net_pnl.py` (22)
+    - `tests/integration/test_wi28_net_pnl_integration.py` (6)
+  - Regression:
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 549 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 95%
+
 ### Phase 9 Progress Gate
 
 - [x] WI-26 implemented and validated
 - [x] WI-27 implemented and validated
-- [ ] WI-28 implemented and validated
-- [x] Full regression green: 521 passed
-- [x] Coverage maintained at 94% (target ≥ 80%)
+- [x] WI-28 implemented and validated
+- [x] Full regression green: 549 passed
+- [x] Coverage maintained at 95% (target ≥ 80%)
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
+- [x] `docs/archive/ARCHIVE_PHASE_9.md` created
 
 ---
 

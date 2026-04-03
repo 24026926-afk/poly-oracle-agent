@@ -45,6 +45,8 @@ class PositionRecord(BaseModel):
     realized_pnl: Decimal | None = None
     exit_price: Decimal | None = None
     closed_at_utc: datetime | None = None
+    gas_cost_usdc: Decimal | None = None
+    fees_usdc: Decimal | None = None
 
     @field_validator(
         "entry_price",
@@ -54,6 +56,8 @@ class PositionRecord(BaseModel):
         "bankroll_usdc_at_entry",
         "realized_pnl",
         "exit_price",
+        "gas_cost_usdc",
+        "fees_usdc",
         mode="before",
     )
     @classmethod

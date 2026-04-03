@@ -38,6 +38,10 @@ Invoke me for:
 - **Orchestrator token_id bug:** `record_execution()` was called with `condition_id` as the `token_id` parameter. These are distinct Polymarket identifiers. Always pass the YES token ID, not the condition ID, when recording a position.
 - **Orchestrator dry_run wiring:** `record_execution()` must be called in BOTH dry_run and live paths. The tracker's internal guard handles dry_run logging; the orchestrator must not short-circuit before the tracker call.
 
+## WI-28 MAAP Findings (2026-04-03)
+- **Persisted-settlement precision alignment:** when `PnLCalculator.settle()` writes to `Numeric(38,18)` columns, the returned live `PnLRecord` must align with the persisted row before leaving the method. Otherwise the settlement audit log and the lifecycle report can disagree on `realized_pnl` / `net_realized_pnl` due to SQLite numeric coercion.
+- **Legacy fee-null normalization:** pre-WI-28 rows with `gas_cost_usdc=NULL` or `fees_usdc=NULL` must normalize to `Decimal("0")` in all read/reporting paths. `NULL` must never propagate into net-PnL arithmetic.
+
 ## Output Format
 - ✅ CORRECT or ❌ BUG per formula
 - Expected value vs computed value with example inputs

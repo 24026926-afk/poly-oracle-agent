@@ -106,6 +106,8 @@ class PositionRepository:
         realized_pnl: Decimal,
         exit_price: Decimal,
         closed_at_utc: datetime,
+        gas_cost_usdc: Decimal | None = None,
+        fees_usdc: Decimal | None = None,
     ) -> Position | None:
         """Persist WI-21 settlement columns on an existing position row."""
         position = await self.get_by_id(position_id)
@@ -124,6 +126,10 @@ class PositionRepository:
         position.realized_pnl = realized_pnl
         position.exit_price = exit_price
         position.closed_at_utc = closed_at_utc
+        position.gas_cost_usdc = (
+            gas_cost_usdc if gas_cost_usdc is not None else Decimal("0")
+        )
+        position.fees_usdc = fees_usdc if fees_usdc is not None else Decimal("0")
         await self._session.flush()
         logger.debug(
             "position.settlement_recorded",
@@ -131,6 +137,8 @@ class PositionRepository:
             condition_id=position.condition_id,
             realized_pnl=str(position.realized_pnl),
             exit_price=str(position.exit_price),
+            gas_cost_usdc=str(position.gas_cost_usdc),
+            fees_usdc=str(position.fees_usdc),
             closed_at_utc=(
                 position.closed_at_utc.isoformat()
                 if position.closed_at_utc is not None

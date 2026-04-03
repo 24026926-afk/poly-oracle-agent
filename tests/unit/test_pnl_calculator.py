@@ -110,7 +110,15 @@ def test_pnl_calculator_contract_exists_and_has_one_public_async_method():
     assert public_methods == ["settle"]
 
     settle_sig = inspect.signature(calculator_cls.settle)
-    assert list(settle_sig.parameters.keys()) == ["self", "position", "exit_price"]
+    assert list(settle_sig.parameters.keys()) == [
+        "self",
+        "position",
+        "exit_price",
+        "gas_cost_usdc",
+        "fees_usdc",
+    ]
+    assert settle_sig.parameters["gas_cost_usdc"].default is None
+    assert settle_sig.parameters["fees_usdc"].default is None
 
 
 def test_pnl_record_schema_exists_with_expected_fields_and_is_frozen():
