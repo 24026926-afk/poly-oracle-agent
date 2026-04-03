@@ -376,6 +376,16 @@ class Position(Base):
         nullable=True,
         comment="UTC timestamp when settlement was recorded",
     )
+    gas_cost_usdc: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=True,
+        comment="Polygon gas cost normalized into USDC at settlement time",
+    )
+    fees_usdc: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=38, scale=18),
+        nullable=True,
+        comment="Polymarket CLOB maker/taker fees in USDC at settlement time",
+    )
 
     __table_args__ = (
         Index("ix_positions_condition_id", "condition_id"),

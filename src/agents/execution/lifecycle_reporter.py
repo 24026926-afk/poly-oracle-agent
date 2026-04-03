@@ -75,6 +75,9 @@ class PositionLifecycleReporter:
                 losing_count=0,
                 breakeven_count=0,
                 total_realized_pnl=_ZERO,
+                total_gas_cost_usdc=_ZERO,
+                total_fees_usdc=_ZERO,
+                total_net_realized_pnl=_ZERO,
                 avg_hold_duration_hours=_ZERO,
                 best_pnl=_ZERO,
                 worst_pnl=_ZERO,
@@ -95,6 +98,9 @@ class PositionLifecycleReporter:
             losing_count,
             breakeven_count,
             total_realized_pnl,
+            total_gas_cost_usdc,
+            total_fees_usdc,
+            total_net_realized_pnl,
             avg_hold_duration_hours,
             best_pnl,
             worst_pnl,
@@ -107,6 +113,9 @@ class PositionLifecycleReporter:
             losing_count=losing_count,
             breakeven_count=breakeven_count,
             total_realized_pnl=total_realized_pnl,
+            total_gas_cost_usdc=total_gas_cost_usdc,
+            total_fees_usdc=total_fees_usdc,
+            total_net_realized_pnl=total_net_realized_pnl,
             avg_hold_duration_hours=avg_hold_duration_hours,
             best_pnl=best_pnl,
             worst_pnl=worst_pnl,
@@ -120,6 +129,9 @@ class PositionLifecycleReporter:
             losing_count=report.losing_count,
             breakeven_count=report.breakeven_count,
             total_realized_pnl=str(report.total_realized_pnl),
+            total_gas_cost_usdc=str(report.total_gas_cost_usdc),
+            total_fees_usdc=str(report.total_fees_usdc),
+            total_net_realized_pnl=str(report.total_net_realized_pnl),
             avg_hold_duration_hours=str(report.avg_hold_duration_hours),
             best_pnl=str(report.best_pnl),
             worst_pnl=str(report.worst_pnl),
@@ -136,6 +148,21 @@ class PositionLifecycleReporter:
         for position in positions:
             entry_price_d = Decimal(str(position.entry_price))
             order_size_usdc_d = Decimal(str(position.order_size_usdc))
+            gas_cost = (
+                Decimal(str(position.gas_cost_usdc))
+                if position.gas_cost_usdc is not None
+                else _ZERO
+            )
+            fees = (
+                Decimal(str(position.fees_usdc))
+                if position.fees_usdc is not None
+                else _ZERO
+            )
+            realized_pnl = (
+                Decimal(str(position.realized_pnl))
+                if position.realized_pnl is not None
+                else None
+            )
             if entry_price_d == _ZERO:
                 size_tokens = _ZERO
             else:
@@ -152,9 +179,12 @@ class PositionLifecycleReporter:
                         else None
                     ),
                     size_tokens=size_tokens,
-                    realized_pnl=(
-                        Decimal(str(position.realized_pnl))
-                        if position.realized_pnl is not None
+                    realized_pnl=realized_pnl,
+                    gas_cost_usdc=gas_cost,
+                    fees_usdc=fees,
+                    net_realized_pnl=(
+                        realized_pnl - gas_cost - fees
+                        if realized_pnl is not None
                         else None
                     ),
                     status=str(position.status),
@@ -167,9 +197,21 @@ class PositionLifecycleReporter:
     @staticmethod
     def _compute_aggregate_statistics(
         settled_positions: list[Position],
-    ) -> tuple[int, int, int, int, Decimal, Decimal, Decimal, Decimal]:
+    ) -> tuple[
+        int,
+        int,
+        int,
+        int,
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+    ]:
         if not settled_positions:
-            return (0, 0, 0, 0, _ZERO, _ZERO, _ZERO, _ZERO)
+            return (0, 0, 0, 0, _ZERO, _ZERO, _ZERO, _ZERO, _ZERO, _ZERO, _ZERO)
 
         total_settled_count = len(settled_positions)
         winning_count = 0
@@ -178,10 +220,26 @@ class PositionLifecycleReporter:
         total_hold_seconds = _ZERO
         hold_duration_count = 0
         pnl_values: list[Decimal] = []
+        total_gas_cost_usdc = _ZERO
+        total_fees_usdc = _ZERO
+        total_net_realized_pnl = _ZERO
 
         for position in settled_positions:
             pnl_value = Decimal(str(position.realized_pnl))
+            gas_cost = (
+                Decimal(str(position.gas_cost_usdc))
+                if position.gas_cost_usdc is not None
+                else _ZERO
+            )
+            fees = (
+                Decimal(str(position.fees_usdc))
+                if position.fees_usdc is not None
+                else _ZERO
+            )
             pnl_values.append(pnl_value)
+            total_gas_cost_usdc += gas_cost
+            total_fees_usdc += fees
+            total_net_realized_pnl += pnl_value - gas_cost - fees
 
             if pnl_value > _ZERO:
                 winning_count += 1
@@ -213,6 +271,9 @@ class PositionLifecycleReporter:
             losing_count,
             breakeven_count,
             total_realized_pnl,
+            total_gas_cost_usdc,
+            total_fees_usdc,
+            total_net_realized_pnl,
             avg_hold_duration_hours,
             best_pnl,
             worst_pnl,

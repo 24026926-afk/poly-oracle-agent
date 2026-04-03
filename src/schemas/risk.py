@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator, model_validator
 
+_ZERO = Decimal("0")
+
 
 class PortfolioSnapshot(BaseModel):
     """Typed aggregate portfolio state at a point in time."""
@@ -51,13 +53,52 @@ class PositionLifecycleEntry(BaseModel):
     exit_price: Decimal | None
     size_tokens: Decimal
     realized_pnl: Decimal | None
+    gas_cost_usdc: Decimal = Decimal("0")
+    fees_usdc: Decimal = Decimal("0")
+    net_realized_pnl: Decimal | None = None
     status: str
     opened_at_utc: datetime
     settled_at_utc: datetime | None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_cost_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        def _coerce_decimal(value: Any, *, default: Decimal) -> Decimal:
+            if value is None:
+                return default
+            if isinstance(value, float):
+                raise ValueError("Float financial values are forbidden; use Decimal")
+            if isinstance(value, Decimal):
+                return value
+            return Decimal(str(value))
+
+        realized_pnl = data.get("realized_pnl")
+        gas_cost_usdc = _coerce_decimal(
+            data.get("gas_cost_usdc"),
+            default=_ZERO,
+        )
+        fees_usdc = _coerce_decimal(data.get("fees_usdc"), default=_ZERO)
+
+        data["gas_cost_usdc"] = gas_cost_usdc
+        data["fees_usdc"] = fees_usdc
+        if data.get("net_realized_pnl") is None:
+            if realized_pnl is None:
+                data["net_realized_pnl"] = None
+            else:
+                realized_pnl_decimal = _coerce_decimal(realized_pnl, default=_ZERO)
+                data["net_realized_pnl"] = (
+                    realized_pnl_decimal - gas_cost_usdc - fees_usdc
+                )
+        return data
+
     @field_validator(
         "entry_price",
         "size_tokens",
+        "gas_cost_usdc",
+        "fees_usdc",
         mode="before",
     )
     @classmethod
@@ -71,6 +112,7 @@ class PositionLifecycleEntry(BaseModel):
     @field_validator(
         "exit_price",
         "realized_pnl",
+        "net_realized_pnl",
         mode="before",
     )
     @classmethod
@@ -95,6 +137,9 @@ class LifecycleReport(BaseModel):
     losing_count: int
     breakeven_count: int
     total_realized_pnl: Decimal
+    total_gas_cost_usdc: Decimal = Decimal("0")
+    total_fees_usdc: Decimal = Decimal("0")
+    total_net_realized_pnl: Decimal = Decimal("0")
     avg_hold_duration_hours: Decimal
     best_pnl: Decimal
     worst_pnl: Decimal
@@ -103,6 +148,9 @@ class LifecycleReport(BaseModel):
 
     @field_validator(
         "total_realized_pnl",
+        "total_gas_cost_usdc",
+        "total_fees_usdc",
+        "total_net_realized_pnl",
         "avg_hold_duration_hours",
         "best_pnl",
         "worst_pnl",
