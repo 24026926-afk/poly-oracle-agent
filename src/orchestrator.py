@@ -220,15 +220,21 @@ class Orchestrator:
         # Resolve token IDs for the selected market so WS can subscribe
         active_markets = await self.gamma_client.get_active_markets()
         token_ids: list[str] = []
+        token_id_mapping: dict[str, str] = {}
         for m in active_markets:
             if m.condition_id == self.active_condition_id:
                 token_ids = m.token_ids
+                # Build mapping: each token_id maps to itself (they're the asset IDs)
+                for token_id in token_ids:
+                    token_id_mapping[token_id] = token_id
                 break
         self.ws_client.set_assets_ids(token_ids)
+        self.ws_client.set_token_id_mapping(token_id_mapping)
         logger.info(
             "orchestrator.ws_assets_configured",
             condition_id=self.active_condition_id,
             token_count=len(token_ids),
+            mapping_count=len(token_id_mapping),
         )
 
         self.aggregator = DataAggregator(

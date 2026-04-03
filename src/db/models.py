@@ -109,6 +109,10 @@ class MarketSnapshot(Base):
         String(64), nullable=False,
         comment="YES or NO token address being tracked"
     )
+    yes_token_id: Mapped[Optional[str]] = mapped_column(
+        String(256), nullable=True,
+        comment="CLOB asset ID for the YES outcome (resolved from ws_client mapping)"
+    )
     market_end_date: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

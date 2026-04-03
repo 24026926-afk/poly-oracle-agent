@@ -53,6 +53,7 @@ class MarketSnapshotSchema(BaseModel):
     midpoint: float = Field(default=0.0)
     outcome_token: str = Field(default="YES")
     raw_ws_payload: str = Field(..., min_length=1)
+    yes_token_id: Optional[str] = Field(default=None)
 
     @model_validator(mode="after")
     def _compute_midpoint(self) -> "MarketSnapshotSchema":

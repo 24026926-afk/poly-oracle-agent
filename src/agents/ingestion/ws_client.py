@@ -40,12 +40,15 @@ class CLOBWebSocketClient:
             [AsyncSession], MarketRepository
         ] = MarketRepository,
         assets_ids: list[str] | None = None,
+        token_id_to_yes_token_id: dict[str, str] | None = None,
     ) -> None:
         self._url = config.clob_ws_url
         self._queue = queue
         self._db_factory = db_session_factory
         self._market_repo_factory = market_repo_factory
         self._assets_ids: list[str] = assets_ids or []
+        self._token_id_mapping: dict[str, str] = token_id_to_yes_token_id or {}
+        self._subscription_sent_at: float = 0.0
 
     # ------------------------------------------------------------------
     # Public
@@ -94,6 +97,10 @@ class CLOBWebSocketClient:
         """Update token IDs for subscription (e.g. after market rotation)."""
         self._assets_ids = assets_ids
 
+    def set_token_id_mapping(self, mapping: dict[str, str]) -> None:
+        """Set the token_id → yes_token_id mapping for snapshot enrichment."""
+        self._token_id_mapping = mapping
+
     async def _stream(self) -> None:
         async with websockets.connect(self._url) as ws:
             logger.info("ws_client.connected", url=self._url)
@@ -104,6 +111,17 @@ class CLOBWebSocketClient:
                 payload=sub_msg,
                 assets_count=len(self._assets_ids),
             )
+            logger.debug(
+                "ws_client.outbound_message",
+                message_type="subscribe",
+                assets_ids_count=len(self._assets_ids),
+            )
+            logger.info(
+                "ws_client.subscription_audit",
+                assets_ids_count=len(self._assets_ids),
+                token_mapping_count=len(self._token_id_mapping),
+            )
+            self._subscription_sent_at = asyncio.get_event_loop().time()
             await ws.send(sub_msg)
 
             # Start heartbeat task
@@ -124,7 +142,12 @@ class CLOBWebSocketClient:
         while True:
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
             try:
-                await ws.send(json.dumps({"type": "heartbeat"}))
+                hb_msg = json.dumps({"type": "heartbeat"})
+                logger.debug(
+                    "ws_client.outbound_message",
+                    message_type="heartbeat",
+                )
+                await ws.send(hb_msg)
             except Exception:
                 return
 
@@ -156,26 +179,71 @@ class CLOBWebSocketClient:
             await self._process_event(item, raw_msg)
 
     async def _process_event(self, data: dict, raw_msg: str) -> None:
-        """Process a single event dict from the WS stream."""
+        """Process a single event dict from the WS stream.
+
+        Handles three frame types:
+        - last_trade_price: midpoint from last_trade_price
+        - price_change: midpoint from best_bid/best_ask
+        - book: midpoint from bids[0]/asks[0] lists
+        """
         event_type = data.get("event_type") or data.get("event", "")
         if event_type not in _VALID_EVENTS:
             return
 
+        condition_id = data.get("market", data.get("condition_id", ""))
+        asset_id = data.get("asset_id", "")
+
+        # Resolve yes_token_id from token_id mapping
+        yes_token_id = None
+        if asset_id and asset_id in self._token_id_mapping:
+            yes_token_id = self._token_id_mapping[asset_id]
+
+        # Extract best_bid/best_ask based on frame type
+        best_bid = 0.0
+        best_ask = 0.0
+        last_trade_price = None
+
+        if event_type == "last_trade_price":
+            last_trade_price = data.get("price", 0.0)
+        elif event_type == "price_change":
+            best_bid = data.get("best_bid", 0.0)
+            best_ask = data.get("best_ask", 0.0)
+        elif event_type == "book":
+            # Try to extract from bids[0]/asks[0] lists first
+            bids = data.get("bids", [])
+            asks = data.get("asks", [])
+            if bids:
+                try:
+                    best_bid = float(bids[0].get("price", 0.0) if isinstance(bids[0], dict) else bids[0])
+                except (ValueError, IndexError, TypeError):
+                    best_bid = 0.0
+            if asks:
+                try:
+                    best_ask = float(asks[0].get("price", 0.0) if isinstance(asks[0], dict) else asks[0])
+                except (ValueError, IndexError, TypeError):
+                    best_ask = 0.0
+            # Fall back to top-level best_bid/best_ask if lists are empty
+            if best_bid == 0.0:
+                best_bid = data.get("best_bid", 0.0)
+            if best_ask == 0.0:
+                best_ask = data.get("best_ask", 0.0)
+
         try:
             snapshot_schema = MarketSnapshotSchema(
-                condition_id=data.get("market", data.get("condition_id", "")),
+                condition_id=condition_id,
                 question=data.get("question", ""),
-                best_bid=data.get("best_bid", data.get("price", 0.0)),
-                best_ask=data.get("best_ask", data.get("price", 0.0)),
-                last_trade_price=data.get("last_trade_price"),
+                best_bid=best_bid,
+                best_ask=best_ask,
+                last_trade_price=last_trade_price,
                 outcome_token=data.get("outcome_token", "YES"),
                 raw_ws_payload=raw_msg,
+                yes_token_id=yes_token_id,
             )
         except ValidationError as exc:
             logger.warning(
                 "ws_client.validation_error",
                 errors=str(exc),
-                market=data.get("market"),
+                market=condition_id,
             )
             return
 
@@ -189,6 +257,7 @@ class CLOBWebSocketClient:
             midpoint=snapshot_schema.midpoint,
             outcome_token=snapshot_schema.outcome_token,
             raw_ws_payload=snapshot_schema.raw_ws_payload,
+            yes_token_id=snapshot_schema.yes_token_id,
         )
 
         async with self._db_factory() as session:
@@ -202,4 +271,5 @@ class CLOBWebSocketClient:
             "ws_client.snapshot_enqueued",
             condition_id=snapshot_schema.condition_id,
             midpoint=snapshot_schema.midpoint,
+            yes_token_id=snapshot_schema.yes_token_id,
         )
