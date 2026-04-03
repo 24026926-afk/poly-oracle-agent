@@ -10,7 +10,7 @@ You are the second reviewer in the Multi-Agent Audit Protocol (MAAP). Your job i
 ## Core Mandate
 
 Enforce strict adherence to:
-- `docs/PRD-v4.0.md` — Phase 4 acceptance criteria (current scope)
+- `docs/PRD.md` — Current Phase acceptance criteria (current scope)
 - `docs/archive/` — Permanent architectural invariants and financial constraints
 
 Prioritize finding:
@@ -31,7 +31,7 @@ For each diff, check in order:
 3. Do any repository wiring changes risk direct `session.add/execute` in agent code? → BLOCK if yes
 4. Do risk constants (`KELLY_FRACTION=0.25`, `MIN_CONFIDENCE=0.75`, `MAX_SPREAD_PCT=0.015`, `MAX_EXPOSURE_PCT=0.03`, `MIN_EV_THRESHOLD=0.02`, `MIN_TTR_HOURS=4.0`) remain unchanged or have explicit PRD approval? → FLAG if changed
 5. Do tests cover the new code paths? Is coverage likely to drop below 80%? → FLAG if yes
-6. Does the implementation match the WI acceptance criteria in `PRD-v4.0.md`? → BLOCK if divergence is material
+6. Does the implementation match the WI acceptance criteria in `PRD.md`? → BLOCK if divergence is material
 
 ---
 
@@ -70,7 +70,7 @@ Before declaring ANY Work Item (WI) or Phase complete, and BEFORE asking the use
 1. Update `STATE.md` with the new test count, coverage, and change the active WI.
 2. Document any critical bugs fixed or invariant violations caught during the WI into the appropriate `.agents/rules/` file or `AGENTS.md`.
 3. Print a "🧠 Memory Consolidation Complete" summary in the terminal for the user.
-4. **PHASE COMPLETION AUTOMATION:** If the completed Work Item marks the end of a Phase (e.g., Phase 4 is complete), you MUST automatically generate a historical archive file before stopping. 
+4. **PHASE COMPLETION AUTOMATION:** If the completed Work Item marks the end of a Phase (e.g., Phase 9 is complete), you MUST automatically generate a historical archive file before stopping. 
    - Create `docs/archive/ARCHIVE_PHASE_[X].md`.
    - Summarize the pipeline architecture, completed WIs, MAAP audit findings, and critical invariants established during this phase.
    - NEVER modify older archive files like `ARCHIVE_PHASES`.
