@@ -130,6 +130,8 @@ class CLOBWebSocketClient:
 
     async def _handle_message(self, raw_msg: str) -> None:
         """Parse, validate, persist, and enqueue a single WS frame."""
+        logger.debug("ws_client.raw_message", preview=raw_msg[:300])
+
         try:
             data = json.loads(raw_msg)
         except json.JSONDecodeError:
@@ -141,6 +143,20 @@ class CLOBWebSocketClient:
                 logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
             return
 
+        # The CLOB WS may send list-wrapped messages (batches or ack frames).
+        # Normalise to a list of dicts and process each individually.
+        if isinstance(data, list):
+            items: list[dict] = data
+        else:
+            items = [data]
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            await self._process_event(item, raw_msg)
+
+    async def _process_event(self, data: dict, raw_msg: str) -> None:
+        """Process a single event dict from the WS stream."""
         event_type = data.get("event_type") or data.get("event", "")
         if event_type not in _VALID_EVENTS:
             return

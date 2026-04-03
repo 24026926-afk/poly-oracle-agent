@@ -268,6 +268,75 @@ async def test_ws_subscription_uses_assets_ids_and_logs_message():
 
 
 @pytest.mark.asyncio
+async def test_ws_handles_list_response_without_crashing():
+    """The CLOB WS may send list-wrapped messages like [{...}] or batches.
+    _handle_message must not crash with 'list has no attribute get'."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    # Single-item list wrapping a valid book event
+    list_msg = json.dumps([{
+        "event": "book",
+        "market": "0xcondition_list",
+        "best_bid": 0.40,
+        "best_ask": 0.60,
+        "last_trade_price": 0.50,
+        "outcome_token": "YES",
+        "question": "List test?",
+    }])
+    await client._handle_message(list_msg)
+
+    assert queue.qsize() == 1
+    row = queue.get_nowait()
+    assert row.condition_id == "0xcondition_list"
+
+
+@pytest.mark.asyncio
+async def test_ws_handles_empty_list_response_gracefully():
+    """An empty list [] from the WS must not crash."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    await client._handle_message("[]")
+
+    assert queue.qsize() == 0
+
+
+@pytest.mark.asyncio
+async def test_ws_handles_multi_item_list_processes_all():
+    """A batch of events in a list should each be processed."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    batch = json.dumps([
+        {
+            "event": "book",
+            "market": "0xmarket_a",
+            "best_bid": 0.30,
+            "best_ask": 0.70,
+            "last_trade_price": 0.50,
+            "outcome_token": "YES",
+            "question": "Q1?",
+        },
+        {
+            "event": "book",
+            "market": "0xmarket_b",
+            "best_bid": 0.45,
+            "best_ask": 0.55,
+            "last_trade_price": 0.50,
+            "outcome_token": "NO",
+            "question": "Q2?",
+        },
+    ])
+    await client._handle_message(batch)
+
+    assert queue.qsize() == 2
+
+
+@pytest.mark.asyncio
 async def test_ws_handles_non_json_server_error_gracefully():
     """Non-JSON server responses like 'INVALID OPERATION' must be logged
     as server errors, not generic invalid_json."""
