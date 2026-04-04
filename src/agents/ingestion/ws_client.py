@@ -211,8 +211,18 @@ class CLOBWebSocketClient:
         if event_type == "last_trade_price":
             last_trade_price = data.get("price", 0.0)
         elif event_type == "price_change":
-            best_bid = data.get("best_bid", 0.0)
-            best_ask = data.get("best_ask", 0.0)
+            # Polymarket CLOB sends price_changes as an array; extract from first entry
+            price_changes = data.get("price_changes", [])
+            if price_changes and isinstance(price_changes, list):
+                first_change = price_changes[0]
+                if isinstance(first_change, dict):
+                    best_bid = float(first_change.get("best_bid", 0.0))
+                    best_ask = float(first_change.get("best_ask", 0.0))
+            # Fall back to top-level fields if array is empty/missing
+            if best_bid == 0.0:
+                best_bid = data.get("best_bid", 0.0)
+            if best_ask == 0.0:
+                best_ask = data.get("best_ask", 0.0)
         elif event_type == "book":
             # Try to extract from bids[0]/asks[0] lists first
             bids = data.get("bids", [])

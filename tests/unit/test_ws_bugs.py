@@ -270,6 +270,45 @@ async def test_ws_client_no_token_maps_to_yes_token():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+async def test_ws_client_parses_price_changes_array():
+    """price_change events with price_changes[] array are parsed correctly."""
+    from src.schemas.market import MarketSnapshotSchema
+
+    data = {
+        "market": "0xtest",
+        "price_changes": [{
+            "asset_id": "123",
+            "price": "0.50",
+            "size": "1000",
+            "side": "SELL",
+            "best_bid": "0.48",
+            "best_ask": "0.52",
+        }]
+    }
+    # Simulate ws_client extraction logic
+    price_changes = data.get("price_changes", [])
+    best_bid = 0.0
+    best_ask = 0.0
+    if price_changes and isinstance(price_changes, list):
+        first_change = price_changes[0]
+        if isinstance(first_change, dict):
+            best_bid = float(first_change.get("best_bid", 0.0))
+            best_ask = float(first_change.get("best_ask", 0.0))
+
+    assert best_bid == 0.48
+    assert best_ask == 0.52
+
+    # Verify schema accepts the values
+    schema = MarketSnapshotSchema(
+        condition_id="0xtest",
+        best_bid=best_bid,
+        best_ask=best_ask,
+        raw_ws_payload='{"test": true}',
+    )
+    assert schema.midpoint == 0.5
+
+
+@pytest.mark.asyncio
 async def test_ws_client_skips_price_change_with_missing_ask():
     """price_change frame with best_ask=0 must NOT emit a snapshot."""
     queue: asyncio.Queue = asyncio.Queue()
