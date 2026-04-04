@@ -392,3 +392,55 @@ class TestMalformedPriceFields:
             mock_fetch.return_value = book
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 8. SDK OrderBookSummary dataclass compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestOrderBookSummaryDataclassInput:
+    """_parse_order_book must handle SDK OrderBookSummary dataclass, not just dicts."""
+
+    @pytest.mark.asyncio
+    async def test_parse_handles_orderbooksummary_dataclass(self):
+        """SDK returns OrderBookSummary dataclass — must not crash on .get()."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class OrderSummary:
+            price: str = None
+            size: str = None
+
+        @dataclass
+        class OrderBookSummary:
+            market: str = None
+            asset_id: str = None
+            bids: list = None
+            asks: list = None
+
+        sdk_response = OrderBookSummary(
+            market="0xabc",
+            asset_id="tok-yes-001",
+            bids=[OrderSummary(price="0.45", size="100")],
+            asks=[OrderSummary(price="0.55", size="80")],
+        )
+
+        client = PolymarketClient(host="https://clob.polymarket.com")
+        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = sdk_response
+            result = await client.fetch_order_book("tok-yes-001")
+
+        assert isinstance(result, MarketSnapshot)
+        assert result.best_bid == Decimal("0.45")
+        assert result.best_ask == Decimal("0.55")
+
+    @pytest.mark.asyncio
+    async def test_parse_still_works_with_dict_input(self):
+        """Dict input must continue to work after dataclass support is added."""
+        client = PolymarketClient(host="https://clob.polymarket.com")
+        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = _VALID_ORDER_BOOK
+            result = await client.fetch_order_book("tok-yes-001")
+        assert isinstance(result, MarketSnapshot)
+        assert result.best_bid == Decimal("0.45")

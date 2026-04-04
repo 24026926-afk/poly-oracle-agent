@@ -108,12 +108,24 @@ class PolymarketClient:
     # ------------------------------------------------------------------
 
     def _parse_order_book(
-        self, token_id: str, raw: dict[str, Any]
+        self, token_id: str, raw: dict[str, Any] | Any
     ) -> MarketSnapshot | None:
-        """Parse raw order book dict into a ``MarketSnapshot``.
+        """Parse raw order book dict or SDK dataclass into a ``MarketSnapshot``.
 
         Returns ``None`` for missing sides, crossed books, or invalid data.
+        Handles both dict responses and SDK ``OrderBookSummary`` dataclasses.
         """
+        # Normalise SDK dataclass to dict for uniform access
+        if hasattr(raw, "model_dump"):
+            raw = raw.model_dump()
+        elif not isinstance(raw, dict) and hasattr(raw, "__dict__"):
+            from dataclasses import asdict, fields
+
+            if hasattr(raw, "__dataclass_fields__"):
+                raw = asdict(raw)
+            else:
+                raw = vars(raw)
+
         bids = raw.get("bids", [])
         asks = raw.get("asks", [])
 
@@ -127,8 +139,13 @@ class PolymarketClient:
             return None
 
         try:
-            best_bid = Decimal(str(bids[0]["price"]))
-            best_ask = Decimal(str(asks[0]["price"]))
+            # Support both dict entries and dataclass entries (OrderSummary)
+            bid_0 = bids[0]
+            ask_0 = asks[0]
+            bid_price = bid_0["price"] if isinstance(bid_0, dict) else bid_0.price
+            ask_price = ask_0["price"] if isinstance(ask_0, dict) else ask_0.price
+            best_bid = Decimal(str(bid_price))
+            best_ask = Decimal(str(ask_price))
         except (KeyError, TypeError, ArithmeticError) as exc:
             logger.warning(
                 "Malformed top-of-book price field.",
