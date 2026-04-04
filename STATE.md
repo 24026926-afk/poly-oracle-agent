@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 583 |
+| Total tests | 586 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -44,7 +44,8 @@ Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03)
   - WS client `_process_event()` now falls back to condition_id for `yes_token_id` resolution when `asset_id` is absent in the frame
   - WS client skips snapshot emission when `best_bid <= 0` or `best_ask <= 0` on `price_change`/`book` frames (prevents midpoint=0.0 noise)
 
-Hotfix 2026-04-04 (migration drift fix):
+Hotfix 2026-04-04 (shared budget bypass in dry run):
+- **`_CHAIN_BUDGET` (2.0s) blocks Claude evaluation even in dry run:** `ClaudeClient._process_evaluation()` consumed the shared wall-clock budget across Grok sentiment fetch + primary Claude call + reflection. In production this is a safety guard, but it also triggered `asyncio.TimeoutError("Primary evaluation exceeded shared budget.")` during dry-run testing/debugging even when Grok was mocked. Fixed by introducing `_CHAIN_BUDGET_DRY_RUN: float = 60.0` — when `dry_run=True` the 60s budget applies so the full evaluation chain (primary + reflection) completes. When `dry_run=False` the production 2s budget remains enforced. Reflection fallback for budget exhaustion returns REJECTED → conservative HOLD, preserving the safety invariant.
 - **Missing `yes_token_id` column in `market_snapshots` table:** `yes_token_id` was added to the SQLAlchemy ORM model (`src/db/models.py`) but no Alembic migration was ever generated. Created `migrations/versions/0005_add_yes_token_id_to_market_snapshots.py` and applied `alembic upgrade head`. This fixed `sqlite3.OperationalError: table market_snapshots has no column named yes_token_id` during orchestrator startup.
 
 ---
@@ -440,7 +441,7 @@ Hotfix 2026-04-04 (migration drift fix):
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
 2. **Repository pattern** — `market_snapshots`, `agent_decision_logs`, `execution_txs`, `positions` only through their respective repositories
-3. **Pydantic Gatekeeper** — `LLMEvaluationResponse` is the final validation gate; no bypass
+3. **Pydantic Gatekeeper** — `LLMEvaluationResponse` is the final validation gate; no bypass. Reflection budget exhaustion → REJECTED → conservative HOLD (audit trail persisted).
 4. **No hardcoded `condition_id`** — market discovery via `MarketDiscoveryEngine` only
 5. **`dry_run=True` blocks execution** — `OrderBroadcaster` enforces; always set in dev/test
 6. **Async-only** — no blocking I/O in any agent task; `asyncio.Lock` for shared state
