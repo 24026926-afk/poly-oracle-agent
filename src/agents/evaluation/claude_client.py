@@ -101,7 +101,7 @@ class ClaudeClient:
             mocked=self.config.grok_mocked,
         )
         self._running = False
-        self.model = "claude-3-5-sonnet-latest"
+        self.model = self.config.anthropic_model
         
     async def start(self) -> None:
         """Starts the evaluation loop."""
