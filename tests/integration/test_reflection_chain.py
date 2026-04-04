@@ -311,7 +311,14 @@ async def test_reflection_adjusted_uses_corrected_candidate(test_config, mock_po
 async def test_reflection_timeout_yields_conservative_hold(test_config, mock_polymarket):
     """When the shared 2.0s latency budget is exhausted before reflection
     completes, the system must default to conservative HOLD behavior.
-    Audit artifact with BUDGET_EXHAUSTED reason must be persisted."""
+    Audit artifact with BUDGET_EXHAUSTED reason must be persisted.
+
+    NOTE: uses dry_run=False to exercise the production 2s budget guard.
+    dry_run=True has a relaxed 60s budget (for debugging) and would not
+    trigger this timeout path.
+    """
+    # Override dry_run to False so the production 2s budget applies
+    test_config.dry_run = False
     client, _, out_q = _setup_client(test_config)
 
     primary_json = _primary_candidate_json(decision=True, action="BUY")

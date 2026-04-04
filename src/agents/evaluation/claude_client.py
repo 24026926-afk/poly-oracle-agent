@@ -41,6 +41,7 @@ _GROK_ELIGIBLE: frozenset[MarketCategory] = frozenset({
 })
 
 _CHAIN_BUDGET: float = 2.0  # shared wall-clock budget (seconds) across the evaluation chain
+_CHAIN_BUDGET_DRY_RUN: float = 60.0  # relaxed budget for debugging / dry-run pipelines
 
 
 class _DecimalSafeEncoder(json.JSONEncoder):
@@ -272,7 +273,8 @@ class ClaudeClient:
         prompt = PromptFactory.build_evaluation_prompt(
             market_state=market_state, category=category, sentiment=sentiment,
         )
-        remaining = _CHAIN_BUDGET - (time.monotonic() - t0)
+        chain_budget = _CHAIN_BUDGET_DRY_RUN if self.config.dry_run else _CHAIN_BUDGET
+        remaining = chain_budget - (time.monotonic() - t0)
         if remaining <= 0:
             logger.error("Budget exhausted before primary evaluation.", snapshot_id=snapshot_id)
             return
@@ -282,7 +284,7 @@ class ClaudeClient:
                 timeout=remaining,
             )
         except asyncio.TimeoutError:
-            logger.error("Primary evaluation exceeded shared budget.", snapshot_id=snapshot_id)
+            logger.error("Primary evaluation exceeded shared budget.", snapshot_id=snapshot_id, dry_run=self.config.dry_run)
             return
         if not primary_result:
             logger.error("Failed to obtain primary candidate after retries.", snapshot_id=snapshot_id)
@@ -291,7 +293,8 @@ class ClaudeClient:
         primary_raw_text, primary_json, token_usage = primary_result
 
         # Stage C: Reflection audit — strict remaining budget
-        remaining_budget = _CHAIN_BUDGET - (time.monotonic() - t0)
+        chain_budget = _CHAIN_BUDGET_DRY_RUN if self.config.dry_run else _CHAIN_BUDGET
+        remaining_budget = chain_budget - (time.monotonic() - t0)
         reflection = await self._run_reflection_audit(
             primary_candidate_json=primary_json,
             market_state=market_state,
