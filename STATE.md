@@ -1,7 +1,7 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-04-03
-**Version:** 0.9.6
+**Last Updated:** 2026-04-04
+**Version:** 0.9.7
 **Status:** Phase 9 Complete — Dry-Run Boot-to-Evaluation Pipeline Stabilized
 **Active WI:** Phase 10 Planning (dry-run pipeline now boots through ingestion)
 
@@ -23,7 +23,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | Total tests | 583 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
-| DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
+| DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
 
 Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03):
 - `NonceManager.initialize()` and `sync()` short-circuit when `dry_run=True` — zero RPC calls, nonce set to 0
@@ -43,6 +43,9 @@ Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03)
   - Orchestrator token_id mapping corrected: all token IDs (YES and NO) now map to `token_ids[0]` (YES token); condition_id also added as key for book frames that lack `asset_id`
   - WS client `_process_event()` now falls back to condition_id for `yes_token_id` resolution when `asset_id` is absent in the frame
   - WS client skips snapshot emission when `best_bid <= 0` or `best_ask <= 0` on `price_change`/`book` frames (prevents midpoint=0.0 noise)
+
+Hotfix 2026-04-04 (migration drift fix):
+- **Missing `yes_token_id` column in `market_snapshots` table:** `yes_token_id` was added to the SQLAlchemy ORM model (`src/db/models.py`) but no Alembic migration was ever generated. Created `migrations/versions/0005_add_yes_token_id_to_market_snapshots.py` and applied `alembic upgrade head`. This fixed `sqlite3.OperationalError: table market_snapshots has no column named yes_token_id` during orchestrator startup.
 
 ---
 

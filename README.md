@@ -7,9 +7,9 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.9.6
+- **Version:** 0.9.7
 - **Status:** Phase 9 Complete (dry-run boot-to-evaluation pipeline stabilized)
-- **Tests:** 563 automated tests passing
+- **Tests:** 583 automated tests passing
 - **Coverage:** 95% (target: ≥ 80%)
 
 Core stack:
@@ -84,7 +84,7 @@ Alembic is the **only** supported schema management path. Do not use `Base.metad
 alembic upgrade head
 ```
 
-This applies all migrations from `migrations/versions/` (baseline: `0001_initial_schema.py`) and creates the three core tables:
+This applies all migrations from `migrations/versions/` (baseline: `0001_initial_schema.py`, current: `0005`) and creates the core tables:
 - `market_snapshots` — point-in-time orderbook captures (accessed via `MarketRepository`)
 - `agent_decision_logs` — full LLM evaluation audit trail (accessed via `DecisionRepository`)
 - `execution_txs` — on-chain transaction records (accessed via `ExecutionRepository`)
@@ -274,8 +274,8 @@ python -m pytest tests/integration/test_circuit_breaker_integration.py -v
 ```
 
 Current baseline:
-- 493 tests
-- 94% coverage (target: ≥ 80%)
+- 583 tests
+- 95% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 
