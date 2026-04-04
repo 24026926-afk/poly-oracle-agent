@@ -200,3 +200,116 @@ async def test_ws_client_logs_subscription_audit():
     # The audit log should include count of assets
     assert client._assets_ids == ["tok_a", "tok_b", "tok_c"]
     assert len(client._assets_ids) == 3
+
+
+# ---------------------------------------------------------------------------
+# BUG 1b: yes_token_id via condition_id fallback
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ws_client_resolves_yes_token_id_from_condition_id():
+    """Book frames without asset_id should resolve yes_token_id via condition_id."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    # Mapping includes condition_id → yes_token_id (set by orchestrator)
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        token_id_to_yes_token_id={"0xcond_abc": "yes_tok_abc"},
+    )
+
+    # Book frame has NO asset_id — only market (condition_id)
+    msg = json.dumps({
+        "event": "book",
+        "market": "0xcond_abc",
+        "bids": [{"price": "0.40", "size": "100"}],
+        "asks": [{"price": "0.60", "size": "100"}],
+    })
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert snapshot.yes_token_id == "yes_tok_abc"
+
+
+@pytest.mark.asyncio
+async def test_ws_client_no_token_maps_to_yes_token():
+    """Both YES and NO token asset_ids must resolve to the YES token_id."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    # Mapping: both YES and NO token IDs point to the YES token
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        token_id_to_yes_token_id={
+            "tok_yes": "tok_yes",
+            "tok_no": "tok_yes",
+        },
+    )
+
+    msg = json.dumps({
+        "event": "price_change",
+        "market": "0xcond789",
+        "asset_id": "tok_no",
+        "best_bid": 0.35,
+        "best_ask": 0.65,
+    })
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert snapshot.yes_token_id == "tok_yes", "NO token must resolve to YES token_id"
+
+
+# ---------------------------------------------------------------------------
+# BUG 2b: midpoint=0 suppression
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ws_client_skips_price_change_with_missing_ask():
+    """price_change frame with best_ask=0 must NOT emit a snapshot."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+    )
+
+    msg = json.dumps({
+        "event": "price_change",
+        "market": "0xcond_no_ask",
+        "best_bid": 0.45,
+        # best_ask absent → defaults to 0.0
+    })
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 0, "must not emit snapshot when best_ask is missing"
+
+
+@pytest.mark.asyncio
+async def test_ws_client_skips_book_with_empty_lists_and_no_fallback():
+    """Book frame with empty bids/asks and no top-level fallback → no snapshot."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+    )
+
+    msg = json.dumps({
+        "event": "book",
+        "market": "0xcond_empty",
+        "bids": [],
+        "asks": [],
+    })
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 0, "must not emit snapshot when book has no bids/asks"

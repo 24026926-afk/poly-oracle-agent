@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 577 |
+| Total tests | 583 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed) |
@@ -39,6 +39,10 @@ Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03)
   - BUG 1: `yes_token_id` propagation — added `token_id_to_yes_token_id` dict parameter to `CLOBWebSocketClient`, implemented `set_token_id_mapping()` setter, extended `MarketSnapshotSchema` and `MarketSnapshot` ORM to carry `yes_token_id` through validation to DB
   - BUG 2: Midpoint computation — fixed `_process_event()` to handle three frame types (book with bids/asks lists, price_change with direct best_bid/best_ask, last_trade_price), added fallback to top-level fields when lists are empty
   - BUG 3: Diagnostic logging — added `outbound_message` and `subscription_audit` logs for debugging INVALID_OPERATION server errors
+  - `DataAggregator` now captures `yes_token_id` from incoming `MarketSnapshot` and includes it in the output payload dict, closing the propagation gap that caused `ClaudeClient` to always log "Missing yes_token_id"
+  - Orchestrator token_id mapping corrected: all token IDs (YES and NO) now map to `token_ids[0]` (YES token); condition_id also added as key for book frames that lack `asset_id`
+  - WS client `_process_event()` now falls back to condition_id for `yes_token_id` resolution when `asset_id` is absent in the frame
+  - WS client skips snapshot emission when `best_bid <= 0` or `best_ask <= 0` on `price_change`/`book` frames (prevents midpoint=0.0 noise)
 
 ---
 

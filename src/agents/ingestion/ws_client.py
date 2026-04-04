@@ -193,10 +193,12 @@ class CLOBWebSocketClient:
         condition_id = data.get("market", data.get("condition_id", ""))
         asset_id = data.get("asset_id", "")
 
-        # Resolve yes_token_id from token_id mapping
+        # Resolve yes_token_id: try asset_id first, then condition_id fallback
         yes_token_id = None
         if asset_id and asset_id in self._token_id_mapping:
             yes_token_id = self._token_id_mapping[asset_id]
+        elif condition_id and condition_id in self._token_id_mapping:
+            yes_token_id = self._token_id_mapping[condition_id]
 
         # Extract best_bid/best_ask based on frame type
         best_bid = 0.0
@@ -227,6 +229,18 @@ class CLOBWebSocketClient:
                 best_bid = data.get("best_bid", 0.0)
             if best_ask == 0.0:
                 best_ask = data.get("best_ask", 0.0)
+
+        # Guard: do not emit snapshot with midpoint=0 for frames that
+        # should carry spread data.  Preserves last known midpoint downstream.
+        if event_type in ("price_change", "book") and (best_bid <= 0 or best_ask <= 0):
+            logger.debug(
+                "ws_client.skip_no_spread",
+                event_type=event_type,
+                condition_id=condition_id,
+                best_bid=best_bid,
+                best_ask=best_ask,
+            )
+            return
 
         try:
             snapshot_schema = MarketSnapshotSchema(

@@ -22,6 +22,7 @@ def _make_snapshot(
     best_bid: float = 0.45,
     best_ask: float = 0.55,
     midpoint: float = 0.50,
+    yes_token_id: str | None = None,
 ) -> MarketSnapshot:
     """Build a MarketSnapshot ORM object matching what ws_client puts on queue."""
     return MarketSnapshot(
@@ -33,6 +34,7 @@ def _make_snapshot(
         midpoint=midpoint,
         outcome_token="YES",
         raw_ws_payload="{}",
+        yes_token_id=yes_token_id,
     )
 
 
@@ -207,3 +209,52 @@ async def test_aggregator_suppresses_emit_within_interval():
     await agg._process_message(snap2)
 
     assert out_q.qsize() == first_emit_count, "must not emit again within throttle interval"
+
+
+# ---------------------------------------------------------------------------
+# yes_token_id forwarding — aggregator must pass it through to output
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_aggregator_forwards_yes_token_id_to_output():
+    """When a MarketSnapshot carries yes_token_id, the aggregator's output
+    payload must include it so ClaudeClient can use it for WI-14 fetch."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xcond123")
+
+    # _last_emit_time == 0 means first message always triggers time-based emit
+    snap = _make_snapshot(
+        best_bid=0.45, best_ask=0.55, yes_token_id="tok-yes-001"
+    )
+    await agg._process_message(snap)
+
+    assert out_q.qsize() == 1, "first message should trigger emit"
+    payload = out_q.get_nowait()
+    assert payload.get("yes_token_id") == "tok-yes-001", \
+        "output payload must include yes_token_id from the snapshot"
+
+
+@pytest.mark.asyncio
+async def test_aggregator_retains_yes_token_id_across_messages():
+    """Once set, yes_token_id should persist across subsequent emissions
+    (even if a later snapshot doesn't include it)."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xcond123")
+
+    # First: snapshot with yes_token_id
+    snap1 = _make_snapshot(best_bid=0.45, best_ask=0.55, yes_token_id="tok-yes-001")
+    await agg._process_message(snap1)
+    assert out_q.qsize() == 1
+    p1 = out_q.get_nowait()
+    assert p1["yes_token_id"] == "tok-yes-001"
+
+    # Force next emit by simulating large price move (> 1% threshold)
+    # midpoint = (0.20+0.40)/2 = 0.30, which is 40% change from 0.50
+    snap2 = _make_snapshot(best_bid=0.20, best_ask=0.40, yes_token_id=None)
+    await agg._process_message(snap2)
+    assert out_q.qsize() == 1
+    p2 = out_q.get_nowait()
+    assert p2["yes_token_id"] == "tok-yes-001", \
+        "yes_token_id must be retained even when later snapshots omit it"

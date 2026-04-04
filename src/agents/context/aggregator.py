@@ -39,7 +39,8 @@ class DataAggregator:
         self._running = False
         self._last_emit_time = 0.0
         self._last_emitted_midpoint: Optional[float] = None
-        
+        self._yes_token_id: Optional[str] = None
+
         # In-memory orderbook (simplified: keeping best bid/ask for now)
         self.best_bid = 0.0
         self.best_ask = 0.0
@@ -81,6 +82,11 @@ class DataAggregator:
             return
 
         updated = False
+
+        # Capture yes_token_id from the snapshot if present
+        msg_yes_token_id = getattr(msg, "yes_token_id", None)
+        if msg_yes_token_id is not None:
+            self._yes_token_id = msg_yes_token_id
 
         # MarketSnapshot ORM objects carry best_bid/best_ask directly.
         # Legacy CLOBMessage objects carry bids/asks lists.
@@ -155,7 +161,8 @@ class DataAggregator:
         output_payload = {
             "snapshot_id": str(uuid.uuid4()),
             "prompt": prompt,
-            "state": state
+            "state": state,
+            "yes_token_id": self._yes_token_id,
         }
         
         logger.debug("Emitting market state and CoT prompt.", midpoint=current_midpoint, spread=spread)

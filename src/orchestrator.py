@@ -224,9 +224,15 @@ class Orchestrator:
         for m in active_markets:
             if m.condition_id == self.active_condition_id:
                 token_ids = m.token_ids
-                # Build mapping: each token_id maps to itself (they're the asset IDs)
-                for token_id in token_ids:
-                    token_id_mapping[token_id] = token_id
+                # token_ids[0] is the YES outcome token by Polymarket convention.
+                # Map ALL token IDs (YES and NO) to the YES token so that
+                # any incoming frame resolves to the correct yes_token_id.
+                yes_token = token_ids[0] if token_ids else None
+                if yes_token:
+                    for token_id in token_ids:
+                        token_id_mapping[token_id] = yes_token
+                    # Also key by condition_id for book frames that lack asset_id
+                    token_id_mapping[self.active_condition_id] = yes_token
                 break
         self.ws_client.set_assets_ids(token_ids)
         self.ws_client.set_token_id_mapping(token_id_mapping)
