@@ -193,8 +193,11 @@ class CLOBWebSocketClient:
         condition_id = data.get("market", data.get("condition_id", ""))
         asset_id = data.get("asset_id", "")
 
-        # Resolve yes_token_id: try asset_id first, then condition_id fallback
-        yes_token_id = None
+        # Resolve yes_token_id from the token_id mapping set by MarketDiscoveryEngine.
+        # no_token_id is populated later from Gamma market metadata (clobTokenIds[1]).
+        yes_token_id: str | None = None
+        no_token_id: str | None = None
+
         if asset_id and asset_id in self._token_id_mapping:
             yes_token_id = self._token_id_mapping[asset_id]
         elif condition_id and condition_id in self._token_id_mapping:
@@ -252,6 +255,7 @@ class CLOBWebSocketClient:
                 outcome_token=data.get("outcome_token", "YES"),
                 raw_ws_payload=raw_msg,
                 yes_token_id=yes_token_id,
+                no_token_id=no_token_id,
             )
         except ValidationError as exc:
             logger.warning(
@@ -272,6 +276,7 @@ class CLOBWebSocketClient:
             outcome_token=snapshot_schema.outcome_token,
             raw_ws_payload=snapshot_schema.raw_ws_payload,
             yes_token_id=snapshot_schema.yes_token_id,
+            no_token_id=snapshot_schema.no_token_id,
         )
 
         async with self._db_factory() as session:
@@ -286,4 +291,5 @@ class CLOBWebSocketClient:
             condition_id=snapshot_schema.condition_id,
             midpoint=snapshot_schema.midpoint,
             yes_token_id=snapshot_schema.yes_token_id,
+            no_token_id=snapshot_schema.no_token_id,
         )

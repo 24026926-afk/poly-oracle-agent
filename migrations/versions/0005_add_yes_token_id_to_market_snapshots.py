@@ -28,7 +28,17 @@ def upgrade() -> None:
             comment="CLOB asset ID for the YES outcome (resolved from ws_client mapping)",
         ),
     )
+    op.add_column(
+        "market_snapshots",
+        sa.Column(
+            "no_token_id",
+            sa.String(length=256),
+            nullable=True,
+            comment="CLOB asset ID for the NO outcome (resolved from ws_client mapping)",
+        ),
+    )
 
 
 def downgrade() -> None:
+    op.drop_column("market_snapshots", "no_token_id")
     op.drop_column("market_snapshots", "yes_token_id")
