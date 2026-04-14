@@ -11,6 +11,8 @@ Connects to the CLOB WebSocket, validates incoming frames via
 import asyncio
 import json
 from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any
 
 import structlog
 import websockets
@@ -49,6 +51,8 @@ class CLOBWebSocketClient:
         self._assets_ids: list[str] = assets_ids or []
         self._token_id_mapping: dict[str, str] = token_id_to_yes_token_id or {}
         self._subscription_sent_at: float = 0.0
+        self._aggregator_map: dict[str, Any] = {}
+        self._ws: websockets.ClientConnection | None = None
 
     # ------------------------------------------------------------------
     # Public
@@ -101,8 +105,47 @@ class CLOBWebSocketClient:
         """Set the token_id → yes_token_id mapping for snapshot enrichment."""
         self._token_id_mapping = mapping
 
+    def register_aggregator(self, asset_id: str, aggregator: Any) -> None:
+        """Register a DataAggregator for frame routing."""
+        self._aggregator_map[asset_id] = aggregator
+
+    async def subscribe_batch(self, assets_ids: list[str]) -> None:
+        """Subscribe to multiple assets via a single WebSocket connection.
+
+        Polymarket CLOB supports multiplexed subscriptions — one connection,
+        many assets. This is the concurrency primitive for WI-32.
+        """
+        if not assets_ids:
+            logger.warning(
+                "ws.subscribe_batch_empty",
+                message="No assets to subscribe to",
+            )
+            return
+
+        ws = self._ws
+        if ws is None:
+            logger.warning(
+                "ws.subscribe_batch_no_connection",
+                message="WebSocket not yet connected — deferring subscription",
+            )
+            return
+
+        subscription_msg = json.dumps({
+            "type": "subscribe",
+            "assets_ids": assets_ids,
+            "event_types": ["book", "price_change", "last_trade_price"],
+        })
+
+        await ws.send(subscription_msg)
+        logger.info(
+            "market_tracking.subscribed_batch",
+            asset_count=len(assets_ids),
+            assets_ids=assets_ids,
+        )
+
     async def _stream(self) -> None:
         async with websockets.connect(self._url) as ws:
+            self._ws = ws
             logger.info("ws_client.connected", url=self._url)
 
             sub_msg = self._build_subscription_message()
@@ -159,7 +202,11 @@ class CLOBWebSocketClient:
                 return
 
     async def _handle_message(self, raw_msg: str) -> None:
-        """Parse, validate, persist, and enqueue a single WS frame."""
+        """Parse, validate, persist, and enqueue a single WS frame.
+
+        WI-32: Routes incoming frames to per-market aggregators via asset_id
+        before the standard persistence/enqueue path.
+        """
         # Handle server PONG response (plain text, not JSON)
         if raw_msg.strip() == "PONG":
             logger.debug("ws_client.pong_received")
@@ -177,6 +224,28 @@ class CLOBWebSocketClient:
             else:
                 logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
             return
+
+        # WI-32: Route to per-market aggregator via asset_id before standard processing
+        asset_id = data.get("asset_id") if isinstance(data, dict) else None
+        if asset_id and asset_id in self._aggregator_map:
+            aggregator = self._aggregator_map[asset_id]
+            aggregator.process_frame(data)
+            aggregator.frame_count += 1
+            aggregator.last_seen_utc = datetime.now(timezone.utc)
+            return  # Routed — skip standard persistence path
+
+        if asset_id is not None and asset_id not in self._aggregator_map:
+            logger.warning(
+                "ws.frame_unrouted",
+                asset_id=asset_id,
+                frame_type=data.get("event_type", "unknown") if isinstance(data, dict) else "unknown",
+            )
+        elif isinstance(data, dict) and "asset_id" not in data:
+            logger.warning(
+                "ws.frame_unrouted",
+                asset_id=None,
+                frame_type=data.get("event_type", "unknown"),
+            )
 
         # The CLOB WS may send list-wrapped messages (batches or ack frames).
         # Normalise to a list of dicts and process each individually.

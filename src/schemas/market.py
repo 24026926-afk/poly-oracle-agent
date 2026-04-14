@@ -6,8 +6,23 @@ and Gamma REST API responses.
 """
 
 import json
+from datetime import datetime, timezone
 from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class PerMarketAggregatorState(BaseModel):
+    """Tracks per-market subscription status, last-seen timestamp, and frame count."""
+    model_config = ConfigDict(frozen=True)
+
+    token_ids: list[str]
+    subscription_status: str = "pending"
+    last_seen_utc: datetime | None = None
+    frame_count: int = 0
 
 class CLOBTick(BaseModel):
     """

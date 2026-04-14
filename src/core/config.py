@@ -258,6 +258,20 @@ class AppConfig(BaseSettings):
         description="True = evaluate but never execute orders",
     )
 
+    # --- WI-32: Concurrent Market Tracking ---
+    max_concurrent_markets: int = Field(
+        default=5,
+        description="Maximum number of markets tracked concurrently",
+    )
+    market_tracking_interval_sec: Decimal = Field(
+        default=Decimal("10"),
+        description="Cadence for market discovery refresh",
+    )
+    enable_market_tracking: bool = Field(
+        default=False,
+        description="Enable MarketTrackingTask in Orchestrator",
+    )
+
     # --- Validators ---
 
     @model_validator(mode="before")

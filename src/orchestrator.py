@@ -74,6 +74,7 @@ class Orchestrator:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.active_condition_id: str | None = None
+        self._running = False
 
         # Queue wiring per architecture sequence:
         # ingestion -> context -> evaluation -> execution
@@ -173,13 +174,16 @@ class Orchestrator:
 
         # Initialized in start() after discovery
         self.aggregator: DataAggregator | None = None
+        self._data_aggregator: DataAggregator | None = None
         self.gamma_client: GammaRESTClient | None = None
         self.discovery_engine: MarketDiscoveryEngine | None = None
         self.broadcaster: OrderBroadcaster | None = None
+        self.market_tracking_task: asyncio.Task[Any] | None = None
 
     async def start(self) -> None:
         """Start all layers and run until cancelled."""
         logger.info("orchestrator.starting")
+        self._running = True
 
         self._http_session = aiohttp.ClientSession()
         self._httpx_client = httpx.AsyncClient()
@@ -248,6 +252,8 @@ class Orchestrator:
             output_queue=self.prompt_queue,
             condition_id=self.active_condition_id,
         )
+        # WI-32: DataAggregator reference for concurrent tracking
+        self._data_aggregator = self.aggregator
 
         self._tasks = [
             asyncio.create_task(self.ws_client.run(), name="IngestionTask"),
@@ -272,6 +278,13 @@ class Orchestrator:
                     self._portfolio_aggregation_loop(),
                     name="PortfolioAggregatorTask",
                 )
+            )
+
+        # WI-32: Optional concurrent market tracking task
+        if self.config.enable_market_tracking:
+            self.market_tracking_task = asyncio.create_task(
+                self._market_tracking_loop(),
+                name="MarketTrackingTask",
             )
 
         try:
@@ -657,9 +670,102 @@ class Orchestrator:
             closed_at_utc=position.closed_at_utc,
         )
 
+    # ------------------------------------------------------------------
+    # WI-32: Concurrent multi-market tracking
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_token_ids(snapshot: Any) -> list[str]:
+        """Extract token_ids from a market discovery snapshot."""
+        return getattr(snapshot, "token_ids", [])
+
+    def _process_market_contexts(self, contexts: list[dict[str, Any]]) -> None:
+        """Process market contexts returned from track_market().
+
+        Contexts are already on prompt_queue via DataAggregator;
+        this is a no-op hook for future extensions (logging, metrics).
+        """
+        pass
+
+    async def _market_tracking_loop(self) -> None:
+        """Concurrent multi-market tracking via asyncio.gather (WI-32).
+
+        Sleep-first, fail-open pattern: sleeps at top of loop, catches
+        exceptions and continues on next interval.
+        """
+        while self._running:
+            await asyncio.sleep(float(self.config.market_tracking_interval_sec))
+            try:
+                # Discover markets
+                if self.discovery_engine is None:
+                    logger.debug("market_tracking.discovery_not_ready")
+                    continue
+
+                snapshots = await self.discovery_engine.discover()
+                if not snapshots:
+                    logger.debug("market_tracking.no_markets_discovered")
+                    continue
+
+                # Truncate to max_concurrent_markets
+                if len(snapshots) > self.config.max_concurrent_markets:
+                    logger.info(
+                        "market_tracking.capped",
+                        discovered=len(snapshots),
+                        capped_to=self.config.max_concurrent_markets,
+                    )
+                    snapshots = snapshots[:self.config.max_concurrent_markets]
+
+                # Group token IDs per market
+                token_ids_list = [
+                    self._extract_token_ids(snapshot) for snapshot in snapshots
+                ]
+
+                # Filter out markets with no token IDs
+                token_ids_list = [tids for tids in token_ids_list if tids]
+                if not token_ids_list:
+                    logger.debug("market_tracking.no_token_ids_after_filter")
+                    continue
+
+                # Fan-out via asyncio.gather
+                logger.info("market_tracking.fan_out", market_count=len(token_ids_list))
+                tasks = [
+                    self._data_aggregator.track_market(token_ids)
+                    for token_ids in token_ids_list
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process results
+                success_count = 0
+                error_count = 0
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error("market_tracking.gather_error", error=str(result))
+                        error_count += 1
+                    else:
+                        self._process_market_contexts(result)
+                        success_count += 1
+
+                logger.info(
+                    "market_tracking.completed",
+                    success=success_count,
+                    errors=error_count,
+                    total=len(token_ids_list),
+                )
+            except Exception as exc:
+                logger.error("market_tracking_loop.error", error=str(exc))
+                # Fail-open: loop continues on next interval
+
     async def shutdown(self) -> None:
         """Stop running components, cancel tasks, and dispose shared resources."""
         logger.info("orchestrator.shutdown_start")
+
+        # WI-32: Cancel MarketTrackingTask if running
+        if self.market_tracking_task is not None and not self.market_tracking_task.done():
+            self.market_tracking_task.cancel()
+            try:
+                await self.market_tracking_task
+            except asyncio.CancelledError:
+                pass
 
         for stoppable in (self.aggregator, self.claude_client):
             if stoppable is None:

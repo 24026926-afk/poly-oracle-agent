@@ -9,11 +9,12 @@ summaries to the LLM Evaluation Node based on time or price triggers.
 import asyncio
 import uuid
 import time
-from typing import Dict, Any, Optional
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List
 
 import structlog
 
-from src.schemas.market import CLOBMessage
+from src.schemas.market import CLOBMessage, PerMarketAggregatorState
 from src.agents.context.prompt_factory import PromptFactory
 
 logger = structlog.get_logger(__name__)
@@ -167,3 +168,74 @@ class DataAggregator:
         
         logger.debug("Emitting market state and CoT prompt.", midpoint=current_midpoint, spread=spread)
         await self.output_queue.put(output_payload)
+
+    # ------------------------------------------------------------------
+    # WI-32: Concurrent multi-market tracking
+    # ------------------------------------------------------------------
+
+    async def track_market(self, token_ids: List[str]) -> List[Dict[str, Any]]:
+        """Track a single market concurrently (accepts list of token IDs for WI-32).
+
+        Manages per-market subscription state via PerMarketAggregatorState.
+        Produces MarketContext to shared prompt_queue.
+        """
+        state = PerMarketAggregatorState(token_ids=token_ids)
+
+        # Register with WS client for frame routing
+        ws_client = getattr(self, "ws_client", None)
+        if ws_client is not None:
+            for token_id in token_ids:
+                ws_client.register_aggregator(token_id, self)
+
+            # Subscribe via multiplexed batch
+            await ws_client.subscribe_batch(token_ids)
+
+        # Build market context
+        market_contexts: List[Dict[str, Any]] = []
+        try:
+            context = self._build_market_context(token_ids, state)
+            market_contexts.append(context)
+
+            # Produce to shared prompt_queue
+            prompt_queue = getattr(self, "prompt_queue", None)
+            if prompt_queue is not None:
+                await prompt_queue.put(context)
+        except Exception as exc:
+            logger.error("aggregator.track_market_error", error=str(exc))
+            raise
+
+        return market_contexts
+
+    def _build_market_context(
+        self,
+        token_ids: List[str],
+        state: PerMarketAggregatorState,
+    ) -> Dict[str, Any]:
+        """Build a MarketContext dictionary for the evaluation pipeline."""
+        current_midpoint = (
+            (self.best_bid + self.best_ask) / 2.0
+            if self.best_bid > 0 and self.best_ask > 0
+            else 0.0
+        )
+        spread = self.best_ask - self.best_bid
+
+        state_dict = {
+            "condition_id": self.condition_id,
+            "best_bid": self.best_bid,
+            "best_ask": self.best_ask,
+            "midpoint": current_midpoint,
+            "spread": spread,
+            "timestamp": time.time(),
+            "token_ids": token_ids,
+            "subscription_status": state.subscription_status,
+            "frame_count": state.frame_count,
+        }
+
+        prompt = PromptFactory.build_evaluation_prompt(state_dict)
+
+        return {
+            "snapshot_id": str(uuid.uuid4()),
+            "prompt": prompt,
+            "state": state_dict,
+            "yes_token_id": self._yes_token_id,
+        }
