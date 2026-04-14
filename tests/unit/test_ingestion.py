@@ -85,6 +85,20 @@ async def test_ws_message_valid_book_frame_enqueues_snapshot():
 
 
 @pytest.mark.asyncio
+async def test_ws_pong_response_is_handled():
+    """Server PONG responses should be handled silently without enqueueing."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    # Should not raise or log errors
+    await client._handle_message("PONG")
+    await client._handle_message(" PONG ")  # whitespace-tolerant
+
+    assert queue.qsize() == 0
+
+
+@pytest.mark.asyncio
 async def test_ws_unknown_message_type_is_ignored():
     queue: asyncio.Queue = asyncio.Queue()
     db = _mock_db_factory()

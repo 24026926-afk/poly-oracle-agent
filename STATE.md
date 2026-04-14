@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-04-04
-**Version:** 0.9.7
+**Last Updated:** 2026-04-14
+**Version:** 0.9.8
 **Status:** Phase 9 Complete — Dry-Run Boot-to-Evaluation Pipeline Stabilized
-**Active WI:** Phase 10 Planning (dry-run pipeline now boots through ingestion)
+**Active WI:** Phase 10 Planning (WS heartbeat hotfix applied)
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 586 |
+| Total tests | 593 |
 | Coverage | 95% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -47,6 +47,9 @@ Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03)
 Hotfix 2026-04-04 (shared budget bypass in dry run):
 - **`_CHAIN_BUDGET` (2.0s) blocks Claude evaluation even in dry run:** `ClaudeClient._process_evaluation()` consumed the shared wall-clock budget across Grok sentiment fetch + primary Claude call + reflection. In production this is a safety guard, but it also triggered `asyncio.TimeoutError("Primary evaluation exceeded shared budget.")` during dry-run testing/debugging even when Grok was mocked. Fixed by introducing `_CHAIN_BUDGET_DRY_RUN: float = 60.0` — when `dry_run=True` the 60s budget applies so the full evaluation chain (primary + reflection) completes. When `dry_run=False` the production 2s budget remains enforced. Reflection fallback for budget exhaustion returns REJECTED → conservative HOLD, preserving the safety invariant.
 - **Missing `yes_token_id` column in `market_snapshots` table:** `yes_token_id` was added to the SQLAlchemy ORM model (`src/db/models.py`) but no Alembic migration was ever generated. Created `migrations/versions/0005_add_yes_token_id_to_market_snapshots.py` and applied `alembic upgrade head`. This fixed `sqlite3.OperationalError: table market_snapshots has no column named yes_token_id` during orchestrator startup.
+
+Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
+- **`CLOBWebSocketClient._heartbeat()` sending JSON instead of plain text:** The heartbeat was sending `{"type": "heartbeat"}` (JSON) which Polymarket CLOB rejected with `INVALID OPERATION`. Fixed to send the plain text string `"PING"` as required by Polymarket's WebSocket protocol. Server automatically responds with `"PONG"`. Added PONG handling in `_handle_message()` to silently acknowledge server responses. Enhanced error handling with specific `websockets.ConnectionClosed` catch and structlog warnings. Added test `test_ws_pong_response_is_handled` to verify PONG handling.
 
 ---
 

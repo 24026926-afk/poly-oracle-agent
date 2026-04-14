@@ -138,21 +138,33 @@ class CLOBWebSocketClient:
                     pass
 
     async def _heartbeat(self, ws: websockets.ClientConnection) -> None:
-        """Send a heartbeat ping every 10 seconds."""
+        """Send a heartbeat ping every 10 seconds.
+        
+        Polymarket CLOB expects the plain text string "PING" (not JSON).
+        Server responds with "PONG" automatically.
+        """
         while True:
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
             try:
-                hb_msg = json.dumps({"type": "heartbeat"})
-                logger.debug(
-                    "ws_client.outbound_message",
-                    message_type="heartbeat",
+                logger.debug("ws_client.outbound_message", message_type="ping")
+                await ws.send("PING")
+            except websockets.ConnectionClosed:
+                logger.warning("ws_client.heartbeat_connection_closed")
+                return
+            except Exception as exc:
+                logger.warning(
+                    "ws_client.heartbeat_error",
+                    error=str(exc),
                 )
-                await ws.send(hb_msg)
-            except Exception:
                 return
 
     async def _handle_message(self, raw_msg: str) -> None:
         """Parse, validate, persist, and enqueue a single WS frame."""
+        # Handle server PONG response (plain text, not JSON)
+        if raw_msg.strip() == "PONG":
+            logger.debug("ws_client.pong_received")
+            return
+
         logger.debug("ws_client.raw_message", preview=raw_msg[:300])
 
         try:
