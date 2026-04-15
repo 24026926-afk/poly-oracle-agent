@@ -6,10 +6,10 @@ See STATE.md for current WI checklist and status.
 Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs).
 
 Current branch: feat/wi30-exposure-limits
-Active phase: Phase 10 in progress — WI-30, WI-31, and WI-32 complete
-Completed: WI-11 through WI-32 (except WI-33 pending) ✅
-Current WI set: WI-30 complete (global exposure gate before routing with SQLite SUM(open positions) and typed SKIP on breach), WI-31 complete (live wallet balance gate with async JSON-RPC and fail-open fallback), WI-32 complete; full regression green at 649 tests, 94% coverage.
-Next task: Phase 10 remaining WI (WI-33 backtesting) and phase archive seal.
+Active phase: Phase 10 complete — WI-29 through WI-33 sealed
+Completed: WI-11 through WI-33 ✅
+Current WI set: WI-33 complete (offline backtesting framework with strict `dry_run` invariant, chronological historical replay, CLI JSON report output). Phase 10 regression green at 678 tests, 94% coverage.
+Next task: Await Phase 11 scope and kickoff prompt.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

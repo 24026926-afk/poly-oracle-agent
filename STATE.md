@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-04-15
 **Version:** 0.10.0
-**Status:** Phase 10 — WI-31 Live Wallet Balance Checks Complete
-**Active WI:** Phase 10 (WI-30 + WI-31 + WI-32 complete, WI-33 pending)
+**Status:** Phase 10 — 100% COMPLETE (WI-30 through WI-33 sealed)
+**Active WI:** Phase 10 complete; awaiting next phase scope
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 649 |
+| Total tests | 678 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -68,6 +68,19 @@ WI-31 completion 2026-04-15 (Live Wallet Balance Checks):
 - Confirmed insufficiency emits typed skip: `ExecutionResult(action=SKIP, reason="insufficient_wallet_balance")`.
 - Enforced fail-open semantics on RPC failures (`httpx.RequestError`, `httpx.HTTPStatusError`): gate returns `check_passed=True`, `fallback_used=True` and evaluation proceeds.
 - WI-31 targeted suite green (`5 passed`), full regression green (`649 passed`), coverage maintained at `94%`.
+
+WI-33 completion 2026-04-15 (Backtesting Framework):
+- Added frozen WI-33 schemas in `src/schemas/execution.py`: `BacktestConfig`, `BacktestDecision`, `BacktestMarketStats`, `BacktestReport`.
+- Added `src/backtest_runner.py` with:
+  - `BacktestDataError`
+  - `BacktestDataLoader` (historical JSON parsing, required-field validation, date filtering, strict chronological replay ordering)
+  - `BacktestRunner` (hard `dry_run=True` invariant, sequential offline replay path, Gatekeeper validation + dry-run routing, Decimal-only report metrics, zero DB writes)
+  - CLI entrypoint: `python -m src.backtest_runner --data-dir <dir> [--config <json|yaml>] [--output <json>]`
+- WI-33 targeted gate green:
+  - `.venv/bin/pytest --asyncio-mode=auto tests/unit/test_wi33_backtest_data_loader.py tests/integration/test_wi33_backtest_runner.py -v` → 29 passed
+- Phase 10 regression gate green:
+  - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 678 passed
+  - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
 ---
 
@@ -520,13 +533,42 @@ WI-31 completion 2026-04-15 (Live Wallet Balance Checks):
     - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 620 passed
     - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
+- [x] **WI-33 — Backtesting Framework** (completed 2026-04-15)
+  - Added WI-33 schemas: `BacktestConfig`, `BacktestDecision`, `BacktestMarketStats`, `BacktestReport`.
+  - Added `BacktestDataLoader` for historical CLOB JSON replay input (`{token_id}_{date}.json`), strict required-field validation, malformed-file erroring (`BacktestDataError`), and chronological sort.
+  - Added `BacktestRunner` with invariant guard:
+    - `config.dry_run` must be `True` at initialization or raises `RuntimeError`.
+  - Offline replay path executes in strict sequence:
+    - `BacktestDataLoader` → `DataAggregator` → `PromptFactory` → `ClaudeClient` → `LLMEvaluationResponse` → `ExecutionRouter(dry_run=True)`.
+  - Added Decimal-safe backtest report metrics:
+    - `total_trades`, `win_rate`, `net_pnl_usdc`, `max_drawdown_usdc`, `sharpe_ratio`, `per_market_stats`.
+  - Added CLI support:
+    - `python -m src.backtest_runner --data-dir <dir> [--config <json|yaml>] [--output <json>]`
+  - WI-33 checklist:
+    - [x] Schemas implemented with float-rejecting Decimal validators.
+    - [x] Loader enforces malformed/missing-field errors via `BacktestDataError`.
+    - [x] Replay order is strict chronological across all loaded snapshots.
+    - [x] Runner enforces hard `dry_run=True` invariant.
+    - [x] Gatekeeper path is invoked for each replayed snapshot.
+    - [x] Execution routing is dry-run only and never live-signs/broadcasts.
+    - [x] Backtest path performs zero DB writes.
+    - [x] CLI writes JSON report output.
+  - Regression:
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 678 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
 ### Phase 10 Progress Gate
 
+- [x] WI-29 implemented and validated
 - [x] WI-30 implemented and validated
 - [x] WI-31 implemented and validated
 - [x] WI-32 implemented and validated
-- [x] Full phase regression green: 649 passed
-- [ ] Full phase regression + archive seal
+- [x] WI-33 implemented and validated
+- [x] Full phase regression green: 678 passed
+- [x] Coverage maintained at 94% (target ≥ 80%)
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
+- [x] `docs/archive/ARCHIVE_PHASE_10.md` created
+- [x] Phase 10 marked 100% COMPLETE
 
 ---
 
@@ -542,7 +584,7 @@ WI-31 completion 2026-04-15 (Live Wallet Balance Checks):
 
 ---
 
-## Key File Map (Phase 9)
+## Key File Map (Phase 10)
 
 | File | Purpose |
 |---|---|
@@ -572,6 +614,7 @@ WI-31 completion 2026-04-15 (Live Wallet Balance Checks):
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
 | `src/agents/execution/exposure_validator.py` | `ExposureValidator` — WI-30 portfolio exposure gate with Decimal-safe aggregate/category checks |
 | `src/agents/execution/wallet_balance_provider.py` | `WalletBalanceProvider` — WI-31 live wallet MATIC+USDC pre-evaluation gate with fail-open RPC fallback |
+| `src/backtest_runner.py` | `BacktestDataLoader` + `BacktestRunner` + WI-33 offline replay CLI entrypoint |
 | `src/core/config.py` | `AppConfig` — includes WI-30/WI-31 execution flags (`enable_exposure_validator`, `max_category_exposure_pct`, `enable_wallet_balance_check`, `min_matic_balance_wei`, `min_usdc_balance_usdc`) plus prior risk settings |
 | `src/orchestrator.py` | Main entry point; includes WI-30 exposure gate, WI-31 wallet balance gate, and WI-29 gas gate ordering in `_execution_consumer_loop()` |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |

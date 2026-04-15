@@ -8,8 +8,8 @@ The agent operates as a fully async (`asyncio`) pipeline with four isolated proc
 
 Current project state:
 - **Version:** 0.10.0
-- **Status:** Phase 10 in progress (WI-30, WI-31, and WI-32 complete)
-- **Tests:** 649 automated tests passing
+- **Status:** Phase 10 complete (WI-29 through WI-33 sealed)
+- **Tests:** 678 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
@@ -256,6 +256,30 @@ Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clie
 
 ---
 
+### Offline Backtesting CLI (WI-33)
+
+Run historical offline replay (JSON-in, JSON-out):
+
+```bash
+python -m src.backtest_runner --data-dir /path/to/historical --output ./output/backtest_report.json
+```
+
+Optional config override file (JSON or YAML when `PyYAML` is installed):
+
+```bash
+python -m src.backtest_runner \
+  --data-dir /path/to/historical \
+  --config ./configs/backtest_config.json \
+  --output ./output/backtest_report.json
+```
+
+Notes:
+- Backtesting enforces `dry_run=True` by invariant and rejects live execution mode.
+- Historical snapshots are replayed in strict chronological order.
+- Output persistence is JSON report only (no DB write path).
+
+---
+
 ## 7. Running Tests
 
 Run full suite:
@@ -281,8 +305,8 @@ python -m pytest tests/integration/test_circuit_breaker_integration.py -v
 ```
 
 Current baseline:
-- 649 tests
-- 95% coverage (target: ≥ 80%)
+- 678 tests
+- 94% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 

@@ -6,7 +6,7 @@ Typed execution-routing result contracts for WI-16.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -227,6 +227,114 @@ class PnLRecord(BaseModel):
     def _reject_float_financials(cls, value: Any) -> Any:
         if value is None:
             return value
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class BacktestConfig(BaseModel):
+    """Frozen run configuration for WI-33 offline replay."""
+
+    data_dir: str
+    start_date: date | None = None
+    end_date: date | None = None
+    initial_bankroll_usdc: Decimal
+    kelly_fraction: Decimal = Decimal("0.25")
+    min_confidence: Decimal = Decimal("0.75")
+    min_ev_threshold: Decimal = Decimal("0.02")
+    dry_run: bool = True
+
+    @field_validator(
+        "initial_bankroll_usdc",
+        "kelly_fraction",
+        "min_confidence",
+        "min_ev_threshold",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class BacktestDecision(BaseModel):
+    """Per-snapshot replay audit record."""
+
+    token_id: str
+    timestamp_utc: datetime
+    decision: bool
+    action: str
+    position_size_usdc: Decimal
+    ev: Decimal
+    confidence: Decimal
+    gatekeeper_result: str
+    reason: str
+
+    @field_validator("position_size_usdc", "ev", "confidence", mode="before")
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class BacktestMarketStats(BaseModel):
+    """Per-market summary block for WI-33 report output."""
+
+    token_id: str
+    total_decisions: int
+    trades_executed: int
+    win_rate: Decimal
+    net_pnl_usdc: Decimal
+
+    @field_validator("win_rate", "net_pnl_usdc", mode="before")
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = {"frozen": True}
+
+
+class BacktestReport(BaseModel):
+    """Frozen top-level report contract for WI-33 backtest runs."""
+
+    total_trades: int
+    win_rate: Decimal
+    net_pnl_usdc: Decimal
+    max_drawdown_usdc: Decimal
+    sharpe_ratio: Decimal
+    per_market_stats: dict[str, BacktestMarketStats]
+    decisions: list[BacktestDecision]
+    started_at_utc: datetime
+    completed_at_utc: datetime
+    config_snapshot: BacktestConfig
+
+    @field_validator(
+        "win_rate",
+        "net_pnl_usdc",
+        "max_drawdown_usdc",
+        "sharpe_ratio",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_financials(cls, value: Any) -> Any:
         if isinstance(value, float):
             raise ValueError("Float financial values are forbidden; use Decimal")
         if isinstance(value, Decimal):
