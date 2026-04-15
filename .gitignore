@@ -32,3 +32,4 @@ tmp/
 # Pytest
 .pytest_cache/
 .coverage
+.claude/
