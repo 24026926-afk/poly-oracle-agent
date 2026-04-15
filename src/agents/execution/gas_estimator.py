@@ -1,100 +1,127 @@
 """
 src/agents/execution/gas_estimator.py
 
-EIP-1559 gas price estimator for Polygon PoS.
+WI-29 live fee estimator:
+- fetches Polygon gas price via JSON-RPC `eth_gasPrice` (httpx)
+- converts gas usage to USDC using Decimal-only arithmetic
+- enforces pre-evaluation EV viability gate
 
-Queries the Polygon RPC for the latest baseFee and priority tip,
-applies a safety buffer, and returns a ``GasPrice`` model.  If the
-RPC is unreachable, falls back to a hard-coded default so the
-broadcaster always receives a value to attempt a transaction.
+Fail-open behavior:
+- any RPC failure returns a configured fallback gas price
+- never raises into caller on estimate failures
 """
 
-import structlog
-from web3 import AsyncWeb3
+from __future__ import annotations
 
-from src.core.exceptions import GasEstimatorError
+from decimal import Decimal
+
+import httpx
+import structlog
+
+from src.core.config import AppConfig
 from src.schemas.web3 import GasPrice
 
 logger = structlog.get_logger(__name__)
 
-# Wei-per-Gwei constant
-_WEI_PER_GWEI: int = 1_000_000_000
+_REQUEST_TIMEOUT_SECONDS = 2.0
+_WEI_PER_GWEI = Decimal("1000000000")
+_WEI_PER_MATIC = Decimal("1000000000000000000")
 
 
 class GasEstimator:
-    """
-    Fetches fresh EIP-1559 gas pricing from Polygon on every call.
+    """WI-29 gas estimator and EV gate helper."""
 
-    Polygon blocks are ~2 s — prices are volatile, so we never cache.
-    """
+    def __init__(self, config: AppConfig) -> None:
+        self._config = config
+        self._log = logger.bind(component="GasEstimator")
+        self._last_is_fallback = False
 
-    PRIORITY_FEE_MULTIPLIER: float = 1.15   # 15 % buffer over base tip
-    MAX_GAS_PRICE_GWEI: float = 500.0       # hard safety ceiling
-    FALLBACK_GAS_PRICE_GWEI: float = 50.0   # used when RPC fails
+    def _dry_run_gas_price_wei(self) -> Decimal:
+        return Decimal(str(self._config.dry_run_gas_price_wei))
 
-    def __init__(self, w3: AsyncWeb3) -> None:
-        self._w3 = w3
+    def _rpc_fallback_gas_price_wei(self) -> Decimal:
+        fallback_gwei = getattr(self._config, "fallback_gas_price_gwei", None)
+        if fallback_gwei is not None:
+            return (
+                Decimal(str(fallback_gwei)) * _WEI_PER_GWEI
+            ).quantize(Decimal("1"))
+        return self._dry_run_gas_price_wei()
+
+    async def estimate_gas_price_wei(self) -> Decimal:
+        """Return Polygon gas price in WEI via eth_gasPrice."""
+        if self._config.dry_run:
+            self._last_is_fallback = True
+            return self._dry_run_gas_price_wei()
+
+        payload = {"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}
+
+        try:
+            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+                response = await client.post(
+                    self._config.polygon_rpc_url,
+                    json=payload,
+                )
+                response.raise_for_status()
+                result_hex = response.json()["result"]
+                gas_price_wei = Decimal(str(int(str(result_hex), 16)))
+                self._last_is_fallback = False
+                self._log.info("gas.estimated", gas_price_wei=str(gas_price_wei))
+                return gas_price_wei
+        except Exception as exc:
+            fallback = self._rpc_fallback_gas_price_wei()
+            self._last_is_fallback = True
+            self._log.error(
+                "gas.rpc_failed",
+                error=str(exc),
+                fallback_gas_price_wei=str(fallback),
+            )
+            return fallback
+
+    def estimate_gas_cost_usdc(
+        self,
+        gas_units: int,
+        gas_price_wei: Decimal,
+        matic_usdc_price: Decimal,
+    ) -> Decimal:
+        """Convert gas usage into USDC with Decimal-only arithmetic."""
+        gas_cost_matic = Decimal(str(gas_units)) * gas_price_wei / _WEI_PER_MATIC
+        gas_cost_usdc = gas_cost_matic * matic_usdc_price
+        self._log.info(
+            "gas.settlement_computed",
+            gas_units=gas_units,
+            gas_price_wei=str(gas_price_wei),
+            matic_usdc_price=str(matic_usdc_price),
+            gas_cost_usdc=str(gas_cost_usdc),
+        )
+        return gas_cost_usdc
+
+    def pre_evaluate_gas_check(
+        self,
+        expected_value_usdc: Decimal,
+        gas_cost_usdc: Decimal,
+    ) -> bool:
+        """Require EV to exceed gas cost by configured buffer percentage."""
+        buffer_pct = Decimal(str(getattr(self._config, "gas_ev_buffer_pct", Decimal("0.10"))))
+        buffered_threshold = gas_cost_usdc * (Decimal("1") + buffer_pct)
+        passes = expected_value_usdc > buffered_threshold
+        self._log.info(
+            "gas.check_passed" if passes else "gas.check_failed",
+            expected_value_usdc=str(expected_value_usdc),
+            gas_cost_usdc=str(gas_cost_usdc),
+            buffered_threshold=str(buffered_threshold),
+        )
+        return passes
 
     async def estimate(self) -> GasPrice:
-        """Return a fresh ``GasPrice`` for the current Polygon block.
-
-        Raises:
-            GasEstimatorError: If the computed maxFeePerGas exceeds
-                ``MAX_GAS_PRICE_GWEI`` (safety ceiling).
-        """
-        try:
-            return await self._estimate_from_rpc()
-        except GasEstimatorError:
-            # Ceiling breach — propagate, do NOT mask.
-            raise
-        except Exception as exc:
-            logger.warning(
-                "gas_estimator.rpc_failed",
-                error=str(exc),
-                fallback_gwei=self.FALLBACK_GAS_PRICE_GWEI,
-            )
-            return self._build_fallback()
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    async def _estimate_from_rpc(self) -> GasPrice:
-        block = await self._w3.eth.get_block("latest")
-        base_fee_wei: int = block["baseFeePerGas"]
-
-        tip_wei: int = await self._w3.eth.max_priority_fee
-        priority_fee_wei: int = int(tip_wei * self.PRIORITY_FEE_MULTIPLIER)
-
-        max_fee_per_gas_wei: int = (2 * base_fee_wei) + priority_fee_wei
-        max_fee_per_gas_gwei: float = max_fee_per_gas_wei / _WEI_PER_GWEI
-
-        if max_fee_per_gas_gwei > self.MAX_GAS_PRICE_GWEI:
-            raise GasEstimatorError(
-                f"Gas price {max_fee_per_gas_gwei:.2f} Gwei exceeds "
-                f"ceiling of {self.MAX_GAS_PRICE_GWEI} Gwei"
-            )
-
-        logger.debug(
-            "gas_estimator.estimated",
-            base_fee_gwei=round(base_fee_wei / _WEI_PER_GWEI, 4),
-            priority_gwei=round(priority_fee_wei / _WEI_PER_GWEI, 4),
-            max_fee_gwei=round(max_fee_per_gas_gwei, 4),
-        )
-
+        """Legacy adapter for broadcaster, mapped to WI-29 gas-price source."""
+        gas_price_wei = await self.estimate_gas_price_wei()
+        gwei = float((gas_price_wei / _WEI_PER_GWEI).quantize(Decimal("0.0001")))
+        gas_price_int = int(gas_price_wei)
         return GasPrice(
-            base_fee_wei=base_fee_wei,
-            priority_fee_wei=priority_fee_wei,
-            max_fee_per_gas_wei=max_fee_per_gas_wei,
-            max_fee_per_gas_gwei=round(max_fee_per_gas_gwei, 4),
-        )
-
-    def _build_fallback(self) -> GasPrice:
-        fallback_wei = int(self.FALLBACK_GAS_PRICE_GWEI * _WEI_PER_GWEI)
-        return GasPrice(
-            base_fee_wei=fallback_wei,
+            base_fee_wei=gas_price_int,
             priority_fee_wei=0,
-            max_fee_per_gas_wei=fallback_wei,
-            max_fee_per_gas_gwei=self.FALLBACK_GAS_PRICE_GWEI,
-            is_fallback=True,
+            max_fee_per_gas_wei=gas_price_int,
+            max_fee_per_gas_gwei=gwei,
+            is_fallback=self._last_is_fallback,
         )
+

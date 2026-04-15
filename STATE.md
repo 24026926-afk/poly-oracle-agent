@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-04-14
-**Version:** 0.9.9
-**Status:** Phase 10 — WI-32 Concurrent Multi-Market Tracking Complete
-**Active WI:** Phase 10 (WI-32 complete, remaining WIs pending)
+**Last Updated:** 2026-04-15
+**Version:** 0.10.1
+**Status:** Phase 10 — WI-29 Live Fee Injection Complete (WI-32 previously complete)
+**Active WI:** Phase 10 (WI-29 and WI-32 complete, remaining WIs pending)
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 620 |
+| Total tests | 639 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -444,6 +444,33 @@ Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 
 ### Work Items
 
+- [x] **WI-29 — Live Fee Injection** (completed 2026-04-15)
+  - Rewrote `GasEstimator` in `src/agents/execution/gas_estimator.py` from the Phase 5 Web3/EIP-1559 stub to WI-29 async `httpx` `eth_gasPrice` JSON-RPC flow
+  - Added `MaticPriceProvider` in `src/agents/execution/matic_price_provider.py` with fail-open live fetch and static fallback
+  - Added new `AppConfig` fields in `src/core/config.py`:
+    - `gas_check_enabled: bool = False`
+    - `dry_run_gas_price_wei: Decimal = Decimal("30000000000")`
+    - `gas_ev_buffer_pct: Decimal = Decimal("0.10")`
+    - `matic_usdc_price: Decimal = Decimal("0.50")`
+  - Added WI-29 pre-evaluation EV gas gate in `Orchestrator._execution_consumer_loop()`:
+    - computes `estimated_fee_usdc`
+    - performs `pre_evaluate_gas_check()`
+    - emits conservative skip `ExecutionResult(action=SKIP, reason="gas_cost_exceeds_ev")` when fee economics fail
+  - Added exit settlement gas injection in `Orchestrator._exit_scan_loop()`:
+    - computes live `gas_cost_usdc`
+    - passes `gas_cost_usdc` into `PnLCalculator.settle(...)`
+  - Preserved invariants:
+    - Decimal-only fee math
+    - fail-open RPC behavior
+    - exit-path independence (high gas does not block liquidation)
+  - Test additions:
+    - `tests/unit/test_wi29_live_fees.py` (14 tests)
+    - `tests/integration/test_wi29_live_fees_integration.py` (6 tests)
+    - updated legacy `tests/unit/test_gas_estimator.py` to WI-29 API
+  - Regression:
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 639 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
 - [x] **WI-32 — Concurrent Multi-Market Tracking** (completed 2026-04-14)
   - Replaced sequential `_track_single_market()` in `Orchestrator._market_tracking_loop()` with `asyncio.gather(*tasks, return_exceptions=True)` fan-out
   - Added `DataAggregator.track_market(token_ids: list[str])` — accepts list of token IDs, manages per-market subscription state via `PerMarketAggregatorState`
@@ -469,9 +496,10 @@ Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 
 ### Phase 10 Progress Gate
 
+- [x] WI-29 implemented and validated
 - [x] WI-32 implemented and validated
 - [x] Critical bug fixed: `DataAggregator.process_frame()` implemented; `frame_count`/`last_seen_utc` attrs added; integration tests hardened to `MagicMock(spec=DataAggregator)`
-- [x] Full regression green: 620 passed, 94% coverage
+- [x] Full regression green: 639 passed, 94% coverage
 - [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
 
 ---
