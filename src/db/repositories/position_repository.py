@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import structlog
@@ -57,6 +57,22 @@ class PositionRepository:
         stmt = select(Position).where(Position.status == "OPEN")
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_total_open_exposure_usdc(self) -> Decimal:
+        """Return SUM(order_size_usdc) for all OPEN positions.
+
+        Returns Decimal("0") when there are no OPEN rows.
+        """
+        stmt = select(func.sum(Position.order_size_usdc)).where(
+            Position.status == "OPEN"
+        )
+        result = await self._session.execute(stmt)
+        raw_total = result.scalar_one_or_none()
+        if raw_total is None:
+            return Decimal("0")
+        if isinstance(raw_total, Decimal):
+            return raw_total
+        return Decimal(str(raw_total))
 
     async def get_all_positions(self) -> list[Position]:
         """Return all positions regardless of status."""

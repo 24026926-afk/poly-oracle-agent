@@ -27,6 +27,7 @@ from src.agents.execution.broadcaster import OrderBroadcaster
 from src.agents.execution.alert_engine import AlertEngine
 from src.agents.execution.circuit_breaker import CircuitBreaker, CircuitBreakerState
 from src.agents.execution.execution_router import ExecutionRouter
+from src.agents.execution.exposure_validator import ExposureValidator
 from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
@@ -53,6 +54,7 @@ from src.schemas.execution import (
     PositionRecord,
     PositionStatus,
 )
+from src.schemas.llm import MarketCategory
 from src.schemas.risk import LifecycleReport, PortfolioSnapshot
 
 # Ensure .env is explicitly loaded if running from root
@@ -123,6 +125,13 @@ class Orchestrator:
             config=self.config,
             db_session_factory=AsyncSessionLocal,
         )
+        self._position_repo: PositionRepository | None = None
+        if getattr(self.config, "enable_exposure_validator", False):
+            self._exposure_validator: ExposureValidator | None = ExposureValidator(
+                config=self.config,
+            )
+        else:
+            self._exposure_validator = None
         self.exit_strategy_engine = ExitStrategyEngine(
             config=self.config,
             polymarket_client=self.polymarket_client,
@@ -322,7 +331,58 @@ class Orchestrator:
                 execution_result: ExecutionResult | None = None
 
                 if (
-                    self.config.gas_check_enabled
+                    execution_result is None
+                    and getattr(self.config, "enable_exposure_validator", False)
+                    and self._exposure_validator is not None
+                ):
+                    if self._position_repo is not None:
+                        open_positions = await self._position_repo.get_open_positions()
+                    else:
+                        async with AsyncSessionLocal() as exposure_session:
+                            exposure_repo = PositionRepository(exposure_session)
+                            open_positions = await exposure_repo.get_open_positions()
+
+                    proposed_size_raw = item.get("proposed_size_usdc", Decimal("0"))
+                    proposed_size_usdc = Decimal(str(proposed_size_raw))
+
+                    category_raw = item.get("category", MarketCategory.GENERAL)
+                    if isinstance(category_raw, MarketCategory):
+                        category = category_raw
+                    else:
+                        try:
+                            category = MarketCategory(str(category_raw))
+                        except Exception:
+                            category = MarketCategory.GENERAL
+
+                    bankroll_usdc = Decimal(
+                        str(getattr(self.config, "initial_bankroll_usdc", Decimal("0")))
+                    )
+                    passed, summary = self._exposure_validator.validate_entry(
+                        bankroll_usdc=bankroll_usdc,
+                        proposed_size_usdc=proposed_size_usdc,
+                        category=category,
+                        open_positions=open_positions,
+                    )
+                    logger.info("exposure.summary_computed", **summary.model_dump())
+                    if not passed:
+                        logger.warning(
+                            "exposure.limit_exceeded",
+                            condition_id=condition_id,
+                            aggregate_exposure_usdc=str(
+                                summary.aggregate_exposure_usdc
+                            ),
+                            available_headroom_usdc=str(
+                                summary.available_headroom_usdc
+                            ),
+                        )
+                        execution_result = ExecutionResult(
+                            action=ExecutionAction.SKIP,
+                            reason="exposure_limit_exceeded",
+                        )
+
+                if (
+                    execution_result is None
+                    and self.config.gas_check_enabled
                     and self._gas_estimator is not None
                     and self._matic_price_provider is not None
                 ):

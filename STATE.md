@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-15
-**Version:** 0.10.1
-**Status:** Phase 10 — WI-29 Live Fee Injection Complete (WI-32 previously complete)
-**Active WI:** Phase 10 (WI-29 and WI-32 complete, remaining WIs pending)
+**Version:** 0.10.0
+**Status:** Phase 10 — WI-30 Global Portfolio Exposure Limits Complete
+**Active WI:** Phase 10 (WI-30 + WI-32 complete, remaining WIs pending)
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 639 |
+| Total tests | 644 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -50,6 +50,13 @@ Hotfix 2026-04-04 (shared budget bypass in dry run):
 
 Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 - **`CLOBWebSocketClient._heartbeat()` sending JSON instead of plain text:** The heartbeat was sending `{"type": "heartbeat"}` (JSON) which Polymarket CLOB rejected with `INVALID OPERATION`. Fixed to send the plain text string `"PING"` as required by Polymarket's WebSocket protocol. Server automatically responds with `"PONG"`. Added PONG handling in `_handle_message()` to silently acknowledge server responses. Enhanced error handling with specific `websockets.ConnectionClosed` catch and structlog warnings. Added test `test_ws_pong_response_is_handled` to verify PONG handling.
+
+WI-30 completion 2026-04-15 (Global Portfolio Exposure Limits):
+- Added `ExposureValidator` pre-routing gate in `Orchestrator._execution_consumer_loop()` to enforce portfolio-level exposure before `ExecutionRouter.route()`.
+- Added repository exposure aggregation helper: `PositionRepository.get_total_open_exposure_usdc()`.
+- Added SQLite-backed exposure summing path (`SUM(order_size_usdc)` for `status='OPEN'`) with `Decimal("0")` fallback when no open rows exist.
+- Breaches short-circuit with typed skip result: `ExecutionResult(action=SKIP, reason="exposure_limit_exceeded")`.
+- Full regression after WI-30 wiring: `644 passed`; coverage maintained at `94%`.
 
 ---
 
@@ -440,35 +447,23 @@ Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 
 ---
 
-## Phase 10: Concurrent Market Tracking
+## Phase 10: Portfolio Controls + Concurrent Tracking
 
 ### Work Items
 
-- [x] **WI-29 — Live Fee Injection** (completed 2026-04-15)
-  - Rewrote `GasEstimator` in `src/agents/execution/gas_estimator.py` from the Phase 5 Web3/EIP-1559 stub to WI-29 async `httpx` `eth_gasPrice` JSON-RPC flow
-  - Added `MaticPriceProvider` in `src/agents/execution/matic_price_provider.py` with fail-open live fetch and static fallback
-  - Added new `AppConfig` fields in `src/core/config.py`:
-    - `gas_check_enabled: bool = False`
-    - `dry_run_gas_price_wei: Decimal = Decimal("30000000000")`
-    - `gas_ev_buffer_pct: Decimal = Decimal("0.10")`
-    - `matic_usdc_price: Decimal = Decimal("0.50")`
-  - Added WI-29 pre-evaluation EV gas gate in `Orchestrator._execution_consumer_loop()`:
-    - computes `estimated_fee_usdc`
-    - performs `pre_evaluate_gas_check()`
-    - emits conservative skip `ExecutionResult(action=SKIP, reason="gas_cost_exceeds_ev")` when fee economics fail
-  - Added exit settlement gas injection in `Orchestrator._exit_scan_loop()`:
-    - computes live `gas_cost_usdc`
-    - passes `gas_cost_usdc` into `PnLCalculator.settle(...)`
-  - Preserved invariants:
-    - Decimal-only fee math
-    - fail-open RPC behavior
-    - exit-path independence (high gas does not block liquidation)
-  - Test additions:
-    - `tests/unit/test_wi29_live_fees.py` (14 tests)
-    - `tests/integration/test_wi29_live_fees_integration.py` (6 tests)
-    - updated legacy `tests/unit/test_gas_estimator.py` to WI-29 API
+- [x] **WI-30 — Global Portfolio Exposure Limits** (completed 2026-04-15)
+  - Added `ExposureValidator` in `src/agents/execution/exposure_validator.py`
+  - Added `ExposureSummary` in `src/schemas/risk.py` (frozen, Decimal-safe)
+  - Added `PositionRepository.get_total_open_exposure_usdc()` (`SUM(order_size_usdc)` on OPEN positions, `Decimal("0")` fallback)
+  - Added config flags:
+    - `enable_exposure_validator: bool = False`
+    - `max_category_exposure_pct: Decimal = Decimal("0.015")`
+  - Wired exposure gate in `Orchestrator._execution_consumer_loop()` before `ExecutionRouter.route()`
+  - Breach behavior:
+    - skip with `ExecutionResult(action=SKIP, reason="exposure_limit_exceeded")`
+    - logs `exposure.summary_computed` and `exposure.limit_exceeded`
   - Regression:
-    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 639 passed
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 644 passed
     - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
 - [x] **WI-32 — Concurrent Multi-Market Tracking** (completed 2026-04-14)
@@ -496,11 +491,9 @@ Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 
 ### Phase 10 Progress Gate
 
-- [x] WI-29 implemented and validated
+- [x] WI-30 implemented and validated
 - [x] WI-32 implemented and validated
-- [x] Critical bug fixed: `DataAggregator.process_frame()` implemented; `frame_count`/`last_seen_utc` attrs added; integration tests hardened to `MagicMock(spec=DataAggregator)`
-- [x] Full regression green: 639 passed, 94% coverage
-- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
+- [ ] Full phase regression + archive seal
 
 ---
 
@@ -544,8 +537,9 @@ Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 | `src/agents/context/prompt_factory.py` | `PromptFactory` — domain-aware + sentiment oracle injection |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
-| `src/core/config.py` | `AppConfig` — Grok fields, WI-16 order cap/slippage, WI-22 scan interval, WI-20 exit bid floor, WI-23 aggregator flags, WI-25 alert thresholds, WI-26 Telegram notifier settings, and WI-27 circuit breaker flags |
-| `src/orchestrator.py` | Main entry point; spins up 6 baseline async tasks (+ optional `PortfolioAggregatorTask`), periodic scans, WI-23/WI-24/WI-25 analytics loop, WI-26 Telegram dispatch, and WI-27 circuit breaker entry/aggregation wiring |
+| `src/agents/execution/exposure_validator.py` | `ExposureValidator` — WI-30 portfolio exposure gate with Decimal-safe aggregate/category checks |
+| `src/core/config.py` | `AppConfig` — includes WI-30 exposure flags (`enable_exposure_validator`, `max_category_exposure_pct`) plus prior risk and execution settings |
+| `src/orchestrator.py` | Main entry point; includes WI-30 exposure gate before `ExecutionRouter.route()` and existing execution/analytics loop wiring |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

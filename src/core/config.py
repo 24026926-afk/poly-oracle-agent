@@ -108,6 +108,17 @@ class AppConfig(BaseSettings):
         default=0.03,
         description="Max fraction of bankroll committed per trade (3%)",
     )
+    enable_exposure_validator: bool = Field(
+        default=False,
+        description="Enable WI-30 global portfolio exposure validation gate",
+    )
+    max_category_exposure_pct: Decimal = Field(
+        default=Decimal("0.015"),
+        description=(
+            "Per-category exposure cap as fraction of bankroll "
+            "(defaults to half the global cap)"
+        ),
+    )
     min_ev_threshold: float = Field(
         default=0.02, description="Min expected value required to execute (2% edge)"
     )
@@ -340,6 +351,7 @@ class AppConfig(BaseSettings):
         "dry_run_gas_price_wei",
         "gas_ev_buffer_pct",
         "matic_usdc_price",
+        "max_category_exposure_pct",
         mode="before",
     )
     @classmethod

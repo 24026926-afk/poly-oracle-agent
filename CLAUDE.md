@@ -5,11 +5,11 @@ See docs/PRD for Phase scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: develop
-Active phase: Phase 10 In Progress — WI-29 and WI-32 complete
-Completed: WI-11 through WI-32 ✅ (Phase 10 remaining WIs pending)
-Current WI set: WI-29 complete (live fee injection, pre-evaluation EV gas gate, settlement gas injection) and WI-32 complete (asyncio.gather concurrent tracking); 639 tests, 94% coverage
-Next task: Phase 11 PRD / planning.
+Current branch: feat/wi30-exposure-limits
+Active phase: Phase 10 in progress — WI-30 and WI-32 complete
+Completed: WI-11 through WI-32 (except WI-31/WI-33 pending) ✅
+Current WI set: WI-30 complete (global exposure gate before routing with SQLite SUM(open positions) and typed SKIP on breach), WI-32 complete; full regression green at 644 tests, 94% coverage.
+Next task: Phase 10 remaining WIs (WI-31 risk metrics, WI-33 backtesting) and phase archive seal.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

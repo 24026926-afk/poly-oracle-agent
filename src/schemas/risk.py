@@ -178,6 +178,57 @@ class LifecycleReport(BaseModel):
     model_config = {"frozen": True}
 
 
+class ExposureSummary(BaseModel):
+    """Point-in-time exposure snapshot for WI-30 entry validation."""
+
+    aggregate_exposure_usdc: Decimal
+    category_exposures: dict[str, Decimal]
+    proposed_size_usdc: Decimal
+    bankroll_usdc: Decimal
+    global_limit_usdc: Decimal
+    category_limit_usdc: Decimal
+    available_headroom_usdc: Decimal
+    category_headroom: dict[str, Decimal]
+    aggregate_check_passed: bool
+    category_check_passed: bool
+    validation_passed: bool
+
+    @field_validator(
+        "aggregate_exposure_usdc",
+        "proposed_size_usdc",
+        "bankroll_usdc",
+        "global_limit_usdc",
+        "category_limit_usdc",
+        "available_headroom_usdc",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_decimal_fields(cls, value: Any) -> Any:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    @field_validator("category_exposures", "category_headroom", mode="before")
+    @classmethod
+    def _reject_float_decimal_maps(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            raise ValueError("Expected mapping for category exposure fields")
+
+        coerced: dict[str, Decimal] = {}
+        for key, raw_amount in value.items():
+            if isinstance(raw_amount, float):
+                raise ValueError("Float financial values are forbidden; use Decimal")
+            if isinstance(raw_amount, Decimal):
+                coerced[str(key)] = raw_amount
+            else:
+                coerced[str(key)] = Decimal(str(raw_amount))
+        return coerced
+
+    model_config = {"frozen": True}
+
+
 class AlertSeverity(str, Enum):
     """Severity classification for alert events."""
 
