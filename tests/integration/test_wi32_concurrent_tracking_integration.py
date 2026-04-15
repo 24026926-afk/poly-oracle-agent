@@ -25,6 +25,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession, create_async_engine
 
+from src.agents.context.aggregator import DataAggregator
 from src.core.config import AppConfig
 from src.db.models import Base
 
@@ -238,11 +239,17 @@ async def test_frame_routing_no_cross_contamination():
             received_frames[key].append(frame)
         return handler
 
-    mock_agg_t1 = MagicMock()
+    mock_agg_t1 = MagicMock(spec=DataAggregator)
+    mock_agg_t1.frame_count = 0
+    mock_agg_t1.last_seen_utc = None
     mock_agg_t1.process_frame = MagicMock(side_effect=make_handler("t1"))
-    mock_agg_t2 = MagicMock()
+    mock_agg_t2 = MagicMock(spec=DataAggregator)
+    mock_agg_t2.frame_count = 0
+    mock_agg_t2.last_seen_utc = None
     mock_agg_t2.process_frame = MagicMock(side_effect=make_handler("t2"))
-    mock_agg_t3 = MagicMock()
+    mock_agg_t3 = MagicMock(spec=DataAggregator)
+    mock_agg_t3.frame_count = 0
+    mock_agg_t3.last_seen_utc = None
     mock_agg_t3.process_frame = MagicMock(side_effect=make_handler("t3"))
 
     client.register_aggregator("t1", mock_agg_t1)

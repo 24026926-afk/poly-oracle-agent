@@ -7,10 +7,10 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.9.7
-- **Status:** Phase 9 Complete (dry-run boot-to-evaluation pipeline stabilized)
-- **Tests:** 583 automated tests passing
-- **Coverage:** 95% (target: ≥ 80%)
+- **Version:** 0.10.0
+- **Status:** Phase 10 Complete (concurrent multi-market tracking via asyncio.gather)
+- **Tests:** 620 automated tests passing
+- **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
 - Python 3.12+
@@ -274,8 +274,8 @@ python -m pytest tests/integration/test_circuit_breaker_integration.py -v
 ```
 
 Current baseline:
-- 583 tests
-- 95% coverage (target: ≥ 80%)
+- 620 tests
+- 94% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.
 

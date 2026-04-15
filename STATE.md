@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-14
-**Version:** 0.9.8
-**Status:** Phase 9 Complete — Dry-Run Boot-to-Evaluation Pipeline Stabilized
-**Active WI:** Phase 10 Planning (WS heartbeat hotfix applied)
+**Version:** 0.9.9
+**Status:** Phase 10 — WI-32 Concurrent Multi-Market Tracking Complete
+**Active WI:** Phase 10 (WI-32 complete, remaining WIs pending)
 
 ---
 
@@ -20,8 +20,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 593 |
-| Coverage | 95% (target ≥ 80%) |
+| Total tests | 620 |
+| Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
 
@@ -437,6 +437,42 @@ Hotfix 2026-04-14 (WebSocket heartbeat INVALID OPERATION fix):
 - [x] Coverage maintained at 95% (target ≥ 80%)
 - [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
 - [x] `docs/archive/ARCHIVE_PHASE_9.md` created
+
+---
+
+## Phase 10: Concurrent Market Tracking
+
+### Work Items
+
+- [x] **WI-32 — Concurrent Multi-Market Tracking** (completed 2026-04-14)
+  - Replaced sequential `_track_single_market()` in `Orchestrator._market_tracking_loop()` with `asyncio.gather(*tasks, return_exceptions=True)` fan-out
+  - Added `DataAggregator.track_market(token_ids: list[str])` — accepts list of token IDs, manages per-market subscription state via `PerMarketAggregatorState`
+  - Added `CLOBWebSocketClient.subscribe_batch(assets_ids: list[str])` — multiplexed subscription via single WebSocket connection
+  - Added `CLOBWebSocketClient.register_aggregator(asset_id, aggregator)` and `_aggregator_map` for frame routing via `asset_id`
+  - Enhanced `CLOBWebSocketClient._handle_message()` with `asset_id`-based frame routing to per-market aggregators
+  - New `AppConfig` fields: `max_concurrent_markets: int = 5`, `market_tracking_interval_sec: Decimal = Decimal("10")`, `enable_market_tracking: bool = False`
+  - `MarketTrackingTask` — new optional asyncio task in `Orchestrator` (config-gated, sleep-first, fail-open)
+  - `PerMarketAggregatorState` frozen Pydantic schema in `src/schemas/market.py`
+  - structlog audit events: `market_tracking.fan_out`, `market_tracking.completed`, `market_tracking.gather_error`, `market_tracking.subscribed_batch`, `market_tracking.capped`, `ws.frame_unrouted`, `market_tracking_loop.error`
+  - Preserved invariants:
+    - Single WebSocket connection serves all markets (no per-market connections)
+    - `asyncio.gather` always called with `return_exceptions=True` (fail-open)
+    - `LLMEvaluationResponse` Gatekeeper unchanged
+    - 4-layer pipeline topology unchanged
+    - Zero DB schema changes
+  - Test additions:
+    - `tests/unit/test_wi32_concurrent_tracking.py` (20 tests)
+    - `tests/integration/test_wi32_concurrent_tracking_integration.py` (7 tests)
+  - Regression:
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 620 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
+### Phase 10 Progress Gate
+
+- [x] WI-32 implemented and validated
+- [x] Critical bug fixed: `DataAggregator.process_frame()` implemented; `frame_count`/`last_seen_utc` attrs added; integration tests hardened to `MagicMock(spec=DataAggregator)`
+- [x] Full regression green: 620 passed, 94% coverage
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated for phase completion
 
 ---
 

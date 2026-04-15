@@ -6,10 +6,10 @@ See STATE.md for current WI checklist and status.
 Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs).
 
 Current branch: develop
-Active phase: Phase 9 Complete — Operator Safety & Telemetry
-Completed: WI-11 through WI-28 ✅ (Phases 4, 5, 6, 7, 8, and 9 sealed)
-Current WI set: WI-28 complete; dry-run boot-to-evaluation pipeline stabilized (NonceManager, Gamma parsing, WS subscription/list-handling, yes_token_id propagation end-to-end, midpoint computation, aggregator forwarding all fixed); 583 tests, 95% coverage
-Next task: Phase 10 PRD / planning.
+Active phase: Phase 10 Complete — Concurrent Multi-Market Tracking
+Completed: WI-11 through WI-32 ✅ (Phases 4, 5, 6, 7, 8, 9, and 10 sealed)
+Current WI set: WI-32 complete; Orchestrator uses asyncio.gather for fan-out concurrent market tracking; DataAggregator.process_frame() implemented with frame_count/last_seen_utc tracking; 620 tests, 94% coverage
+Next task: Phase 11 PRD / planning.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

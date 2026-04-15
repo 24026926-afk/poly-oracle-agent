@@ -50,6 +50,10 @@ class DataAggregator:
         self.TIME_INTERVAL_SEC = 30.0
         self.PRICE_CHANGE_THRESHOLD = 0.01  # 1%
 
+        # WI-32: Per-instance frame tracking (mutated by CLOBWebSocketClient routing)
+        self.frame_count: int = 0
+        self.last_seen_utc: Optional[datetime] = None
+
     async def start(self) -> None:
         """Starts the aggregation loop processing incoming messages."""
         self._running = True
@@ -172,6 +176,38 @@ class DataAggregator:
     # ------------------------------------------------------------------
     # WI-32: Concurrent multi-market tracking
     # ------------------------------------------------------------------
+
+    def process_frame(self, data: dict) -> None:
+        """Update internal orderbook state from a raw WS frame dict (WI-32).
+
+        Called synchronously by CLOBWebSocketClient._handle_message() when a
+        frame is routed directly to this aggregator via asset_id.  Updates
+        best_bid / best_ask without triggering an async emit — the timer loop
+        and volatility check will pick up the new state on the next cycle.
+        """
+        event_type = data.get("event_type", "")
+
+        if event_type == "last_trade_price":
+            ltp = data.get("last_trade_price") or data.get("price")
+            if ltp is not None:
+                val = float(ltp)
+                if val > 0:
+                    self.best_bid = val
+                    self.best_ask = val
+            return
+
+        # price_change and book frames both carry best_bid / best_ask at the
+        # top level (the WS client normalises them before routing).
+        raw_bid = data.get("best_bid")
+        raw_ask = data.get("best_ask")
+        if raw_bid is not None:
+            bid = float(raw_bid)
+            if bid > 0:
+                self.best_bid = bid
+        if raw_ask is not None:
+            ask = float(raw_ask)
+            if ask > 0:
+                self.best_ask = ask
 
     async def track_market(self, token_ids: List[str]) -> List[Dict[str, Any]]:
         """Track a single market concurrently (accepts list of token IDs for WI-32).

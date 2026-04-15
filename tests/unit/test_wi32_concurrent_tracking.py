@@ -205,8 +205,11 @@ async def test_handle_message_routes_to_correct_aggregator():
     cfg = _make_test_config()
     client = CLOBWebSocketClient(cfg, mock_queue, mock_db_factory)
 
-    mock_aggregator = MagicMock()
-    mock_aggregator.process_frame = MagicMock()
+    from src.agents.context.aggregator import DataAggregator
+
+    mock_aggregator = MagicMock(spec=DataAggregator)
+    mock_aggregator.frame_count = 0
+    mock_aggregator.last_seen_utc = None
 
     client.register_aggregator("t1", mock_aggregator)
 
