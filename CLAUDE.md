@@ -5,11 +5,11 @@ See docs/PRD for Phase scope.
 See STATE.md for current WI checklist and status.
 Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs).
 
-Current branch: feat/wi30-exposure-limits
-Active phase: Phase 10 complete — WI-29 through WI-33 sealed
-Completed: WI-11 through WI-33 ✅
-Current WI set: WI-33 complete (offline backtesting framework with strict `dry_run` invariant, chronological historical replay, CLI JSON report output). Phase 10 regression green at 678 tests, 94% coverage.
-Next task: Await Phase 11 scope and kickoff prompt.
+Current branch: feat/wi34-containerization
+Active phase: Phase 11 complete — WI-34 and WI-35 sealed
+Completed: WI-11 through WI-35 ✅
+Current WI set: WI-35 complete (GitHub Actions CI pipeline with sequential `format-check` -> `test` -> `docker-build` gates, 94% coverage floor, and Docker build validation).
+Next task: Await Phase 12 scope and kickoff prompt.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.
 

@@ -1,0 +1,37 @@
+services:
+  orchestrator:
+    build:
+      context: .
+    image: poly-oracle-agent:latest
+    command: python -m src.orchestrator
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/poly_oracle.db
+    volumes:
+      - poly_oracle_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import src.core.config; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  backtester:
+    build:
+      context: .
+    image: poly-oracle-agent:latest
+    command: python -m src.backtest_runner --data-dir /data/historical --output /data/backtest_reports/report.json
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/poly_oracle.db
+    volumes:
+      - poly_oracle_data:/data
+    profiles:
+      - backtester
+
+volumes:
+  poly_oracle_data:
+    driver: local

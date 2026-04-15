@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-15
-**Version:** 0.10.0
-**Status:** Phase 10 — 100% COMPLETE (WI-30 through WI-33 sealed)
-**Active WI:** Phase 10 complete; awaiting next phase scope
+**Version:** 0.11.0
+**Status:** Phase 11 — 100% COMPLETE (WI-34 and WI-35 sealed)
+**Active WI:** Phase 11 complete; awaiting Phase 12 scope
 
 ---
 
@@ -572,6 +572,47 @@ WI-33 completion 2026-04-15 (Backtesting Framework):
 
 ---
 
+## Phase 11: Containerization + Continuous Integration
+
+### Work Items
+
+- [x] **WI-34 — Containerization** (completed 2026-04-15)
+  - Added root container assets: `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `entrypoint.sh`.
+  - Implemented multi-stage image build on `python:3.12-slim-bookworm` with non-root runtime user (`appuser`, UID 1001).
+  - Added migration-first startup contract: `entrypoint.sh` runs `alembic upgrade head` before delegating to process CMD.
+  - Added shared named volume contract: `poly_oracle_data:/data` and runtime DB override `DATABASE_URL=sqlite+aiosqlite:////data/poly_oracle.db`.
+  - Added dual service topology in Compose:
+    - `orchestrator` (default, restart `unless-stopped`)
+    - `backtester` (profile-gated via `backtester`)
+  - Preserved invariant: zero modifications to any Python source file.
+
+- [x] **WI-35 — Continuous Integration** (completed 2026-04-15)
+  - Added `.github/workflows/ci.yml`.
+  - Trigger scope:
+    - `pull_request` to `develop` and `main`
+    - `push` to `develop` and `main`
+  - Added sequential blocking jobs:
+    - `format-check`: `ruff format --check .` then `ruff check .`
+    - `test` (`needs: format-check`): `pytest --asyncio-mode=auto --cov=src --cov-report=xml --cov-fail-under=94 tests/`
+    - `docker-build` (`needs: test`): `docker build -t poly-oracle-agent:ci .`
+  - Added pip cache with key `pip-${{ hashFiles('requirements.txt') }}` and coverage artifact upload (`coverage.xml`, 7-day retention).
+  - Preserved invariants:
+    - no `continue-on-error: true`
+    - no secret values in workflow YAML
+    - no modifications to files in `src/`, `tests/`, or `migrations/`.
+
+### Phase 11 Progress Gate
+
+- [x] WI-34 implemented and validated
+- [x] WI-35 implemented and validated
+- [x] Full regression baseline unchanged: 678 passed
+- [x] Coverage baseline unchanged: 94% (target ≥ 80%)
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated
+- [x] `docs/archive/ARCHIVE_PHASE_11.md` created
+- [x] Phase 11 marked 100% COMPLETE
+
+---
+
 ## Active Constraints (always enforced)
 
 1. **Decimal math** — all monetary values; no `float` in financial calculations
@@ -584,10 +625,15 @@ WI-33 completion 2026-04-15 (Backtesting Framework):
 
 ---
 
-## Key File Map (Phase 10)
+## Key File Map (Phase 11 Snapshot)
 
 | File | Purpose |
 |---|---|
+| `Dockerfile` | WI-34 multi-stage container build (`builder` + non-root `runtime`) |
+| `docker-compose.yml` | WI-34 runtime topology (`orchestrator` default + profile-gated `backtester`) |
+| `entrypoint.sh` | WI-34 migration-first startup (`alembic upgrade head` -> `exec "$@"`) |
+| `.dockerignore` | WI-34 build-context hardening (exclude tests, caches, docs, local DBs, `.env`) |
+| `.github/workflows/ci.yml` | WI-35 CI pipeline (`format-check` -> `test` -> `docker-build`) |
 | `src/agents/execution/bankroll_sync.py` | `BankrollSyncProvider` — read-only Polygon USDC bankroll sync with typed request/result contracts |
 | `src/agents/execution/execution_router.py` | `ExecutionRouter` — BUY-only execution routing, Decimal Kelly sizing, slippage guard, dry-run bypass |
 | `src/agents/execution/signer.py` | `TransactionSigner` — canonical signer: legacy `sign_order()` + WI-15 `sign_order_secure()` |

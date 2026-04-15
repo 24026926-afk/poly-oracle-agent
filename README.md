@@ -7,10 +7,11 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.10.0
-- **Status:** Phase 10 complete (WI-29 through WI-33 sealed)
+- **Version:** 0.11.0
+- **Status:** Phase 11 complete (WI-34 and WI-35 sealed)
 - **Tests:** 678 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
+- **CI:** GitHub Actions pipeline at `.github/workflows/ci.yml` with blocking jobs `format-check` -> `test` -> `docker-build`
 
 Core stack:
 - Python 3.12+
