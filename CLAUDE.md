@@ -6,9 +6,9 @@ See STATE.md for current WI checklist and status.
 Consult docs/archive/ for legacy constraints (saves tokens vs. reading old PRDs).
 
 Current branch: develop
-Active phase: Phase 10 Complete — Concurrent Multi-Market Tracking
-Completed: WI-11 through WI-32 ✅ (Phases 4, 5, 6, 7, 8, 9, and 10 sealed)
-Current WI set: WI-32 complete; Orchestrator uses asyncio.gather for fan-out concurrent market tracking; DataAggregator.process_frame() implemented with frame_count/last_seen_utc tracking; 620 tests, 94% coverage
+Active phase: Phase 10 In Progress — WI-29 and WI-32 complete
+Completed: WI-11 through WI-32 ✅ (Phase 10 remaining WIs pending)
+Current WI set: WI-29 complete (live fee injection, pre-evaluation EV gas gate, settlement gas injection) and WI-32 complete (asyncio.gather concurrent tracking); 639 tests, 94% coverage
 Next task: Phase 11 PRD / planning.
 
 Update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status) after each task completion.

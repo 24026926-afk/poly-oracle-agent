@@ -31,6 +31,7 @@ from src.agents.execution.exit_order_router import ExitOrderRouter
 from src.agents.execution.exit_strategy_engine import ExitStrategyEngine
 from src.agents.execution.gas_estimator import GasEstimator
 from src.agents.execution.lifecycle_reporter import PositionLifecycleReporter
+from src.agents.execution.matic_price_provider import MaticPriceProvider
 from src.agents.execution.nonce_manager import NonceManager
 from src.agents.execution.pnl_calculator import PnLCalculator
 from src.agents.execution.portfolio_aggregator import PortfolioAggregator
@@ -90,7 +91,15 @@ class Orchestrator:
         self.nonce_manager = NonceManager(
             self.w3, self.config.wallet_address, dry_run=self.config.dry_run,
         )
-        self.gas_estimator = GasEstimator(self.w3)
+        self.gas_estimator = GasEstimator(config=self.config)
+        if self.config.gas_check_enabled:
+            self._gas_estimator: GasEstimator | None = self.gas_estimator
+            self._matic_price_provider: MaticPriceProvider | None = (
+                MaticPriceProvider(config=self.config)
+            )
+        else:
+            self._gas_estimator = None
+            self._matic_price_provider = None
         self.bankroll_sync = BankrollSyncProvider(config=self.config)
         self.bankroll_tracker = BankrollPortfolioTracker(
             config=self.config,
@@ -310,8 +319,54 @@ class Orchestrator:
                     continue
 
                 condition_id = str(eval_resp.market_context.condition_id)
+                execution_result: ExecutionResult | None = None
+
                 if (
-                    self.circuit_breaker is not None
+                    self.config.gas_check_enabled
+                    and self._gas_estimator is not None
+                    and self._matic_price_provider is not None
+                ):
+                    expected_value_raw = item.get(
+                        "expected_value_usdc",
+                        getattr(eval_resp, "expected_value", None),
+                    )
+                    if expected_value_raw is not None:
+                        expected_value_usdc = Decimal(str(expected_value_raw))
+                        gas_price_wei = await self._gas_estimator.estimate_gas_price_wei()
+                        matic_price = await self._matic_price_provider.get_matic_usdc()
+                        gas_cost_usdc = self._gas_estimator.estimate_gas_cost_usdc(
+                            gas_units=21000,
+                            gas_price_wei=gas_price_wei,
+                            matic_usdc_price=matic_price,
+                        )
+                        item["estimated_fee_usdc"] = gas_cost_usdc
+                        if hasattr(eval_resp, "market_context"):
+                            try:
+                                setattr(
+                                    eval_resp.market_context,
+                                    "estimated_fee_usdc",
+                                    gas_cost_usdc,
+                                )
+                            except Exception:
+                                pass
+                        if not self._gas_estimator.pre_evaluate_gas_check(
+                            expected_value_usdc=expected_value_usdc,
+                            gas_cost_usdc=gas_cost_usdc,
+                        ):
+                            logger.warning(
+                                "gas.check_failed",
+                                condition_id=condition_id,
+                                expected_value_usdc=str(expected_value_usdc),
+                                gas_cost_usdc=str(gas_cost_usdc),
+                            )
+                            execution_result = ExecutionResult(
+                                action=ExecutionAction.SKIP,
+                                reason="gas_cost_exceeds_ev",
+                            )
+
+                if (
+                    execution_result is None
+                    and self.circuit_breaker is not None
                     and not self.circuit_breaker.check_entry_allowed()
                 ):
                     logger.warning(
@@ -322,7 +377,7 @@ class Orchestrator:
                         action=ExecutionAction.SKIP,
                         reason="circuit_breaker_open",
                     )
-                else:
+                elif execution_result is None:
                     execution_result = await self.execution_router.route(
                         response=eval_resp,
                         market_context=eval_resp.market_context,
@@ -478,9 +533,28 @@ class Orchestrator:
                         and exit_order_result.exit_price is not None
                     ):
                         try:
+                            gas_cost_usdc_for_settlement = Decimal("0")
+                            if (
+                                self._gas_estimator is not None
+                                and self._matic_price_provider is not None
+                            ):
+                                gas_price_wei = (
+                                    await self._gas_estimator.estimate_gas_price_wei()
+                                )
+                                matic_price = (
+                                    await self._matic_price_provider.get_matic_usdc()
+                                )
+                                gas_cost_usdc_for_settlement = (
+                                    self._gas_estimator.estimate_gas_cost_usdc(
+                                        gas_units=21000,
+                                        gas_price_wei=gas_price_wei,
+                                        matic_usdc_price=matic_price,
+                                    )
+                                )
                             await self.pnl_calculator.settle(
                                 position=position,
                                 exit_price=exit_order_result.exit_price,
+                                gas_cost_usdc=gas_cost_usdc_for_settlement,
                             )
                         except Exception as exc:
                             logger.error(

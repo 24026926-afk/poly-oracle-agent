@@ -224,6 +224,25 @@ class AppConfig(BaseSettings):
     fallback_gas_price_gwei: float = Field(
         default=50.0, description="Fallback gas price when RPC is unreachable"
     )
+    gas_check_enabled: bool = Field(
+        default=False,
+        description="Enable WI-29 pre-evaluation gas viability gate",
+    )
+    dry_run_gas_price_wei: Decimal = Field(
+        default=Decimal("30000000000"),
+        description=(
+            "Mock gas price in WEI used in dry-run mode "
+            "and as deterministic fallback when needed"
+        ),
+    )
+    gas_ev_buffer_pct: Decimal = Field(
+        default=Decimal("0.10"),
+        description="Required EV margin above gas cost (10% buffer by default)",
+    )
+    matic_usdc_price: Decimal = Field(
+        default=Decimal("0.50"),
+        description="Static MATIC/USDC fallback price for WI-29 price provider",
+    )
 
     # --- Database ---
     database_url: str = Field(
@@ -316,6 +335,20 @@ class AppConfig(BaseSettings):
                 stacklevel=2,
             )
         return v
+
+    @field_validator(
+        "dry_run_gas_price_wei",
+        "gas_ev_buffer_pct",
+        "matic_usdc_price",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_wi29_financial_fields(cls, value: Any) -> Decimal:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
 
     model_config = SettingsConfigDict(
         env_file=".env",
