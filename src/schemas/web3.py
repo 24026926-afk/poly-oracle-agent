@@ -6,11 +6,12 @@ These models mirror the on-chain Order struct expected by the
 Polymarket CTF Exchange smart contract.
 """
 
+from datetime import datetime
+from decimal import Decimal
 from enum import IntEnum
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
-
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class OrderSide(IntEnum):
@@ -107,6 +108,41 @@ class GasPrice(BaseModel):
     )
 
     model_config = {"frozen": True}
+
+
+class BalanceCheckResult(BaseModel):
+    """WI-31 wallet balance gate result contract."""
+
+    wallet_address: str
+    matic_balance_wei: Decimal
+    matic_balance_matic: Decimal
+    usdc_balance_usdc: Decimal
+    min_matic_balance_wei: Decimal
+    min_usdc_balance_usdc: Decimal
+    matic_sufficient: bool
+    usdc_sufficient: bool
+    check_passed: bool
+    fallback_used: bool
+    is_mock: bool
+    checked_at_utc: datetime
+
+    @field_validator(
+        "matic_balance_wei",
+        "matic_balance_matic",
+        "usdc_balance_usdc",
+        "min_matic_balance_wei",
+        "min_usdc_balance_usdc",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_balance_fields(cls, value: Any) -> Decimal:
+        if isinstance(value, float):
+            raise ValueError("Float balance values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    model_config = ConfigDict(frozen=True)
 
 
 class TxReceiptSchema(BaseModel):

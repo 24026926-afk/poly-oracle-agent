@@ -8,8 +8,8 @@ The agent operates as a fully async (`asyncio`) pipeline with four isolated proc
 
 Current project state:
 - **Version:** 0.10.0
-- **Status:** Phase 10 in progress (WI-30 and WI-32 complete)
-- **Tests:** 644 automated tests passing
+- **Status:** Phase 10 in progress (WI-30, WI-31, and WI-32 complete)
+- **Tests:** 649 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 
 Core stack:
@@ -137,6 +137,9 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `MAX_EXPOSURE_PCT` | float | `0.03` | No | Maximum single-trade exposure (3% of bankroll) |
 | `ENABLE_EXPOSURE_VALIDATOR` | bool | `false` | No | Enables WI-30 pre-routing portfolio exposure gate in `Orchestrator._execution_consumer_loop()` |
 | `MAX_CATEGORY_EXPOSURE_PCT` | Decimal | `0.015` | No | Per-category exposure cap used by WI-30 `ExposureValidator` |
+| `ENABLE_WALLET_BALANCE_CHECK` | bool | `false` | No | Enables WI-31 live wallet balance gate before gas/evaluation routing |
+| `MIN_MATIC_BALANCE_WEI` | Decimal | `100000000000000000` | No | WI-31 minimum MATIC threshold (0.1 MATIC in WEI) |
+| `MIN_USDC_BALANCE_USDC` | Decimal | `10` | No | WI-31 minimum USDC threshold (human-readable units) |
 | `MIN_EV_THRESHOLD` | float | `0.02` | No | Minimum expected value edge (2%) |
 | `MIN_TTR_HOURS` | float | `4.0` | No | Minimum hours to market resolution |
 
@@ -247,6 +250,7 @@ python -m src.orchestrator
 7. If `ENABLE_CIRCUIT_BREAKER=true`, WI-27 adds a synchronous in-memory gate before `ExecutionRouter.route()`. CRITICAL `drawdown` alerts trip it to `OPEN`, blocking new BUY routing while leaving the SELL-side exit path fully operational.
 8. If `CIRCUIT_BREAKER_OVERRIDE_CLOSED=true`, the next portfolio aggregation cycle force-closes the breaker once, then auto-resets the flag in memory.
 9. If `ENABLE_EXPOSURE_VALIDATOR=true`, WI-30 validates current open exposure (`SUM(order_size_usdc)` on SQLite `positions` where `status='OPEN'`) before routing. Breaches short-circuit with `ExecutionResult(action=SKIP, reason="exposure_limit_exceeded")`.
+10. If `ENABLE_WALLET_BALANCE_CHECK=true`, WI-31 runs concurrent MATIC (`eth_getBalance`) and USDC (`eth_call` `balanceOf`) checks after WI-30 and before WI-29. Confirmed insufficiency short-circuits with `ExecutionResult(action=SKIP, reason="insufficient_wallet_balance")`; RPC failures are fail-open (`fallback_used=true`, route continues).
 
 Graceful shutdown on `Ctrl+C`: stops components, cancels tasks, closes HTTP clients, disposes database engine.
 
@@ -277,7 +281,7 @@ python -m pytest tests/integration/test_circuit_breaker_integration.py -v
 ```
 
 Current baseline:
-- 583 tests
+- 649 tests
 - 95% coverage (target: ≥ 80%)
 
 New code must not decrease coverage below 80%.

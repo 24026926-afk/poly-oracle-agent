@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-04-15
 **Version:** 0.10.0
-**Status:** Phase 10 — WI-30 Global Portfolio Exposure Limits Complete
-**Active WI:** Phase 10 (WI-30 + WI-32 complete, remaining WIs pending)
+**Status:** Phase 10 — WI-31 Live Wallet Balance Checks Complete
+**Active WI:** Phase 10 (WI-30 + WI-31 + WI-32 complete, WI-33 pending)
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 644 |
+| Total tests | 649 |
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -57,6 +57,17 @@ WI-30 completion 2026-04-15 (Global Portfolio Exposure Limits):
 - Added SQLite-backed exposure summing path (`SUM(order_size_usdc)` for `status='OPEN'`) with `Decimal("0")` fallback when no open rows exist.
 - Breaches short-circuit with typed skip result: `ExecutionResult(action=SKIP, reason="exposure_limit_exceeded")`.
 - Full regression after WI-30 wiring: `644 passed`; coverage maintained at `94%`.
+
+WI-31 completion 2026-04-15 (Live Wallet Balance Checks):
+- Added `WalletBalanceProvider` in `src/agents/execution/wallet_balance_provider.py` with async httpx JSON-RPC reads for:
+  - `eth_getBalance` (native MATIC in WEI)
+  - `eth_call` `balanceOf(address)` against Polygon USDC proxy (6-decimal USDC normalization)
+- Added `BalanceCheckResult` schema in `src/schemas/web3.py` with Decimal-only, float-rejecting validators on balance threshold/value fields.
+- Added `AppConfig` fields: `enable_wallet_balance_check`, `min_matic_balance_wei`, `min_usdc_balance_usdc`.
+- Wired wallet balance gate in `Orchestrator._execution_consumer_loop()` **after WI-30 exposure validation and before WI-29 gas checks**.
+- Confirmed insufficiency emits typed skip: `ExecutionResult(action=SKIP, reason="insufficient_wallet_balance")`.
+- Enforced fail-open semantics on RPC failures (`httpx.RequestError`, `httpx.HTTPStatusError`): gate returns `check_passed=True`, `fallback_used=True` and evaluation proceeds.
+- WI-31 targeted suite green (`5 passed`), full regression green (`649 passed`), coverage maintained at `94%`.
 
 ---
 
@@ -466,6 +477,26 @@ WI-30 completion 2026-04-15 (Global Portfolio Exposure Limits):
     - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 644 passed
     - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
+- [x] **WI-31 — Live Wallet Balance Checks** (completed 2026-04-15)
+  - Added `WalletBalanceProvider` with concurrent async balance checks via `asyncio.gather`.
+  - Added RPC methods:
+    - `get_matic_balance_wei()` using `eth_getBalance`
+    - `get_usdc_balance_usdc()` using `eth_call` with ABI selector `0x70a08231` and 32-byte padded address.
+  - Added fail-open fallback contract for RPC failures:
+    - catches `httpx.RequestError` and `httpx.HTTPStatusError`
+    - returns `BalanceCheckResult(check_passed=True, fallback_used=True)`.
+  - Added orchestrator pre-evaluation gate order:
+    - WI-30 exposure gate
+    - WI-31 wallet balance gate
+    - WI-29 gas gate
+    - evaluation routing
+  - Typed insufficient funds behavior:
+    - `ExecutionResult(action=SKIP, reason="insufficient_wallet_balance")`.
+  - Regression:
+    - `.venv/bin/pytest --asyncio-mode=auto tests/unit/test_wi31_live_balances.py tests/integration/test_wi31_live_balances_integration.py -v` → 5 passed
+    - `.venv/bin/pytest --asyncio-mode=auto tests/ -q` → 649 passed
+    - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
+
 - [x] **WI-32 — Concurrent Multi-Market Tracking** (completed 2026-04-14)
   - Replaced sequential `_track_single_market()` in `Orchestrator._market_tracking_loop()` with `asyncio.gather(*tasks, return_exceptions=True)` fan-out
   - Added `DataAggregator.track_market(token_ids: list[str])` — accepts list of token IDs, manages per-market subscription state via `PerMarketAggregatorState`
@@ -492,7 +523,9 @@ WI-30 completion 2026-04-15 (Global Portfolio Exposure Limits):
 ### Phase 10 Progress Gate
 
 - [x] WI-30 implemented and validated
+- [x] WI-31 implemented and validated
 - [x] WI-32 implemented and validated
+- [x] Full phase regression green: 649 passed
 - [ ] Full phase regression + archive seal
 
 ---
@@ -538,8 +571,9 @@ WI-30 completion 2026-04-15 (Global Portfolio Exposure Limits):
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient` — WI-14 fetch + routing + sentiment + evaluation |
 | `src/agents/evaluation/grok_client.py` | `GrokClient` — async sentiment oracle (mock-first, 2.0s timeout) |
 | `src/agents/execution/exposure_validator.py` | `ExposureValidator` — WI-30 portfolio exposure gate with Decimal-safe aggregate/category checks |
-| `src/core/config.py` | `AppConfig` — includes WI-30 exposure flags (`enable_exposure_validator`, `max_category_exposure_pct`) plus prior risk and execution settings |
-| `src/orchestrator.py` | Main entry point; includes WI-30 exposure gate before `ExecutionRouter.route()` and existing execution/analytics loop wiring |
+| `src/agents/execution/wallet_balance_provider.py` | `WalletBalanceProvider` — WI-31 live wallet MATIC+USDC pre-evaluation gate with fail-open RPC fallback |
+| `src/core/config.py` | `AppConfig` — includes WI-30/WI-31 execution flags (`enable_exposure_validator`, `max_category_exposure_pct`, `enable_wallet_balance_check`, `min_matic_balance_wei`, `min_usdc_balance_usdc`) plus prior risk settings |
+| `src/orchestrator.py` | Main entry point; includes WI-30 exposure gate, WI-31 wallet balance gate, and WI-29 gas gate ordering in `_execution_consumer_loop()` |
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |

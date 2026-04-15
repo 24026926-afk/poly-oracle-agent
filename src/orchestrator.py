@@ -40,6 +40,7 @@ from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
 from src.agents.execution.telegram_notifier import TelegramNotifier
+from src.agents.execution.wallet_balance_provider import WalletBalanceProvider
 from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
@@ -132,6 +133,15 @@ class Orchestrator:
             )
         else:
             self._exposure_validator = None
+        if getattr(self.config, "enable_wallet_balance_check", False):
+            self._wallet_balance_provider: WalletBalanceProvider | None = (
+                WalletBalanceProvider(
+                    config=self.config,
+                    http_client=self._httpx_client,
+                )
+            )
+        else:
+            self._wallet_balance_provider = None
         self.exit_strategy_engine = ExitStrategyEngine(
             config=self.config,
             polymarket_client=self.polymarket_client,
@@ -378,6 +388,51 @@ class Orchestrator:
                         execution_result = ExecutionResult(
                             action=ExecutionAction.SKIP,
                             reason="exposure_limit_exceeded",
+                        )
+
+                if (
+                    execution_result is None
+                    and getattr(self.config, "enable_wallet_balance_check", False)
+                    and self._wallet_balance_provider is not None
+                ):
+                    balance_result = await self._wallet_balance_provider.check_balances()
+                    logger.info(
+                        "wallet.balance_checked",
+                        matic_balance_wei=str(
+                            getattr(balance_result, "matic_balance_wei", "")
+                        ),
+                        usdc_balance_usdc=str(
+                            getattr(balance_result, "usdc_balance_usdc", "")
+                        ),
+                        matic_sufficient=getattr(
+                            balance_result, "matic_sufficient", True
+                        ),
+                        usdc_sufficient=getattr(
+                            balance_result, "usdc_sufficient", True
+                        ),
+                        check_passed=getattr(balance_result, "check_passed", True),
+                        fallback_used=getattr(balance_result, "fallback_used", False),
+                    )
+                    if not getattr(balance_result, "check_passed", True):
+                        logger.warning(
+                            "wallet.balance_insufficient",
+                            condition_id=condition_id,
+                            matic_balance_wei=str(
+                                getattr(balance_result, "matic_balance_wei", "")
+                            ),
+                            usdc_balance_usdc=str(
+                                getattr(balance_result, "usdc_balance_usdc", "")
+                            ),
+                            matic_sufficient=getattr(
+                                balance_result, "matic_sufficient", True
+                            ),
+                            usdc_sufficient=getattr(
+                                balance_result, "usdc_sufficient", True
+                            ),
+                        )
+                        execution_result = ExecutionResult(
+                            action=ExecutionAction.SKIP,
+                            reason="insufficient_wallet_balance",
                         )
 
                 if (

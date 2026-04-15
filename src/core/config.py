@@ -112,12 +112,24 @@ class AppConfig(BaseSettings):
         default=False,
         description="Enable WI-30 global portfolio exposure validation gate",
     )
+    enable_wallet_balance_check: bool = Field(
+        default=False,
+        description="Enable WI-31 live wallet balance validation gate",
+    )
     max_category_exposure_pct: Decimal = Field(
         default=Decimal("0.015"),
         description=(
             "Per-category exposure cap as fraction of bankroll "
             "(defaults to half the global cap)"
         ),
+    )
+    min_matic_balance_wei: Decimal = Field(
+        default=Decimal("100000000000000000"),
+        description="Minimum wallet MATIC balance in WEI required for entry routing",
+    )
+    min_usdc_balance_usdc: Decimal = Field(
+        default=Decimal("10"),
+        description="Minimum wallet USDC balance required for entry routing",
     )
     min_ev_threshold: float = Field(
         default=0.02, description="Min expected value required to execute (2% edge)"
@@ -352,6 +364,8 @@ class AppConfig(BaseSettings):
         "gas_ev_buffer_pct",
         "matic_usdc_price",
         "max_category_exposure_pct",
+        "min_matic_balance_wei",
+        "min_usdc_balance_usdc",
         mode="before",
     )
     @classmethod
