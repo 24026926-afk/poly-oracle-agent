@@ -11,18 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.agents.evaluation.claude_client import _CHAIN_BUDGET, ClaudeClient
+from src.agents.evaluation.claude_client import ClaudeClient
 from tests.conftest import APPROVED_REFLECTION_JSON
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_anthropic_response(raw_json: str, delay: float = 0.0):
     """Build a mock Anthropic message response object with optional delay."""
@@ -41,30 +41,32 @@ def _mock_anthropic_response(raw_json: str, delay: float = 0.0):
 
 def _approved_ev_json() -> str:
     """Return a valid LLMEvaluationResponse JSON for the primary candidate."""
-    return json.dumps({
-        "market_context": {
-            "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
-            "outcome_evaluated": "YES",
-            "best_bid": 0.45,
-            "best_ask": 0.455,
-            "midpoint": 0.4525,
-            "market_end_date": "2026-06-01T00:00:00+00:00",
-        },
-        "probabilistic_estimate": {
-            "p_true": 0.65,
-            "p_market": 0.45,
-        },
-        "risk_assessment": {
-            "liquidity_risk_score": 0.2,
-            "resolution_risk_score": 0.1,
-            "information_asymmetry_flag": False,
-            "risk_notes": "Low risk market with adequate liquidity and resolution.",
-        },
-        "confidence_score": 0.85,
-        "decision_boolean": True,
-        "recommended_action": "BUY",
-        "reasoning_log": "Based on thorough analysis of the market data and external signals, the true probability is estimated at 65%.",
-    })
+    return json.dumps(
+        {
+            "market_context": {
+                "condition_id": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
+                "outcome_evaluated": "YES",
+                "best_bid": 0.45,
+                "best_ask": 0.455,
+                "midpoint": 0.4525,
+                "market_end_date": "2026-06-01T00:00:00+00:00",
+            },
+            "probabilistic_estimate": {
+                "p_true": 0.65,
+                "p_market": 0.45,
+            },
+            "risk_assessment": {
+                "liquidity_risk_score": 0.2,
+                "resolution_risk_score": 0.1,
+                "information_asymmetry_flag": False,
+                "risk_notes": "Low risk market with adequate liquidity and resolution.",
+            },
+            "confidence_score": 0.85,
+            "decision_boolean": True,
+            "recommended_action": "BUY",
+            "reasoning_log": "Based on thorough analysis of the market data and external signals, the true probability is estimated at 65%.",
+        }
+    )
 
 
 class _DryRunConfig:
@@ -183,30 +185,32 @@ async def test_budget_bypassed_dry_run_true_completes(
 
 def _approved_ev_json_minimal() -> str:
     """Return a valid LLMEvaluationResponse JSON with strings long enough for Pydantic."""
-    return json.dumps({
-        "market_context": {
-            "condition_id": "0x1234567890abcdef",
-            "outcome_evaluated": "YES",
-            "best_bid": 0.45,
-            "best_ask": 0.455,
-            "midpoint": 0.4525,
-            "market_end_date": "2026-06-01T00:00:00+00:00",
-        },
-        "probabilistic_estimate": {
-            "p_true": 0.65,
-            "p_market": 0.45,
-        },
-        "risk_assessment": {
-            "liquidity_risk_score": 0.2,
-            "resolution_risk_score": 0.1,
-            "information_asymmetry_flag": False,
-            "risk_notes": "Low risk market with adequate liquidity and resolution criteria.",
-        },
-        "confidence_score": 0.85,
-        "decision_boolean": True,
-        "recommended_action": "BUY",
-        "reasoning_log": "Based on thorough analysis of the market data and external sentiment signals, the true probability is estimated at 65% while the market implies approximately 45%. This creates a positive expected value opportunity.",
-    })
+    return json.dumps(
+        {
+            "market_context": {
+                "condition_id": "0x1234567890abcdef",
+                "outcome_evaluated": "YES",
+                "best_bid": 0.45,
+                "best_ask": 0.455,
+                "midpoint": 0.4525,
+                "market_end_date": "2026-06-01T00:00:00+00:00",
+            },
+            "probabilistic_estimate": {
+                "p_true": 0.65,
+                "p_market": 0.45,
+            },
+            "risk_assessment": {
+                "liquidity_risk_score": 0.2,
+                "resolution_risk_score": 0.1,
+                "information_asymmetry_flag": False,
+                "risk_notes": "Low risk market with adequate liquidity and resolution criteria.",
+            },
+            "confidence_score": 0.85,
+            "decision_boolean": True,
+            "recommended_action": "BUY",
+            "reasoning_log": "Based on thorough analysis of the market data and external sentiment signals, the true probability is estimated at 65% while the market implies approximately 45%. This creates a positive expected value opportunity.",
+        }
+    )
 
 
 @pytest.mark.asyncio

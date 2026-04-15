@@ -85,7 +85,9 @@ class GammaRESTClient:
                     logger.warning(
                         "gamma.market_parse_error",
                         error=str(exc),
-                        condition_id=item.get("conditionId", "?") if isinstance(item, dict) else "?",
+                        condition_id=item.get("conditionId", "?")
+                        if isinstance(item, dict)
+                        else "?",
                     )
                 continue
 

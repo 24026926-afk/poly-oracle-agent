@@ -19,6 +19,7 @@ from src.orchestrator import Orchestrator
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _patch_heavy_deps():
     """Return a dict of patches that neutralise network-bound constructors."""
     mock_w3 = MagicMock()
@@ -76,8 +77,6 @@ async def test_orchestrator_no_eligible_markets_returns_early(
         orch.gamma_client = MagicMock()
 
         # Override start to skip aiohttp/httpx creation and jump to discovery
-        original_start = orch.start
-
         async def patched_start():
             # Skip HTTP client creation — already stubbed
             orch.nonce_manager.initialize = AsyncMock()
@@ -185,10 +184,12 @@ async def test_execution_consumer_dry_run_skips(test_config):
     fake_eval.recommended_action.value = "BUY"
     fake_eval.position_size_pct = 0.02
 
-    await orch.execution_queue.put({
-        "snapshot_id": "snap-001",
-        "evaluation": fake_eval,
-    })
+    await orch.execution_queue.put(
+        {
+            "snapshot_id": "snap-001",
+            "evaluation": fake_eval,
+        }
+    )
 
     # Run consumer for one iteration then cancel
     consumer_task = asyncio.create_task(orch._execution_consumer_loop())
@@ -210,9 +211,13 @@ async def test_dry_run_signer_never_constructed_no_key_access(test_config):
     and must never access any key provider or key file."""
     patches = _patch_heavy_deps()
 
-    with patch.multiple("src.orchestrator", **patches), \
-         patch("src.agents.execution.signer.TransactionSigner.__init__", return_value=None) as mock_init, \
-         patch("src.agents.execution.signer.Account.from_key") as mock_from_key:
+    with (
+        patch.multiple("src.orchestrator", **patches),
+        patch(
+            "src.agents.execution.signer.TransactionSigner.__init__", return_value=None
+        ) as mock_init,
+        patch("src.agents.execution.signer.Account.from_key") as mock_from_key,
+    ):
         orch = Orchestrator(test_config)
 
     # TransactionSigner.__init__ must not have been called (dry_run gate)

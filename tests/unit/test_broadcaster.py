@@ -4,7 +4,6 @@ tests/unit/test_broadcaster.py
 Async unit tests for the OrderBroadcaster lifecycle.
 """
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -336,7 +335,10 @@ async def test_gas_price_logged_on_submission():
         await bc.broadcast(_signed_order(), decision_id="dec-1")
 
         # Find the order_submitted log call
-        calls = [c for c in mock_logger.info.call_args_list
-                 if c[0][0] == "broadcaster.order_submitted"]
+        calls = [
+            c
+            for c in mock_logger.info.call_args_list
+            if c[0][0] == "broadcaster.order_submitted"
+        ]
         assert len(calls) == 1
         assert calls[0][1]["gas_gwei"] == 62.0

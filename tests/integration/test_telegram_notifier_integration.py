@@ -30,7 +30,12 @@ from src.schemas.execution import (
     PositionRecord,
     PositionStatus,
 )
-from src.schemas.risk import AlertEvent, AlertSeverity, LifecycleReport, PortfolioSnapshot
+from src.schemas.risk import (
+    AlertEvent,
+    AlertSeverity,
+    LifecycleReport,
+    PortfolioSnapshot,
+)
 from src.schemas.web3 import OrderData, OrderSide, SIGNATURE_TYPE_EOA, SignedOrder
 
 
@@ -200,8 +205,12 @@ def _make_position_record(*, position_id: str, token_id: str) -> PositionRecord:
     )
 
 
-def _make_exit_order_result(*, position_id: str, action: ExitOrderAction) -> ExitOrderResult:
-    signed_order = _make_signed_order() if action == ExitOrderAction.SELL_ROUTED else None
+def _make_exit_order_result(
+    *, position_id: str, action: ExitOrderAction
+) -> ExitOrderResult:
+    signed_order = (
+        _make_signed_order() if action == ExitOrderAction.SELL_ROUTED else None
+    )
     return ExitOrderResult(
         position_id=position_id,
         condition_id=f"condition-{position_id}",
@@ -549,7 +558,9 @@ async def test_exit_scan_loop_sends_sell_routed_execution_event(
 ):
     orchestrator = _build_orchestrator(test_config)
     object.__setattr__(orchestrator.config, "dry_run", dry_run)
-    object.__setattr__(orchestrator.config, "exit_scan_interval_seconds", Decimal("0.01"))
+    object.__setattr__(
+        orchestrator.config, "exit_scan_interval_seconds", Decimal("0.01")
+    )
 
     sleep_calls = 0
 
@@ -567,7 +578,9 @@ async def test_exit_scan_loop_sends_sell_routed_execution_event(
         return_value=[exit_result]
     )
     orchestrator._fetch_position_record = AsyncMock(return_value=position)
-    orchestrator.exit_order_router.route_exit = AsyncMock(return_value=exit_order_result)
+    orchestrator.exit_order_router.route_exit = AsyncMock(
+        return_value=exit_order_result
+    )
     orchestrator.pnl_calculator.settle = AsyncMock(return_value=MagicMock())
     orchestrator.broadcaster = AsyncMock()
     orchestrator.broadcaster.broadcast = AsyncMock()
@@ -597,7 +610,9 @@ async def test_exit_scan_loop_continues_evaluating_positions_after_telegram_send
     failing_client = _make_failing_http_client()
 
     object.__setattr__(orchestrator.config, "dry_run", True)
-    object.__setattr__(orchestrator.config, "exit_scan_interval_seconds", Decimal("0.01"))
+    object.__setattr__(
+        orchestrator.config, "exit_scan_interval_seconds", Decimal("0.01")
+    )
 
     sleep_calls = 0
 

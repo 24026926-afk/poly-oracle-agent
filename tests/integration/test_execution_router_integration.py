@@ -193,9 +193,7 @@ def _build_router(
     if transaction_signer is DEFAULT_SIGNER:
         transaction_signer = MagicMock()
 
-    if transaction_signer is not None and not hasattr(
-        transaction_signer, "sign_order"
-    ):
+    if transaction_signer is not None and not hasattr(transaction_signer, "sign_order"):
         transaction_signer.sign_order = MagicMock()
 
     if transaction_signer is not None and signed_order is not None:
@@ -210,7 +208,13 @@ def _build_router(
         bankroll_provider=bankroll_provider,
         transaction_signer=transaction_signer,
     )
-    return router, polymarket_client, bankroll_provider, transaction_signer, schema_module
+    return (
+        router,
+        polymarket_client,
+        bankroll_provider,
+        transaction_signer,
+        schema_module,
+    )
 
 
 @pytest.mark.asyncio

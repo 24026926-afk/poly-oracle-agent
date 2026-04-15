@@ -144,15 +144,13 @@ def _build_router(
 
     if transaction_signer is not None:
         if signing_outcome is None:
-            transaction_signer.sign_order.side_effect = (
-                lambda order: _make_signed_order(order)
+            transaction_signer.sign_order.side_effect = lambda order: (
+                _make_signed_order(order)
             )
         elif isinstance(signing_outcome, Exception):
             transaction_signer.sign_order.side_effect = signing_outcome
         else:
-            transaction_signer.sign_order.side_effect = (
-                lambda order: signing_outcome
-            )
+            transaction_signer.sign_order.side_effect = lambda order: signing_outcome
 
     router = router_module.ExitOrderRouter(
         config=_make_config(
@@ -183,9 +181,7 @@ def test_exit_order_router_contract_exists_and_has_one_public_async_method():
 
     public_methods = [
         name
-        for name, member in inspect.getmembers(
-            router_cls, predicate=inspect.isfunction
-        )
+        for name, member in inspect.getmembers(router_cls, predicate=inspect.isfunction)
         if not name.startswith("_")
     ]
     assert public_methods == ["route_exit"]
@@ -428,4 +424,3 @@ async def test_signing_exception_returns_failed_does_not_propagate():
     assert result.reason == "signing_error"
     assert result.signed_order is None
     signer.sign_order.assert_called_once()
-

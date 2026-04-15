@@ -119,7 +119,7 @@ class PolymarketClient:
         if hasattr(raw, "model_dump"):
             raw = raw.model_dump()
         elif not isinstance(raw, dict) and hasattr(raw, "__dict__"):
-            from dataclasses import asdict, fields
+            from dataclasses import asdict
 
             if hasattr(raw, "__dataclass_fields__"):
                 raw = asdict(raw)

@@ -256,7 +256,9 @@ async def test_position_repository_get_positions_by_status_closed(db_session_fac
 
 
 @pytest.mark.asyncio
-async def test_generate_report_end_to_end_sqlite_with_mixed_positions(db_session_factory):
+async def test_generate_report_end_to_end_sqlite_with_mixed_positions(
+    db_session_factory,
+):
     reporter_module = _load_module(REPORTER_MODULE_NAME)
     now = datetime.now(timezone.utc)
 
@@ -410,8 +412,12 @@ async def test_portfolio_aggregation_loop_invokes_generate_report_after_snapshot
         call_order.append("report")
         return MagicMock()
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(side_effect=_fake_snapshot)
-    orchestrator.lifecycle_reporter.generate_report = AsyncMock(side_effect=_fake_report)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        side_effect=_fake_snapshot
+    )
+    orchestrator.lifecycle_reporter.generate_report = AsyncMock(
+        side_effect=_fake_report
+    )
     monkeypatch.setattr("src.orchestrator.asyncio.sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):

@@ -28,9 +28,13 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("side", sa.String(length=8), nullable=False),
         sa.Column("entry_price", sa.Numeric(precision=38, scale=18), nullable=False),
-        sa.Column("order_size_usdc", sa.Numeric(precision=38, scale=18), nullable=False),
+        sa.Column(
+            "order_size_usdc", sa.Numeric(precision=38, scale=18), nullable=False
+        ),
         sa.Column("kelly_fraction", sa.Numeric(precision=38, scale=18), nullable=False),
-        sa.Column("best_ask_at_entry", sa.Numeric(precision=38, scale=18), nullable=False),
+        sa.Column(
+            "best_ask_at_entry", sa.Numeric(precision=38, scale=18), nullable=False
+        ),
         sa.Column(
             "bankroll_usdc_at_entry",
             sa.Numeric(precision=38, scale=18),
@@ -42,7 +46,9 @@ def upgrade() -> None:
         sa.Column("recorded_at_utc", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_positions_condition_id", "positions", ["condition_id"], unique=False)
+    op.create_index(
+        "ix_positions_condition_id", "positions", ["condition_id"], unique=False
+    )
     op.create_index("ix_positions_status", "positions", ["status"], unique=False)
     op.create_index(
         "ix_positions_condition_id_status",

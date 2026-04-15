@@ -22,16 +22,16 @@ class DecisionRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def insert_decision(
-        self, decision: AgentDecisionLog
-    ) -> AgentDecisionLog:
+    async def insert_decision(self, decision: AgentDecisionLog) -> AgentDecisionLog:
         """Persist a new decision log and return it with a populated PK."""
         self._session.add(decision)
         await self._session.flush()
         logger.debug(
             "decision_inserted",
             decision_id=decision.id,
-            action=getattr(decision.recommended_action, "value", decision.recommended_action),
+            action=getattr(
+                decision.recommended_action, "value", decision.recommended_action
+            ),
         )
         return decision
 

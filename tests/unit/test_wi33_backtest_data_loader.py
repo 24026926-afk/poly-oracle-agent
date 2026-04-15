@@ -417,7 +417,9 @@ async def test_data_loader_raises_backtest_data_error_for_malformed_json(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_data_loader_raises_backtest_data_error_for_missing_required_fields(tmp_path):
+async def test_data_loader_raises_backtest_data_error_for_missing_required_fields(
+    tmp_path,
+):
     runner = _load_module(RUNNER_MODULE)
     schemas = _load_module(SCHEMA_MODULE)
     cfg = _make_config(schemas, tmp_path)
@@ -442,7 +444,9 @@ async def test_data_loader_raises_backtest_data_error_for_missing_required_field
 
 
 @pytest.mark.asyncio
-async def test_data_loader_raises_backtest_data_error_for_invalid_numeric_values(tmp_path):
+async def test_data_loader_raises_backtest_data_error_for_invalid_numeric_values(
+    tmp_path,
+):
     runner = _load_module(RUNNER_MODULE)
     schemas = _load_module(SCHEMA_MODULE)
     cfg = _make_config(schemas, tmp_path)

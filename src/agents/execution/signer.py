@@ -15,7 +15,7 @@ WI-15 additions: secure key-provider protocol, typed ``SignRequest`` /
 import secrets
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Dict, Literal, Protocol
 
 import structlog
 from eth_account import Account
@@ -25,6 +25,9 @@ from pydantic import BaseModel, Field, field_validator
 from src.core.config import AppConfig
 from src.core.exceptions import DryRunActiveError
 from src.schemas.web3 import OrderData, OrderSide, SignedOrder, SIGNATURE_TYPE_EOA
+
+if TYPE_CHECKING:
+    from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -114,10 +117,14 @@ class SignRequest(BaseModel):
     neg_risk: bool = Field(default=False, description="Use neg-risk exchange")
     key_ref: str = Field(..., description="Opaque vault/keystore secret reference")
     maker_amount_usdc: Decimal = Field(
-        ..., gt=Decimal("0"), description="Maker USDC amount (must be positive)",
+        ...,
+        gt=Decimal("0"),
+        description="Maker USDC amount (must be positive)",
     )
     taker_amount_usdc: Decimal = Field(
-        ..., gt=Decimal("0"), description="Taker USDC amount (must be positive)",
+        ...,
+        gt=Decimal("0"),
+        description="Taker USDC amount (must be positive)",
     )
 
     @field_validator("chain_id")
@@ -141,12 +148,15 @@ class SignedArtifact(BaseModel):
     """Typed signed output — signature and audit metadata only."""
 
     signature: str = Field(
-        ..., min_length=2, description="Hex EIP-712 signature (0x-prefixed)",
+        ...,
+        min_length=2,
+        description="Hex EIP-712 signature (0x-prefixed)",
     )
     owner: str = Field(..., description="Checksummed signer address")
     signed_at_utc: datetime = Field(..., description="UTC timestamp of signing")
     key_source_type: str = Field(
-        ..., description="Key source: 'vault' or 'encrypted_keystore'",
+        ...,
+        description="Key source: 'vault' or 'encrypted_keystore'",
     )
 
     model_config = {"frozen": True}
@@ -348,9 +358,7 @@ class TransactionSigner:
                 dry_run=True,
                 method="build_order_from_decision",
             )
-            raise DryRunActiveError(
-                "Order construction blocked: dry_run=True"
-            )
+            raise DryRunActiveError("Order construction blocked: dry_run=True")
 
         if bankroll_tracker is None:
             raise ValueError("BankrollPortfolioTracker is required")
@@ -374,9 +382,7 @@ class TransactionSigner:
 
         # Taker amount: tokens received at midpoint
         if mc.midpoint > 0:
-            taker_amount = int(
-                (raw_usdc / Decimal(str(mc.midpoint))) * Decimal("1e6")
-            )
+            taker_amount = int((raw_usdc / Decimal(str(mc.midpoint))) * Decimal("1e6"))
         else:
             taker_amount = 0
 

@@ -211,9 +211,7 @@ async def test_exit_scan_loop_catches_exit_evaluation_error_and_continues(
 @pytest.mark.asyncio
 async def test_exit_scan_loop_logs_completed_counts(monkeypatch, test_config):
     orchestrator = _build_orchestrator(test_config)
-    object.__setattr__(
-        orchestrator.config, "exit_scan_interval_seconds", Decimal("13")
-    )
+    object.__setattr__(orchestrator.config, "exit_scan_interval_seconds", Decimal("13"))
 
     sleep_calls = 0
 

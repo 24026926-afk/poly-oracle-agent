@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.agents.evaluation.claude_client import ClaudeClient
-from src.agents.execution.polymarket_client import MarketSnapshot, PolymarketClient
+from src.agents.execution.polymarket_client import MarketSnapshot
 from tests.conftest import APPROVED_REFLECTION_JSON
 
 
@@ -133,8 +133,6 @@ class TestPrePromptFetchOrdering:
             call_order.append("fetch_order_book")
             return snapshot
 
-        original_build = None
-
         with patch(
             "src.agents.evaluation.claude_client.PolymarketClient"
         ) as MockPMClient:
@@ -144,15 +142,16 @@ class TestPrePromptFetchOrdering:
             )
             MockPMClient.return_value = mock_pm_instance
 
-            with patch(
-                "src.agents.evaluation.claude_client.PromptFactory"
-            ) as MockPF:
+            with patch("src.agents.evaluation.claude_client.PromptFactory") as MockPF:
+
                 def track_build(*args, **kwargs):
                     call_order.append("build_evaluation_prompt")
                     return "mocked prompt"
 
                 MockPF.build_evaluation_prompt = MagicMock(side_effect=track_build)
-                MockPF.build_reflection_prompt = MagicMock(return_value="mocked reflection prompt")
+                MockPF.build_reflection_prompt = MagicMock(
+                    return_value="mocked reflection prompt"
+                )
 
                 buy_json = _make_buy_response_json()
                 client.client = MagicMock()
@@ -198,15 +197,16 @@ class TestPromptContextEnrichment:
             mock_pm_instance.fetch_order_book = AsyncMock(return_value=snapshot)
             MockPMClient.return_value = mock_pm_instance
 
-            with patch(
-                "src.agents.evaluation.claude_client.PromptFactory"
-            ) as MockPF:
+            with patch("src.agents.evaluation.claude_client.PromptFactory") as MockPF:
+
                 def capture_build(market_state, **kwargs):
                     captured_market_state.update(market_state)
                     return "mocked prompt"
 
                 MockPF.build_evaluation_prompt = MagicMock(side_effect=capture_build)
-                MockPF.build_reflection_prompt = MagicMock(return_value="mocked reflection prompt")
+                MockPF.build_reflection_prompt = MagicMock(
+                    return_value="mocked reflection prompt"
+                )
 
                 buy_json = _make_buy_response_json()
                 client.client = MagicMock()
@@ -242,15 +242,16 @@ class TestPromptContextEnrichment:
             mock_pm_instance.fetch_order_book = AsyncMock(return_value=snapshot)
             MockPMClient.return_value = mock_pm_instance
 
-            with patch(
-                "src.agents.evaluation.claude_client.PromptFactory"
-            ) as MockPF:
+            with patch("src.agents.evaluation.claude_client.PromptFactory") as MockPF:
+
                 def capture_build(market_state, **kwargs):
                     captured_market_state.update(market_state)
                     return "mocked prompt"
 
                 MockPF.build_evaluation_prompt = MagicMock(side_effect=capture_build)
-                MockPF.build_reflection_prompt = MagicMock(return_value="mocked reflection prompt")
+                MockPF.build_reflection_prompt = MagicMock(
+                    return_value="mocked reflection prompt"
+                )
 
                 buy_json = _make_buy_response_json()
                 client.client = MagicMock()

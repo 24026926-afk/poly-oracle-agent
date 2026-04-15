@@ -40,6 +40,7 @@ from src.schemas.market import MarketMetadata
 # Session / backend
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
@@ -48,6 +49,7 @@ def anyio_backend():
 # ---------------------------------------------------------------------------
 # Database fixtures (unit + integration)
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture()
 async def async_engine():
@@ -98,6 +100,7 @@ async def db_session_factory(async_engine):
 # Config fixture (integration)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def test_config() -> AppConfig:
     """AppConfig with safe test values.  dry_run=True, no .env dependency."""
@@ -138,6 +141,7 @@ def test_config() -> AppConfig:
 # Queue fixtures (integration)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def pipeline_queues():
     """Return (market_queue, prompt_queue, execution_queue)."""
@@ -148,6 +152,7 @@ def pipeline_queues():
 # Mock Gamma market data (integration)
 # ---------------------------------------------------------------------------
 
+
 def _future_iso(hours: float) -> str:
     dt = datetime.now(timezone.utc) + timedelta(hours=hours)
     return dt.isoformat()
@@ -157,36 +162,43 @@ def _future_iso(hours: float) -> str:
 def mock_gamma_markets() -> list[MarketMetadata]:
     """Three markets: two eligible, one ineligible (past end date)."""
     return [
-        MarketMetadata.model_validate({
-            "conditionId": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
-            "question": "Will ETH exceed $5000 by June?",
-            "clobTokenIds": ["tok-a1", "tok-a2"],
-            "endDateIso": _future_iso(72),
-            "active": True,
-            "closed": False,
-        }),
-        MarketMetadata.model_validate({
-            "conditionId": "0xbbbb2222cccc3333dddd4444eeee5555ffff6666",
-            "question": "Will BTC exceed $100k by July?",
-            "clobTokenIds": ["tok-b1", "tok-b2"],
-            "endDateIso": _future_iso(120),
-            "active": True,
-            "closed": False,
-        }),
-        MarketMetadata.model_validate({
-            "conditionId": "0xcccc3333dddd4444eeee5555ffff6666aaaa7777",
-            "question": "Will SOL exceed $500 by April?",
-            "clobTokenIds": ["tok-c1", "tok-c2"],
-            "endDateIso": _future_iso(-2),  # expired
-            "active": True,
-            "closed": False,
-        }),
+        MarketMetadata.model_validate(
+            {
+                "conditionId": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
+                "question": "Will ETH exceed $5000 by June?",
+                "clobTokenIds": ["tok-a1", "tok-a2"],
+                "endDateIso": _future_iso(72),
+                "active": True,
+                "closed": False,
+            }
+        ),
+        MarketMetadata.model_validate(
+            {
+                "conditionId": "0xbbbb2222cccc3333dddd4444eeee5555ffff6666",
+                "question": "Will BTC exceed $100k by July?",
+                "clobTokenIds": ["tok-b1", "tok-b2"],
+                "endDateIso": _future_iso(120),
+                "active": True,
+                "closed": False,
+            }
+        ),
+        MarketMetadata.model_validate(
+            {
+                "conditionId": "0xcccc3333dddd4444eeee5555ffff6666aaaa7777",
+                "question": "Will SOL exceed $500 by April?",
+                "clobTokenIds": ["tok-c1", "tok-c2"],
+                "endDateIso": _future_iso(-2),  # expired
+                "active": True,
+                "closed": False,
+            }
+        ),
     ]
 
 
 # ---------------------------------------------------------------------------
 # Mock Anthropic LLM response (integration)
 # ---------------------------------------------------------------------------
+
 
 def _build_llm_response_json(
     *,
@@ -254,14 +266,16 @@ def mock_anthropic_hold_json() -> str:
 # Mock Reflection Auditor response (integration — WI-13)
 # ---------------------------------------------------------------------------
 
-APPROVED_REFLECTION_JSON: str = json.dumps({
-    "verdict": "APPROVED",
-    "bias_flags": [],
-    "consistency_flags": [],
-    "risk_flags": [],
-    "audit_note": "No issues found.",
-    "latency_ms": 50,
-})
+APPROVED_REFLECTION_JSON: str = json.dumps(
+    {
+        "verdict": "APPROVED",
+        "bias_flags": [],
+        "consistency_flags": [],
+        "risk_flags": [],
+        "audit_note": "No issues found.",
+        "latency_ms": 50,
+    }
+)
 
 
 @pytest.fixture()
@@ -273,6 +287,7 @@ def mock_reflection_approved_json() -> str:
 # ---------------------------------------------------------------------------
 # WI-14: Mock PolymarketClient fixture
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def mock_polymarket(monkeypatch):

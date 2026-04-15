@@ -100,7 +100,9 @@ def test_bankroll_sync_provider_contract_exists():
 
     public_methods = [
         name
-        for name, member in inspect.getmembers(provider_cls, predicate=inspect.isfunction)
+        for name, member in inspect.getmembers(
+            provider_cls, predicate=inspect.isfunction
+        )
         if not name.startswith("_")
     ]
     assert public_methods == ["fetch_balance"]
@@ -142,15 +144,20 @@ async def test_fetch_balance_dry_run_returns_mock_balance_without_web3(test_conf
     module = _load_bankroll_sync_module()
     provider = module.BankrollSyncProvider(test_config)
 
-    with patch.object(
-        module,
-        "Web3",
-        side_effect=AssertionError("Web3 must not be constructed in dry_run."),
-        create=True,
-    ) as mock_module_web3, patch(
-        "web3.Web3",
-        side_effect=AssertionError("Global Web3 must not be constructed in dry_run."),
-    ) as mock_global_web3:
+    with (
+        patch.object(
+            module,
+            "Web3",
+            side_effect=AssertionError("Web3 must not be constructed in dry_run."),
+            create=True,
+        ) as mock_module_web3,
+        patch(
+            "web3.Web3",
+            side_effect=AssertionError(
+                "Global Web3 must not be constructed in dry_run."
+            ),
+        ) as mock_global_web3,
+    ):
         result = await _invoke_fetch_balance(
             module,
             provider,
@@ -175,11 +182,14 @@ async def test_fetch_balance_live_read_converts_uint256_exactly(test_config):
     raw_balance = 1_500_000_000
     mock_w3 = MagicMock()
 
-    with patch.object(module, "Web3", create=True) as mock_web3_cls, patch.object(
-        module.asyncio,
-        "wait_for",
-        new=AsyncMock(return_value=raw_balance),
-    ) as mock_wait_for:
+    with (
+        patch.object(module, "Web3", create=True) as mock_web3_cls,
+        patch.object(
+            module.asyncio,
+            "wait_for",
+            new=AsyncMock(return_value=raw_balance),
+        ) as mock_wait_for,
+    ):
         mock_web3_cls.HTTPProvider.return_value = MagicMock()
         mock_web3_cls.return_value = mock_w3
         mock_web3_cls.to_checksum_address.side_effect = lambda value: value
@@ -207,10 +217,13 @@ async def test_fetch_balance_timeout_raises_typed_error(test_config):
     provider = module.BankrollSyncProvider(test_config)
     error_type = _balance_fetch_error_type()
 
-    with patch.object(module, "Web3", create=True) as mock_web3_cls, patch.object(
-        module.asyncio,
-        "wait_for",
-        new=AsyncMock(side_effect=asyncio.TimeoutError),
+    with (
+        patch.object(module, "Web3", create=True) as mock_web3_cls,
+        patch.object(
+            module.asyncio,
+            "wait_for",
+            new=AsyncMock(side_effect=asyncio.TimeoutError),
+        ),
     ):
         mock_web3_cls.HTTPProvider.return_value = MagicMock()
         mock_web3_cls.to_checksum_address.side_effect = lambda value: value
@@ -231,10 +244,13 @@ async def test_fetch_balance_malformed_response_raises_typed_error(test_config):
     provider = module.BankrollSyncProvider(test_config)
     error_type = _balance_fetch_error_type()
 
-    with patch.object(module, "Web3", create=True) as mock_web3_cls, patch.object(
-        module.asyncio,
-        "wait_for",
-        new=AsyncMock(return_value="not-a-uint256"),
+    with (
+        patch.object(module, "Web3", create=True) as mock_web3_cls,
+        patch.object(
+            module.asyncio,
+            "wait_for",
+            new=AsyncMock(return_value="not-a-uint256"),
+        ),
     ):
         mock_web3_cls.HTTPProvider.return_value = MagicMock()
         mock_web3_cls.to_checksum_address.side_effect = lambda value: value
@@ -254,10 +270,13 @@ async def test_fetch_balance_zero_balance_is_valid(test_config):
     module = _load_bankroll_sync_module()
     provider = module.BankrollSyncProvider(test_config)
 
-    with patch.object(module, "Web3", create=True) as mock_web3_cls, patch.object(
-        module.asyncio,
-        "wait_for",
-        new=AsyncMock(return_value=0),
+    with (
+        patch.object(module, "Web3", create=True) as mock_web3_cls,
+        patch.object(
+            module.asyncio,
+            "wait_for",
+            new=AsyncMock(return_value=0),
+        ),
     ):
         mock_web3_cls.HTTPProvider.return_value = MagicMock()
         mock_web3_cls.to_checksum_address.side_effect = lambda value: value
@@ -276,7 +295,9 @@ async def test_fetch_balance_zero_balance_is_valid(test_config):
 
 
 def test_bankroll_sync_module_has_no_forbidden_imports():
-    assert MODULE_PATH.exists(), "Expected src/agents/execution/bankroll_sync.py to exist."
+    assert MODULE_PATH.exists(), (
+        "Expected src/agents/execution/bankroll_sync.py to exist."
+    )
 
     module_ast = ast.parse(MODULE_PATH.read_text())
     imported_modules: set[str] = set()

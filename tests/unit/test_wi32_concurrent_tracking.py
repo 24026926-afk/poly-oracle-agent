@@ -25,12 +25,12 @@ import pytest
 from pydantic import ValidationError
 
 from src.core.config import AppConfig
-from src.schemas.market import MarketSnapshotSchema
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_test_config(**overrides) -> AppConfig:
     """Build a minimal AppConfig for unit tests."""
@@ -49,6 +49,7 @@ def _make_test_config(**overrides) -> AppConfig:
 # A. asyncio.gather fan-out
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_concurrent_tracking_fan_out_produces_all_contexts():
     """asyncio.gather with return_exceptions=True must produce MarketContext
@@ -59,10 +60,7 @@ async def test_concurrent_tracking_fan_out_produces_all_contexts():
     ]
 
     token_ids_list = [["t1"], ["t2"], ["t3"]]
-    tasks = [
-        mock_aggregator.track_market(token_ids)
-        for token_ids in token_ids_list
-    ]
+    tasks = [mock_aggregator.track_market(token_ids) for token_ids in token_ids_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # All three must succeed
@@ -84,10 +82,7 @@ async def test_gather_exception_isolation_one_task_fails():
     mock_aggregator.track_market.side_effect = maybe_fail
 
     token_ids_list = [["t1"], ["t2"], ["t3"]]
-    tasks = [
-        mock_aggregator.track_market(token_ids)
-        for token_ids in token_ids_list
-    ]
+    tasks = [mock_aggregator.track_market(token_ids) for token_ids in token_ids_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     exceptions = [r for r in results if isinstance(r, Exception)]
@@ -112,10 +107,7 @@ async def test_gather_all_tasks_fail():
     mock_aggregator.track_market.side_effect = RuntimeError("always_fail")
 
     token_ids_list = [["t1"], ["t2"]]
-    tasks = [
-        mock_aggregator.track_market(token_ids)
-        for token_ids in token_ids_list
-    ]
+    tasks = [mock_aggregator.track_market(token_ids) for token_ids in token_ids_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     exceptions = [r for r in results if isinstance(r, Exception)]
@@ -125,6 +117,7 @@ async def test_gather_all_tasks_fail():
 # ---------------------------------------------------------------------------
 # B. subscribe_batch() multiplexed subscription
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_subscribe_batch_sends_multiplexed_message():
@@ -193,6 +186,7 @@ async def test_subscribe_batch_contains_correct_event_types():
 # C. Frame routing via asset_id
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_handle_message_routes_to_correct_aggregator():
     """_handle_message with a frame containing asset_id must route to the
@@ -213,7 +207,9 @@ async def test_handle_message_routes_to_correct_aggregator():
 
     client.register_aggregator("t1", mock_aggregator)
 
-    frame = json.dumps({"asset_id": "t1", "event_type": "book", "best_bid": 0.45, "best_ask": 0.55})
+    frame = json.dumps(
+        {"asset_id": "t1", "event_type": "book", "best_bid": 0.45, "best_ask": 0.55}
+    )
     await client._handle_message(frame)
 
     mock_aggregator.process_frame.assert_called_once()
@@ -232,7 +228,14 @@ async def test_handle_message_unrouted_frame_logged():
     client = CLOBWebSocketClient(cfg, mock_queue, mock_db_factory)
 
     # No aggregator registered for "unknown_token"
-    frame = json.dumps({"asset_id": "unknown_token", "event_type": "book", "best_bid": 0.45, "best_ask": 0.55})
+    frame = json.dumps(
+        {
+            "asset_id": "unknown_token",
+            "event_type": "book",
+            "best_bid": 0.45,
+            "best_ask": 0.55,
+        }
+    )
     # Must not raise
     await client._handle_message(frame)
 
@@ -257,6 +260,7 @@ async def test_handle_message_missing_asset_id_logged():
 # D. Market truncation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_market_truncation_caps_at_max_concurrent():
     """When discovered markets > max_concurrent_markets, only first N tracked."""
@@ -267,7 +271,7 @@ async def test_market_truncation_caps_at_max_concurrent():
 
     # Truncate logic: should cap at 3
     if len(snapshots) > config.max_concurrent_markets:
-        snapshots = snapshots[:config.max_concurrent_markets]
+        snapshots = snapshots[: config.max_concurrent_markets]
 
     assert len(snapshots) == 3
 
@@ -280,7 +284,7 @@ async def test_no_truncation_when_under_max():
     snapshots = [MagicMock(condition_id=f"cid_{i}") for i in range(3)]
 
     if len(snapshots) > config.max_concurrent_markets:
-        snapshots = snapshots[:config.max_concurrent_markets]
+        snapshots = snapshots[: config.max_concurrent_markets]
 
     assert len(snapshots) == 3
 
@@ -288,6 +292,7 @@ async def test_no_truncation_when_under_max():
 # ---------------------------------------------------------------------------
 # E. PerMarketAggregatorState
 # ---------------------------------------------------------------------------
+
 
 def test_per_market_aggregator_state_initializes_correctly():
     """PerMarketAggregatorState must init with pending status, frame_count=0."""
@@ -314,6 +319,7 @@ def test_per_market_aggregator_state_is_frozen():
 # ---------------------------------------------------------------------------
 # F. MarketTrackingTask pattern
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_market_tracking_task_not_created_when_disabled():
@@ -444,7 +450,9 @@ async def test_market_tracking_loop_fail_open_on_discovery_error():
         orch = Orchestrator(config)
 
     orch.discovery_engine = AsyncMock()
-    orch.discovery_engine.discover = AsyncMock(side_effect=RuntimeError("discovery_fail"))
+    orch.discovery_engine.discover = AsyncMock(
+        side_effect=RuntimeError("discovery_fail")
+    )
 
     orch._running = True
     # Run briefly — loop must not crash despite discovery errors
@@ -463,6 +471,7 @@ async def test_market_tracking_loop_fail_open_on_discovery_error():
 # ---------------------------------------------------------------------------
 # G. Decimal safety under concurrency
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_concurrent_track_market_produces_decimal_fields():

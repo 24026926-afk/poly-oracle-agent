@@ -70,12 +70,8 @@ class AppConfig(BaseSettings):
     )
 
     # --- Polygon / Web3 ---
-    polygon_rpc_url: str = Field(
-        ..., description="RPC endpoint for Polygon PoS node"
-    )
-    wallet_address: str = Field(
-        ..., description="Checksummed EIP-55 wallet address"
-    )
+    polygon_rpc_url: str = Field(..., description="RPC endpoint for Polygon PoS node")
+    wallet_address: str = Field(..., description="Checksummed EIP-55 wallet address")
     wallet_private_key: SecretStr = Field(
         ..., description="EVM wallet private key for signing transactions"
     )
@@ -343,9 +339,7 @@ class AppConfig(BaseSettings):
     def _validate_log_level(cls, v: str) -> str:
         upper = v.upper()
         if upper not in _VALID_LOG_LEVELS:
-            raise ValueError(
-                f"log_level must be one of {_VALID_LOG_LEVELS}, got '{v}'"
-            )
+            raise ValueError(f"log_level must be one of {_VALID_LOG_LEVELS}, got '{v}'")
         return upper
 
     @field_validator("dry_run")

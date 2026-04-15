@@ -122,8 +122,10 @@ class BankrollSyncProvider:
         request: BalanceReadRequest | None = None,
     ) -> BalanceReadResult:
         """Fetch the wallet's current USDC balance with fail-closed semantics."""
-        dry_run = request.dry_run if request is not None else getattr(
-            self._config, "dry_run", True
+        dry_run = (
+            request.dry_run
+            if request is not None
+            else getattr(self._config, "dry_run", True)
         )
         if dry_run:
             return self._build_mock_result(request)

@@ -24,13 +24,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.agents.evaluation.claude_client import ClaudeClient
-from src.agents.evaluation.grok_client import GrokClient, NEUTRAL_SENTIMENT, _MOCK_SENTIMENT
+from src.agents.evaluation.grok_client import (
+    GrokClient,
+    NEUTRAL_SENTIMENT,
+    _MOCK_SENTIMENT,
+)
 from tests.conftest import APPROVED_REFLECTION_JSON
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_anthropic_response(raw_json: str):
     """Build a mock Anthropic message response object."""
@@ -148,15 +153,20 @@ def _setup_client(test_config, mock_anthropic_buy_json, *, extra_side_effects=No
 # Test 1: CRYPTO triggers Grok call (real GrokClient, mock mode)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_crypto_triggers_grok_sentiment_call(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """CRYPTO market MUST trigger GrokClient — prompt contains mock sentiment values."""
     client, _, out_q = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
-        client._grok_client, "analyze_sentiment", wraps=client._grok_client.analyze_sentiment,
+        client._grok_client,
+        "analyze_sentiment",
+        wraps=client._grok_client.analyze_sentiment,
     ) as spy:
         await client._process_evaluation(_crypto_market_item())
         spy.assert_called_once()
@@ -174,15 +184,20 @@ async def test_crypto_triggers_grok_sentiment_call(
 # Test 2: POLITICS triggers Grok call (real GrokClient, mock mode)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_politics_triggers_grok_sentiment_call(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """POLITICS market MUST trigger GrokClient — prompt contains mock sentiment values."""
     client, _, out_q = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
-        client._grok_client, "analyze_sentiment", wraps=client._grok_client.analyze_sentiment,
+        client._grok_client,
+        "analyze_sentiment",
+        wraps=client._grok_client.analyze_sentiment,
     ) as spy:
         await client._process_evaluation(_politics_market_item())
         spy.assert_called_once()
@@ -197,15 +212,20 @@ async def test_politics_triggers_grok_sentiment_call(
 # Test 3: SPORTS skips Grok (real GrokClient, never called)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_sports_skips_grok_sentiment(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """SPORTS market MUST NOT call GrokClient — prompt contains neutral fallback."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
-        client._grok_client, "analyze_sentiment", wraps=client._grok_client.analyze_sentiment,
+        client._grok_client,
+        "analyze_sentiment",
+        wraps=client._grok_client.analyze_sentiment,
     ) as spy:
         await client._process_evaluation(_sports_market_item())
         spy.assert_not_called()
@@ -222,15 +242,20 @@ async def test_sports_skips_grok_sentiment(
 # Test 4: GENERAL skips Grok (real GrokClient, never called)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_general_skips_grok_sentiment(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """GENERAL market MUST NOT call GrokClient — prompt contains neutral fallback."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
-        client._grok_client, "analyze_sentiment", wraps=client._grok_client.analyze_sentiment,
+        client._grok_client,
+        "analyze_sentiment",
+        wraps=client._grok_client.analyze_sentiment,
     ) as spy:
         await client._process_evaluation(_general_market_item())
         spy.assert_not_called()
@@ -245,16 +270,21 @@ async def test_general_skips_grok_sentiment(
 # Test 5: Grok timeout -> neutral fallback, evaluation continues
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_grok_timeout_falls_back_to_neutral_sentiment(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """When Grok times out, pipeline continues with neutral sentiment."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
 
     # Patch analyze_sentiment on the real GrokClient to raise TimeoutError
     with patch.object(
-        client._grok_client, "analyze_sentiment", new_callable=AsyncMock,
+        client._grok_client,
+        "analyze_sentiment",
+        new_callable=AsyncMock,
         side_effect=asyncio.TimeoutError,
     ) as patched:
         await client._process_evaluation(_crypto_market_item())
@@ -273,15 +303,20 @@ async def test_grok_timeout_falls_back_to_neutral_sentiment(
 # Test 6: Malformed Grok JSON -> neutral fallback, evaluation continues
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_malformed_grok_json_falls_back_to_neutral(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """When Grok returns invalid data, pipeline continues with neutral sentiment."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
-        client._grok_client, "analyze_sentiment", new_callable=AsyncMock,
+        client._grok_client,
+        "analyze_sentiment",
+        new_callable=AsyncMock,
         side_effect=Exception("Grok returned malformed JSON"),
     ) as patched:
         await client._process_evaluation(_crypto_market_item())
@@ -299,9 +334,12 @@ async def test_malformed_grok_json_falls_back_to_neutral(
 # Test 7: Prompt includes sentiment block values (real mock-mode client)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_prompt_includes_sentiment_oracle_block(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """The evaluation prompt sent to Claude must contain the sentiment oracle section
     with actual _MOCK_SENTIMENT values from the real GrokClient."""
@@ -325,9 +363,12 @@ async def test_prompt_includes_sentiment_oracle_block(
 # Test 8: Gatekeeper remains terminal validation path
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_gatekeeper_remains_terminal_after_sentiment_injection(
-    test_config, mock_anthropic_buy_json, mock_polymarket,
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
 ):
     """LLMEvaluationResponse.model_validate_json remains the terminal gate.
     Sentiment enrichment must not bypass or alter gatekeeper validation."""

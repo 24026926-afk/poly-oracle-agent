@@ -35,12 +35,16 @@ from src.db.repositories.decision_repo import DecisionRepository
 
 logger = structlog.get_logger(__name__)
 
-_GROK_ELIGIBLE: frozenset[MarketCategory] = frozenset({
-    MarketCategory.CRYPTO,
-    MarketCategory.POLITICS,
-})
+_GROK_ELIGIBLE: frozenset[MarketCategory] = frozenset(
+    {
+        MarketCategory.CRYPTO,
+        MarketCategory.POLITICS,
+    }
+)
 
-_CHAIN_BUDGET: float = 2.0  # shared wall-clock budget (seconds) across the evaluation chain
+_CHAIN_BUDGET: float = (
+    2.0  # shared wall-clock budget (seconds) across the evaluation chain
+)
 _CHAIN_BUDGET_DRY_RUN: float = 60.0  # relaxed budget for debugging / dry-run pipelines
 
 
@@ -58,19 +62,46 @@ class _DecimalSafeEncoder(json.JSONEncoder):
 
 _ROUTING_TABLE: Dict[MarketCategory, list[str]] = {
     MarketCategory.CRYPTO: [
-        "btc", "bitcoin", "eth", "ethereum", "crypto", "token",
-        "defi", "blockchain", "sol", "solana",
+        "btc",
+        "bitcoin",
+        "eth",
+        "ethereum",
+        "crypto",
+        "token",
+        "defi",
+        "blockchain",
+        "sol",
+        "solana",
     ],
     MarketCategory.POLITICS: [
-        "election", "president", "senate", "congress", "vote",
-        "candidate", "party", "referendum", "governor", "minister",
+        "election",
+        "president",
+        "senate",
+        "congress",
+        "vote",
+        "candidate",
+        "party",
+        "referendum",
+        "governor",
+        "minister",
     ],
     MarketCategory.SPORTS: [
-        "nfl", "nba", "mlb", "nhl", "soccer", "football",
-        "basketball", "baseball", "tennis", "ufc", "match",
-        "game", "tournament",
+        "nfl",
+        "nba",
+        "mlb",
+        "nhl",
+        "soccer",
+        "football",
+        "basketball",
+        "baseball",
+        "tennis",
+        "ufc",
+        "match",
+        "game",
+        "tournament",
     ],
 }
+
 
 class ClaudeClient:
     """
@@ -94,7 +125,9 @@ class ClaudeClient:
         self.config = config
         self._db_factory = db_session_factory
         self._decision_repo_factory = decision_repo_factory
-        self.client = AsyncAnthropic(api_key=self.config.anthropic_api_key.get_secret_value())
+        self.client = AsyncAnthropic(
+            api_key=self.config.anthropic_api_key.get_secret_value()
+        )
         self._grok_client = GrokClient(
             api_key=self.config.grok_api_key,
             base_url=self.config.grok_base_url,
@@ -103,12 +136,12 @@ class ClaudeClient:
         )
         self._running = False
         self.model = self.config.anthropic_model
-        
+
     async def start(self) -> None:
         """Starts the evaluation loop."""
         self._running = True
         logger.info("Starting Claude Evaluation Node...", model=self.model)
-        
+
         # Start the background consumption loop
         task = asyncio.create_task(self._consume_queue())
         try:
@@ -116,12 +149,12 @@ class ClaudeClient:
                 await asyncio.sleep(1)
         finally:
             task.cancel()
-                
+
     async def stop(self) -> None:
         """Gracefully stops the client."""
         logger.info("Stopping Claude Evaluation Node...")
         self._running = False
-        
+
     async def _consume_queue(self) -> None:
         while self._running:
             item_fetched = False
@@ -132,7 +165,9 @@ class ClaudeClient:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Unexpected error in Claude evaluation loop.", error=str(e))
+                logger.error(
+                    "Unexpected error in Claude evaluation loop.", error=str(e)
+                )
             finally:
                 if item_fetched:
                     self.in_queue.task_done()
@@ -144,7 +179,11 @@ class ClaudeClient:
         tags = " ".join(item.get("tags", []))
         text = f"{condition_id} {title} {tags}".lower()
 
-        for category in [MarketCategory.CRYPTO, MarketCategory.POLITICS, MarketCategory.SPORTS]:
+        for category in [
+            MarketCategory.CRYPTO,
+            MarketCategory.POLITICS,
+            MarketCategory.SPORTS,
+        ]:
             if any(kw in text for kw in _ROUTING_TABLE[category]):
                 return category
         return MarketCategory.GENERAL
@@ -271,12 +310,16 @@ class ClaudeClient:
 
         # Stage B: Primary evaluation candidate (no Gatekeeper validation yet)
         prompt = PromptFactory.build_evaluation_prompt(
-            market_state=market_state, category=category, sentiment=sentiment,
+            market_state=market_state,
+            category=category,
+            sentiment=sentiment,
         )
         chain_budget = _CHAIN_BUDGET_DRY_RUN if self.config.dry_run else _CHAIN_BUDGET
         remaining = chain_budget - (time.monotonic() - t0)
         if remaining <= 0:
-            logger.error("Budget exhausted before primary evaluation.", snapshot_id=snapshot_id)
+            logger.error(
+                "Budget exhausted before primary evaluation.", snapshot_id=snapshot_id
+            )
             return
         try:
             primary_result = await asyncio.wait_for(
@@ -284,10 +327,17 @@ class ClaudeClient:
                 timeout=remaining,
             )
         except asyncio.TimeoutError:
-            logger.error("Primary evaluation exceeded shared budget.", snapshot_id=snapshot_id, dry_run=self.config.dry_run)
+            logger.error(
+                "Primary evaluation exceeded shared budget.",
+                snapshot_id=snapshot_id,
+                dry_run=self.config.dry_run,
+            )
             return
         if not primary_result:
-            logger.error("Failed to obtain primary candidate after retries.", snapshot_id=snapshot_id)
+            logger.error(
+                "Failed to obtain primary candidate after retries.",
+                snapshot_id=snapshot_id,
+            )
             return
 
         primary_raw_text, primary_json, token_usage = primary_result
@@ -367,26 +417,31 @@ class ClaudeClient:
 
         # 3. Routing
         if eval_resp.decision_boolean:
-            logger.info("Trade APPROVED by Gatekeeper. Enqueueing for Execution.", snapshot_id=snapshot_id)
-            await self.out_queue.put({
-                "snapshot_id": snapshot_id,
-                "evaluation": eval_resp,
-                "yes_token_id": snapshot_yes_token_id,
-            })
+            logger.info(
+                "Trade APPROVED by Gatekeeper. Enqueueing for Execution.",
+                snapshot_id=snapshot_id,
+            )
+            await self.out_queue.put(
+                {
+                    "snapshot_id": snapshot_id,
+                    "evaluation": eval_resp,
+                    "yes_token_id": snapshot_yes_token_id,
+                }
+            )
         else:
             logger.info("Trade REJECTED/HOLD by Gatekeeper.", snapshot_id=snapshot_id)
 
     def _extract_json(self, text: str) -> str:
         """Attempts to cleanly extract a JSON object from markdown or raw text."""
-        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if match:
             return match.group(1).strip()
 
         # Try to find the first '{' and last '}'
-        start = text.find('{')
-        end = text.rfind('}')
+        start = text.find("{")
+        end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            return text[start:end+1].strip()
+            return text[start : end + 1].strip()
 
         return text.strip()
 
@@ -435,17 +490,24 @@ class ClaudeClient:
                 )
                 if attempt < max_retries:
                     messages.append({"role": "assistant", "content": raw_content})
-                    messages.append({
-                        "role": "user",
-                        "content": "Your response was not valid JSON. Return ONLY a raw JSON object.",
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Your response was not valid JSON. Return ONLY a raw JSON object.",
+                        }
+                    )
                 else:
                     return None
             except Exception as e:
-                logger.error("Anthropic API Error.", error=str(e), attempt=attempt + 1, snapshot_id=snapshot_id)
+                logger.error(
+                    "Anthropic API Error.",
+                    error=str(e),
+                    attempt=attempt + 1,
+                    snapshot_id=snapshot_id,
+                )
                 if attempt == max_retries:
                     return None
-                await asyncio.sleep(2.0 ** attempt)
+                await asyncio.sleep(2.0**attempt)
 
         return None
 
@@ -559,7 +621,9 @@ class ClaudeClient:
             return primary_candidate_json
 
         if reflection.verdict == ReflectionVerdict.ADJUSTED:
-            return json.dumps(reflection.corrected_candidate_json, cls=_DecimalSafeEncoder)
+            return json.dumps(
+                reflection.corrected_candidate_json, cls=_DecimalSafeEncoder
+            )
 
         # REJECTED → conservative HOLD
         return self._build_hold_candidate(primary_candidate_json)
@@ -578,52 +642,66 @@ class ClaudeClient:
         return json.dumps(candidate)
 
     async def _evaluate_with_retries(
-        self, 
-        prompt: str, 
-        snapshot_id: str, 
-        max_retries: int = 2
+        self, prompt: str, snapshot_id: str, max_retries: int = 2
     ) -> Optional[tuple[LLMEvaluationResponse, str, Dict[str, int]]]:
         messages = [{"role": "user", "content": prompt}]
-        
+
         for attempt in range(max_retries + 1):
             try:
-                logger.debug("Calling Anthropic API...", attempt=attempt+1, snapshot_id=snapshot_id)
+                logger.debug(
+                    "Calling Anthropic API...",
+                    attempt=attempt + 1,
+                    snapshot_id=snapshot_id,
+                )
                 resp = await self.client.messages.create(
                     model=self.model,
                     max_tokens=4096,
                     messages=messages,
-                    temperature=0.0
+                    temperature=0.0,
                 )
-                
+
                 raw_content = resp.content[0].text
                 json_str = self._extract_json(raw_content)
-                
+
                 try:
                     eval_response = LLMEvaluationResponse.model_validate_json(json_str)
-                    
+
                     token_usage = {
                         "input": resp.usage.input_tokens,
-                        "output": resp.usage.output_tokens
+                        "output": resp.usage.output_tokens,
                     }
-                    
+
                     return eval_response, raw_content, token_usage
-                    
+
                 except ValidationError as e:
-                    logger.warning("JSON Validation Error. Re-prompting Claude...", attempt=attempt+1, snapshot_id=snapshot_id)
+                    logger.warning(
+                        "JSON Validation Error. Re-prompting Claude...",
+                        attempt=attempt + 1,
+                        snapshot_id=snapshot_id,
+                    )
                     if attempt < max_retries:
                         messages.append({"role": "assistant", "content": raw_content})
                         fix_prompt = f"Your response failed strict Pydantic JSON schema validation. Fix these errors:\n{str(e)}\n\nReturn ONLY the corrected JSON."
                         messages.append({"role": "user", "content": fix_prompt})
                     else:
-                        logger.error("Max retries exceeded for JSON validation.", snapshot_id=snapshot_id, errors=str(e))
+                        logger.error(
+                            "Max retries exceeded for JSON validation.",
+                            snapshot_id=snapshot_id,
+                            errors=str(e),
+                        )
                         return None
-                        
+
             except Exception as e:
-                logger.error("Anthropic API Error.", error=str(e), attempt=attempt+1, snapshot_id=snapshot_id)
+                logger.error(
+                    "Anthropic API Error.",
+                    error=str(e),
+                    attempt=attempt + 1,
+                    snapshot_id=snapshot_id,
+                )
                 if attempt == max_retries:
                     return None
-                await asyncio.sleep(2.0 ** attempt)
-                
+                await asyncio.sleep(2.0**attempt)
+
         return None
 
     async def _persist_decision(
@@ -631,11 +709,14 @@ class ClaudeClient:
         eval_resp: LLMEvaluationResponse,
         raw_text: str,
         token_usage: Dict[str, int],
-        snapshot_id: str
+        snapshot_id: str,
     ) -> None:
         """Persists the full audit trail and Gatekeeper invariants into SQLite."""
         if self._db_factory is None:
-            logger.error("No db_session_factory configured — cannot persist decision.", snapshot_id=snapshot_id)
+            logger.error(
+                "No db_session_factory configured — cannot persist decision.",
+                snapshot_id=snapshot_id,
+            )
             return
         try:
             async with self._db_factory() as session:
@@ -651,9 +732,13 @@ class ClaudeClient:
                     prompt_version="v1.0.0",
                     llm_model_id=self.model,
                     input_tokens=token_usage["input"],
-                    output_tokens=token_usage["output"]
+                    output_tokens=token_usage["output"],
                 )
                 await repo.insert_decision(decision_log)
                 await session.commit()
         except Exception as e:
-            logger.error("Failed to persist AgentDecisionLog to database.", error=str(e), snapshot_id=snapshot_id)
+            logger.error(
+                "Failed to persist AgentDecisionLog to database.",
+                error=str(e),
+                snapshot_id=snapshot_id,
+            )

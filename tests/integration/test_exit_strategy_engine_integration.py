@@ -444,6 +444,8 @@ def test_exit_strategy_engine_module_import_boundary():
         "src.agents.ingestion",
     )
     forbidden = sorted(
-        module_name for module_name in imported if module_name.startswith(forbidden_prefixes)
+        module_name
+        for module_name in imported
+        if module_name.startswith(forbidden_prefixes)
     )
     assert forbidden == []

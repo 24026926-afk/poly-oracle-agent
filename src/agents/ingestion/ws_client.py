@@ -91,11 +91,13 @@ class CLOBWebSocketClient:
 
     def _build_subscription_message(self) -> str:
         """Build the CLOB WebSocket subscription payload."""
-        return json.dumps({
-            "type": "subscribe",
-            "channel": "market",
-            "assets_ids": self._assets_ids,
-        })
+        return json.dumps(
+            {
+                "type": "subscribe",
+                "channel": "market",
+                "assets_ids": self._assets_ids,
+            }
+        )
 
     def set_assets_ids(self, assets_ids: list[str]) -> None:
         """Update token IDs for subscription (e.g. after market rotation)."""
@@ -130,11 +132,13 @@ class CLOBWebSocketClient:
             )
             return
 
-        subscription_msg = json.dumps({
-            "type": "subscribe",
-            "assets_ids": assets_ids,
-            "event_types": ["book", "price_change", "last_trade_price"],
-        })
+        subscription_msg = json.dumps(
+            {
+                "type": "subscribe",
+                "assets_ids": assets_ids,
+                "event_types": ["book", "price_change", "last_trade_price"],
+            }
+        )
 
         await ws.send(subscription_msg)
         logger.info(
@@ -182,7 +186,7 @@ class CLOBWebSocketClient:
 
     async def _heartbeat(self, ws: websockets.ClientConnection) -> None:
         """Send a heartbeat ping every 10 seconds.
-        
+
         Polymarket CLOB expects the plain text string "PING" (not JSON).
         Server responds with "PONG" automatically.
         """
@@ -219,7 +223,11 @@ class CLOBWebSocketClient:
         except json.JSONDecodeError:
             # Plain-text server errors (e.g. "INVALID OPERATION") are not JSON
             stripped = raw_msg.strip()
-            if stripped and not stripped.startswith("{") and not stripped.startswith("["):
+            if (
+                stripped
+                and not stripped.startswith("{")
+                and not stripped.startswith("[")
+            ):
                 logger.warning("ws_client.server_error", response=stripped[:200])
             else:
                 logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
@@ -238,7 +246,9 @@ class CLOBWebSocketClient:
             logger.warning(
                 "ws.frame_unrouted",
                 asset_id=asset_id,
-                frame_type=data.get("event_type", "unknown") if isinstance(data, dict) else "unknown",
+                frame_type=data.get("event_type", "unknown")
+                if isinstance(data, dict)
+                else "unknown",
             )
         elif isinstance(data, dict) and "asset_id" not in data:
             logger.warning(
@@ -310,12 +320,20 @@ class CLOBWebSocketClient:
             asks = data.get("asks", [])
             if bids:
                 try:
-                    best_bid = float(bids[0].get("price", 0.0) if isinstance(bids[0], dict) else bids[0])
+                    best_bid = float(
+                        bids[0].get("price", 0.0)
+                        if isinstance(bids[0], dict)
+                        else bids[0]
+                    )
                 except (ValueError, IndexError, TypeError):
                     best_bid = 0.0
             if asks:
                 try:
-                    best_ask = float(asks[0].get("price", 0.0) if isinstance(asks[0], dict) else asks[0])
+                    best_ask = float(
+                        asks[0].get("price", 0.0)
+                        if isinstance(asks[0], dict)
+                        else asks[0]
+                    )
                 except (ValueError, IndexError, TypeError):
                     best_ask = 0.0
             # Fall back to top-level best_bid/best_ask if lists are empty

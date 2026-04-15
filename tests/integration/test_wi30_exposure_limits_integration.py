@@ -109,10 +109,14 @@ async def test_exposure_validator_uses_sqlite_open_positions_sum_for_limit_check
     async with db_session_factory() as session:
         repo = PositionRepository(session)
         await repo.insert_position(
-            _make_open_position(position_id="pos-open-001", order_size_usdc=Decimal("10"))
+            _make_open_position(
+                position_id="pos-open-001", order_size_usdc=Decimal("10")
+            )
         )
         await repo.insert_position(
-            _make_open_position(position_id="pos-open-002", order_size_usdc=Decimal("18"))
+            _make_open_position(
+                position_id="pos-open-002", order_size_usdc=Decimal("18")
+            )
         )
         await repo.insert_position(
             _make_closed_position(

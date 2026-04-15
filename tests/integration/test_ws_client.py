@@ -22,6 +22,7 @@ from src.db.models import MarketSnapshot
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_config() -> MagicMock:
     cfg = MagicMock()
     cfg.clob_ws_url = "ws://localhost:9998"
@@ -87,9 +88,7 @@ async def test_ws_handle_message_filters_invalid_event(
 
 
 @pytest.mark.asyncio
-async def test_ws_handle_message_skips_malformed_json(
-    async_engine, db_session_factory
-):
+async def test_ws_handle_message_skips_malformed_json(async_engine, db_session_factory):
     """Malformed JSON must not crash the handler or enqueue anything."""
     queue: asyncio.Queue = asyncio.Queue()
     client = CLOBWebSocketClient(_make_config(), queue, db_session_factory)

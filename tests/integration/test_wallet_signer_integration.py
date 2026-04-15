@@ -120,7 +120,9 @@ class TestNoBroadcastCapability:
     def test_no_broadcast_method_on_class(self):
         """TransactionSigner must have no public method containing 'broadcast' or 'send'."""
         public = [m for m in dir(TransactionSigner) if not m.startswith("_")]
-        forbidden = [m for m in public if "broadcast" in m.lower() or "send" in m.lower()]
+        forbidden = [
+            m for m in public if "broadcast" in m.lower() or "send" in m.lower()
+        ]
         assert forbidden == [], f"Broadcast/send methods found: {forbidden}"
 
     def test_no_http_post_in_source(self):

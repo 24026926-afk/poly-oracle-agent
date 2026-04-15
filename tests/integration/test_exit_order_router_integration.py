@@ -147,8 +147,8 @@ def _build_router(
         if signing_error is not None:
             transaction_signer.sign_order.side_effect = signing_error
         else:
-            transaction_signer.sign_order.side_effect = (
-                lambda order: _make_signed_order(order)
+            transaction_signer.sign_order.side_effect = lambda order: (
+                _make_signed_order(order)
             )
 
     router = router_module.ExitOrderRouter(
@@ -328,9 +328,10 @@ async def test_upstream_failure_cascade_returns_failed_actions(
 def test_orchestrator_constructs_exit_order_router_with_expected_dependencies(
     test_config,
 ):
-    with patch.multiple("src.orchestrator", **_patch_heavy_deps()), patch(
-        "src.orchestrator.ExitOrderRouter"
-    ) as mock_exit_router_cls:
+    with (
+        patch.multiple("src.orchestrator", **_patch_heavy_deps()),
+        patch("src.orchestrator.ExitOrderRouter") as mock_exit_router_cls,
+    ):
         orch = Orchestrator(test_config)
 
     assert orch.exit_order_router is mock_exit_router_cls.return_value
@@ -419,4 +420,3 @@ async def test_exit_scan_loop_continues_when_one_routing_call_fails(
         position_id="pos-int-101",
         error="route crashed",
     )
-

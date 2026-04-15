@@ -31,6 +31,7 @@ from src.db.repositories import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_snapshot(
     condition_id: str = "cond_abc",
     captured_at: datetime | None = None,
@@ -97,8 +98,8 @@ def _make_execution(
 # MarketRepository
 # ---------------------------------------------------------------------------
 
-class TestMarketRepository:
 
+class TestMarketRepository:
     @pytest.mark.asyncio
     async def test_insert_and_get_latest_snapshot(self, async_session):
         repo = MarketRepository(async_session)
@@ -127,8 +128,8 @@ class TestMarketRepository:
 # DecisionRepository
 # ---------------------------------------------------------------------------
 
-class TestDecisionRepository:
 
+class TestDecisionRepository:
     @pytest.mark.asyncio
     async def test_insert_and_get_recent_decisions(self, async_session):
         market_repo = MarketRepository(async_session)
@@ -176,8 +177,8 @@ class TestDecisionRepository:
 # ExecutionRepository
 # ---------------------------------------------------------------------------
 
-class TestExecutionRepository:
 
+class TestExecutionRepository:
     @pytest.mark.asyncio
     async def test_insert_and_get_execution_by_decision(self, async_session):
         market_repo = MarketRepository(async_session)
@@ -204,9 +205,7 @@ class TestExecutionRepository:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_aggregate_exposure_sums_pending_confirmed(
-        self, async_session
-    ):
+    async def test_aggregate_exposure_sums_pending_confirmed(self, async_session):
         market_repo = MarketRepository(async_session)
         decision_repo = DecisionRepository(async_session)
         exec_repo = ExecutionRepository(async_session)
@@ -237,9 +236,7 @@ class TestExecutionRepository:
         assert exposure == Decimal("40.0")
 
     @pytest.mark.asyncio
-    async def test_aggregate_exposure_returns_zero_on_empty(
-        self, async_session
-    ):
+    async def test_aggregate_exposure_returns_zero_on_empty(self, async_session):
         exec_repo = ExecutionRepository(async_session)
         exposure = await exec_repo.get_aggregate_exposure("no_rows")
         assert exposure == Decimal("0")

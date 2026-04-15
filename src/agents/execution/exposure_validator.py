@@ -85,12 +85,8 @@ class ExposureValidator:
         global_limit = bankroll * max_exposure_pct
         category_limit = bankroll * max_category_exposure_pct
 
-        aggregate_check_passed = (
-            aggregate_exposure + proposed_size <= global_limit
-        )
-        category_check_passed = (
-            category_exposure + proposed_size <= category_limit
-        )
+        aggregate_check_passed = aggregate_exposure + proposed_size <= global_limit
+        category_check_passed = category_exposure + proposed_size <= category_limit
         validation_passed = aggregate_check_passed and category_check_passed
 
         category_exposures = {
@@ -126,9 +122,7 @@ class ExposureValidator:
                 available_headroom_usdc=str(summary.available_headroom_usdc),
             )
         else:
-            breach_type = (
-                "aggregate" if not aggregate_check_passed else "category"
-            )
+            breach_type = "aggregate" if not aggregate_check_passed else "category"
             self._log.warning(
                 "exposure.limit_exceeded",
                 breach_type=breach_type,

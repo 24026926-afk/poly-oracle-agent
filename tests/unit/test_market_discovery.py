@@ -28,6 +28,7 @@ from src.schemas.market import MarketMetadata
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _future_iso(hours: float) -> str:
     """Return an ISO-8601 datetime string *hours* from now (UTC)."""
     dt = datetime.now(timezone.utc) + timedelta(hours=hours)
@@ -50,15 +51,17 @@ def _make_market(
     volume_24h: float | None = 100.0,
 ) -> MarketMetadata:
     """Build a MarketMetadata from kwargs."""
-    return MarketMetadata.model_validate({
-        "conditionId": condition_id,
-        "question": question,
-        "clobTokenIds": token_ids if token_ids is not None else ["tok-1", "tok-2"],
-        "endDateIso": end_date_iso if end_date_iso is not None else _future_iso(24),
-        "active": active,
-        "closed": closed,
-        "volume24hr": volume_24h,
-    })
+    return MarketMetadata.model_validate(
+        {
+            "conditionId": condition_id,
+            "question": question,
+            "clobTokenIds": token_ids if token_ids is not None else ["tok-1", "tok-2"],
+            "endDateIso": end_date_iso if end_date_iso is not None else _future_iso(24),
+            "active": active,
+            "closed": closed,
+            "volume24hr": volume_24h,
+        }
+    )
 
 
 class FakeConfig:
@@ -90,9 +93,7 @@ def _make_tracker_stub(
     exposure_map = exposure_map or {}
     stub = AsyncMock()
     stub.get_total_bankroll.return_value = bankroll
-    stub.get_exposure.side_effect = lambda cid: exposure_map.get(
-        cid, Decimal("0")
-    )
+    stub.get_exposure.side_effect = lambda cid: exposure_map.get(cid, Decimal("0"))
     return stub
 
 
@@ -161,16 +162,17 @@ async def test_discover_excludes_ttr_below_minimum():
 @pytest.mark.asyncio
 async def test_discover_excludes_no_end_date():
     """Markets with end_date_iso=None cannot be verified for TTR."""
-    m = _make_market(condition_id="no-date")
     # Override frozen field via model_validate with None end_date
-    m_no_date = MarketMetadata.model_validate({
-        "conditionId": "no-date",
-        "question": "Q?",
-        "clobTokenIds": ["t1"],
-        "endDateIso": None,
-        "active": True,
-        "closed": False,
-    })
+    m_no_date = MarketMetadata.model_validate(
+        {
+            "conditionId": "no-date",
+            "question": "Q?",
+            "clobTokenIds": ["t1"],
+            "endDateIso": None,
+            "active": True,
+            "closed": False,
+        }
+    )
     engine = _build_engine(markets=[m_no_date])
 
     result = await engine.discover()
@@ -254,14 +256,16 @@ async def test_discover_handles_empty_gamma_response():
 @pytest.mark.asyncio
 async def test_discover_handles_unparseable_end_date():
     """Malformed end_date_iso is excluded without raising."""
-    m_bad_date = MarketMetadata.model_validate({
-        "conditionId": "bad-date",
-        "question": "Q?",
-        "clobTokenIds": ["t1"],
-        "endDateIso": "not-a-date",
-        "active": True,
-        "closed": False,
-    })
+    m_bad_date = MarketMetadata.model_validate(
+        {
+            "conditionId": "bad-date",
+            "question": "Q?",
+            "clobTokenIds": ["t1"],
+            "endDateIso": "not-a-date",
+            "active": True,
+            "closed": False,
+        }
+    )
     engine = _build_engine(markets=[m_bad_date])
 
     result = await engine.discover()

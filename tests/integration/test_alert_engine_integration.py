@@ -198,7 +198,9 @@ async def test_portfolio_aggregation_loop_calls_evaluate_when_snapshot_and_repor
         if sleep_calls >= 2:
             raise asyncio.CancelledError
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=snapshot)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=snapshot
+    )
     orchestrator.lifecycle_reporter.generate_report = AsyncMock(return_value=report)
     orchestrator.alert_engine = MagicMock()
     orchestrator.alert_engine.evaluate = MagicMock(return_value=[])
@@ -295,7 +297,9 @@ async def test_portfolio_aggregation_loop_does_not_call_evaluate_when_report_fai
         if sleep_calls >= 2:
             raise asyncio.CancelledError
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=snapshot)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=snapshot
+    )
     orchestrator.lifecycle_reporter.generate_report = AsyncMock(
         side_effect=Exception("report-boom")
     )
@@ -353,7 +357,9 @@ async def test_portfolio_aggregation_loop_catches_evaluate_exception_and_continu
         if sleep_calls >= 3:
             raise asyncio.CancelledError
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=snapshot)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=snapshot
+    )
     orchestrator.lifecycle_reporter.generate_report = AsyncMock(return_value=report)
     orchestrator.alert_engine = MagicMock()
     orchestrator.alert_engine.evaluate = MagicMock(
@@ -436,7 +442,9 @@ async def test_portfolio_aggregation_loop_logs_alerts_fired_when_alerts_exist(
         if sleep_calls >= 2:
             raise asyncio.CancelledError
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=snapshot)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=snapshot
+    )
     orchestrator.lifecycle_reporter.generate_report = AsyncMock(return_value=report)
     orchestrator.alert_engine = MagicMock()
     orchestrator.alert_engine.evaluate = MagicMock(return_value=[alert_one, alert_two])

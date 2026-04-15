@@ -79,7 +79,9 @@ async def test_position_repository_insert_round_trip(async_session):
     repo_module = _load_module(REPO_MODULE_NAME)
 
     repo_cls = getattr(repo_module, "PositionRepository", None)
-    assert repo_cls is not None, "Expected PositionRepository in src.db.repositories.position_repo"
+    assert repo_cls is not None, (
+        "Expected PositionRepository in src.db.repositories.position_repo"
+    )
 
     repo = repo_cls(async_session)
     position = _sample_position_orm(models_module)
@@ -232,6 +234,8 @@ def test_position_tracker_module_import_boundary():
         "src.agents.ingestion",
     )
     forbidden = sorted(
-        module_name for module_name in imported if module_name.startswith(forbidden_prefixes)
+        module_name
+        for module_name in imported
+        if module_name.startswith(forbidden_prefixes)
     )
     assert forbidden == []

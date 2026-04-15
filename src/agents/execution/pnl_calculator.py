@@ -157,9 +157,7 @@ class PnLCalculator:
                         "gas_cost_usdc": persisted_gas_cost,
                         "fees_usdc": persisted_fees,
                         "net_realized_pnl": (
-                            persisted_realized_pnl
-                            - persisted_gas_cost
-                            - persisted_fees
+                            persisted_realized_pnl - persisted_gas_cost - persisted_fees
                         ),
                     }
                 )

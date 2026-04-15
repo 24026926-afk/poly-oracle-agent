@@ -37,13 +37,9 @@ class ExecutionRepository:
         )
         return execution
 
-    async def get_by_decision_id(
-        self, decision_id: str
-    ) -> ExecutionTx | None:
+    async def get_by_decision_id(self, decision_id: str) -> ExecutionTx | None:
         """Return the execution record linked to a decision, or None."""
-        stmt = select(ExecutionTx).where(
-            ExecutionTx.decision_id == decision_id
-        )
+        stmt = select(ExecutionTx).where(ExecutionTx.decision_id == decision_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -89,11 +85,7 @@ class ExecutionRepository:
         stmt = (
             select(func.sum(ExecutionTx.size_usdc))
             .where(ExecutionTx.condition_id == condition_id)
-            .where(
-                ExecutionTx.status.in_(
-                    [TxStatus.PENDING, TxStatus.CONFIRMED]
-                )
-            )
+            .where(ExecutionTx.status.in_([TxStatus.PENDING, TxStatus.CONFIRMED]))
         )
         result = await self._session.execute(stmt)
         raw = result.scalar_one_or_none()

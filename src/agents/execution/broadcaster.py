@@ -17,6 +17,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import aiohttp
 import structlog
@@ -30,6 +31,9 @@ from src.core.exceptions import BroadcastError
 from src.db.models import ExecutionTx, TxStatus
 from src.db.repositories.execution_repo import ExecutionRepository
 from src.schemas.web3 import GasPrice, SignedOrder, TxReceiptSchema
+
+if TYPE_CHECKING:
+    from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -224,9 +228,7 @@ class OrderBroadcaster:
             order_hash=order_hash,
             attempts=max_attempts,
         )
-        raise BroadcastError(
-            f"Receipt timeout after {max_attempts * delay_s:.0f}s"
-        )
+        raise BroadcastError(f"Receipt timeout after {max_attempts * delay_s:.0f}s")
 
     async def _poll_receipt_safe(
         self,
@@ -261,9 +263,7 @@ class OrderBroadcaster:
             block_number=receipt.block_number,
             error_message=None,
             confirmed_at=(
-                datetime.now(timezone.utc)
-                if receipt.status == "CONFIRMED"
-                else None
+                datetime.now(timezone.utc) if receipt.status == "CONFIRMED" else None
             ),
         )
         return receipt
@@ -331,7 +331,7 @@ class OrderBroadcaster:
             tx_hash=None,
             status=TxStatus.PENDING,
             side="BUY" if order.side.value == 0 else "SELL",
-            size_usdc=Decimal(str(order.maker_amount)) / Decimal('1e6'),
+            size_usdc=Decimal(str(order.maker_amount)) / Decimal("1e6"),
             limit_price=0.0,  # CLOB manages price matching
             condition_id=str(order.token_id),
             outcome_token="YES",

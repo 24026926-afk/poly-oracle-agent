@@ -248,9 +248,16 @@ class PositionLifecycleReporter:
             else:
                 breakeven_count += 1
 
-            if position.closed_at_utc is not None and position.routed_at_utc is not None:
+            if (
+                position.closed_at_utc is not None
+                and position.routed_at_utc is not None
+            ):
                 hold_seconds = Decimal(
-                    str((position.closed_at_utc - position.routed_at_utc).total_seconds())
+                    str(
+                        (
+                            position.closed_at_utc - position.routed_at_utc
+                        ).total_seconds()
+                    )
                 )
                 total_hold_seconds += hold_seconds
                 hold_duration_count += 1
@@ -262,7 +269,9 @@ class PositionLifecycleReporter:
             avg_hold_duration_hours = _ZERO
         else:
             avg_hold_duration_hours = (
-                total_hold_seconds / Decimal(str(hold_duration_count)) / _SECONDS_PER_HOUR
+                total_hold_seconds
+                / Decimal(str(hold_duration_count))
+                / _SECONDS_PER_HOUR
             )
 
         return (

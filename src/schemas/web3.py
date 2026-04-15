@@ -21,7 +21,6 @@ class OrderSide(IntEnum):
     SELL = 1
 
 
-
 # Polymarket uses EOA = 0 for externally-owned accounts.
 SIGNATURE_TYPE_EOA = 0
 

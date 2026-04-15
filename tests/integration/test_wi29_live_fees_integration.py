@@ -185,7 +185,9 @@ async def test_wi29_integration_gas_gate_pass_calls_execution_router(test_config
     )
 
     gas_estimator = MagicMock()
-    gas_estimator.estimate_gas_price_wei = AsyncMock(return_value=Decimal("30000000000"))
+    gas_estimator.estimate_gas_price_wei = AsyncMock(
+        return_value=Decimal("30000000000")
+    )
     gas_estimator.estimate_gas_cost_usdc = MagicMock(return_value=Decimal("0.02"))
     gas_estimator.pre_evaluate_gas_check = MagicMock(return_value=True)
     price_provider = MagicMock()
@@ -206,7 +208,9 @@ async def test_wi29_integration_gas_gate_pass_calls_execution_router(test_config
 
 
 @pytest.mark.asyncio
-async def test_wi29_integration_gas_gate_fail_emits_skip_and_bypasses_router(test_config):
+async def test_wi29_integration_gas_gate_fail_emits_skip_and_bypasses_router(
+    test_config,
+):
     orch = _build_orchestrator(test_config, gas_check_enabled=True)
     orch.broadcaster = AsyncMock()
     orch.position_tracker.record_execution = AsyncMock(return_value=None)
@@ -215,7 +219,9 @@ async def test_wi29_integration_gas_gate_fail_emits_skip_and_bypasses_router(tes
     )
 
     gas_estimator = MagicMock()
-    gas_estimator.estimate_gas_price_wei = AsyncMock(return_value=Decimal("100000000000"))
+    gas_estimator.estimate_gas_price_wei = AsyncMock(
+        return_value=Decimal("100000000000")
+    )
     gas_estimator.estimate_gas_cost_usdc = MagicMock(return_value=Decimal("2.00"))
     gas_estimator.pre_evaluate_gas_check = MagicMock(return_value=False)
     price_provider = MagicMock()
@@ -245,15 +251,15 @@ async def test_wi29_integration_rpc_fallback_chain_uses_mock_value():
     estimator = gas_module.GasEstimator(_wi29_config(dry_run=False))
 
     assert hasattr(gas_module, "httpx"), "WI-29 requires httpx-based GasEstimator."
-    assert hasattr(
-        estimator, "estimate_gas_price_wei"
-    ), "WI-29 GasEstimator must expose estimate_gas_price_wei()."
-    assert hasattr(
-        estimator, "estimate_gas_cost_usdc"
-    ), "WI-29 GasEstimator must expose estimate_gas_cost_usdc()."
-    assert hasattr(
-        estimator, "pre_evaluate_gas_check"
-    ), "WI-29 GasEstimator must expose pre_evaluate_gas_check()."
+    assert hasattr(estimator, "estimate_gas_price_wei"), (
+        "WI-29 GasEstimator must expose estimate_gas_price_wei()."
+    )
+    assert hasattr(estimator, "estimate_gas_cost_usdc"), (
+        "WI-29 GasEstimator must expose estimate_gas_cost_usdc()."
+    )
+    assert hasattr(estimator, "pre_evaluate_gas_check"), (
+        "WI-29 GasEstimator must expose pre_evaluate_gas_check()."
+    )
 
     client = AsyncMock()
     client.post = AsyncMock(side_effect=httpx.HTTPError("rpc unavailable"))
@@ -271,10 +277,13 @@ async def test_wi29_integration_rpc_fallback_chain_uses_mock_value():
         matic_usdc_price=Decimal("0.50"),
     )
     assert isinstance(gas_cost, Decimal)
-    assert estimator.pre_evaluate_gas_check(
-        expected_value_usdc=Decimal("5.00"),
-        gas_cost_usdc=gas_cost,
-    ) is True
+    assert (
+        estimator.pre_evaluate_gas_check(
+            expected_value_usdc=Decimal("5.00"),
+            gas_cost_usdc=gas_cost,
+        )
+        is True
+    )
 
 
 @pytest.mark.asyncio
@@ -282,13 +291,19 @@ async def test_wi29_integration_settlement_gas_is_injected_into_pnl_settle(test_
     orch = _build_orchestrator(test_config, gas_check_enabled=True)
     orch.broadcaster = AsyncMock()
     orch._fetch_position_record = AsyncMock(return_value=_make_position_record())
-    orch.exit_strategy_engine.scan_open_positions = AsyncMock(return_value=[_make_exit_result()])
-    orch.exit_order_router.route_exit = AsyncMock(return_value=_make_exit_order_result())
+    orch.exit_strategy_engine.scan_open_positions = AsyncMock(
+        return_value=[_make_exit_result()]
+    )
+    orch.exit_order_router.route_exit = AsyncMock(
+        return_value=_make_exit_order_result()
+    )
     orch.pnl_calculator.settle = AsyncMock(return_value=MagicMock())
     orch.telegram_notifier = None
 
     gas_estimator = MagicMock()
-    gas_estimator.estimate_gas_price_wei = AsyncMock(return_value=Decimal("30000000000"))
+    gas_estimator.estimate_gas_price_wei = AsyncMock(
+        return_value=Decimal("30000000000")
+    )
     gas_estimator.estimate_gas_cost_usdc = MagicMock(return_value=Decimal("0.33"))
     price_provider = MagicMock()
     price_provider.get_matic_usdc = AsyncMock(return_value=Decimal("0.50"))
@@ -312,7 +327,9 @@ async def test_wi29_integration_dry_run_uses_mock_values_without_http():
     price_provider = matic_module.MaticPriceProvider(_wi29_config(dry_run=True))
 
     assert hasattr(gas_module, "httpx"), "WI-29 requires httpx-based GasEstimator."
-    assert hasattr(matic_module, "httpx"), "WI-29 requires httpx-based MaticPriceProvider."
+    assert hasattr(matic_module, "httpx"), (
+        "WI-29 requires httpx-based MaticPriceProvider."
+    )
     assert hasattr(gas_estimator, "estimate_gas_price_wei")
     assert hasattr(price_provider, "get_matic_usdc")
 
@@ -342,13 +359,19 @@ async def test_wi29_integration_exit_path_not_blocked_by_high_gas(test_config):
     orch = _build_orchestrator(test_config, gas_check_enabled=True)
     orch.broadcaster = AsyncMock()
     orch._fetch_position_record = AsyncMock(return_value=_make_position_record())
-    orch.exit_strategy_engine.scan_open_positions = AsyncMock(return_value=[_make_exit_result()])
-    orch.exit_order_router.route_exit = AsyncMock(return_value=_make_exit_order_result())
+    orch.exit_strategy_engine.scan_open_positions = AsyncMock(
+        return_value=[_make_exit_result()]
+    )
+    orch.exit_order_router.route_exit = AsyncMock(
+        return_value=_make_exit_order_result()
+    )
     orch.pnl_calculator.settle = AsyncMock(return_value=MagicMock())
     orch.telegram_notifier = None
 
     gas_estimator = MagicMock()
-    gas_estimator.estimate_gas_price_wei = AsyncMock(return_value=Decimal("250000000000"))
+    gas_estimator.estimate_gas_price_wei = AsyncMock(
+        return_value=Decimal("250000000000")
+    )
     gas_estimator.estimate_gas_cost_usdc = MagicMock(return_value=Decimal("4.00"))
     price_provider = MagicMock()
     price_provider.get_matic_usdc = AsyncMock(return_value=Decimal("1.20"))
@@ -360,4 +383,3 @@ async def test_wi29_integration_exit_path_not_blocked_by_high_gas(test_config):
 
     orch.exit_order_router.route_exit.assert_awaited()
     orch.pnl_calculator.settle.assert_awaited()
-

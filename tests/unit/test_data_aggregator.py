@@ -5,7 +5,7 @@ Unit tests for DataAggregator — market snapshot processing and queue safety.
 """
 
 import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
@@ -16,6 +16,7 @@ from src.db.models import MarketSnapshot
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_snapshot(
     condition_id: str = "0xcond123",
@@ -41,6 +42,7 @@ def _make_snapshot(
 # ---------------------------------------------------------------------------
 # Bug 1: Aggregator must handle MarketSnapshot objects (not CLOBMessage)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_process_message_reads_best_bid_ask_from_market_snapshot():
@@ -75,6 +77,7 @@ async def test_process_message_ignores_different_condition_id():
 # ---------------------------------------------------------------------------
 # Bug 2: task_done() must not be called when get() was cancelled
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_consume_queue_no_task_done_on_cancel():
@@ -113,7 +116,6 @@ async def test_consume_queue_no_task_done_on_cancel():
     # a spurious task_done() call inside the finally block.
     task.cancel()
 
-    exc = task.exception() if task.done() else None
     try:
         await task
     except asyncio.CancelledError:
@@ -173,6 +175,7 @@ async def test_consume_queue_calls_task_done_after_processing():
 # Throttling: aggregator emits at 30s intervals / 1% price change
 # ---------------------------------------------------------------------------
 
+
 def test_aggregator_time_interval_is_30_seconds():
     """Evaluation trigger interval must be 30s to avoid flooding the LLM."""
     in_q: asyncio.Queue = asyncio.Queue()
@@ -208,12 +211,15 @@ async def test_aggregator_suppresses_emit_within_interval():
     snap2 = _make_snapshot(best_bid=0.45, best_ask=0.55)
     await agg._process_message(snap2)
 
-    assert out_q.qsize() == first_emit_count, "must not emit again within throttle interval"
+    assert out_q.qsize() == first_emit_count, (
+        "must not emit again within throttle interval"
+    )
 
 
 # ---------------------------------------------------------------------------
 # yes_token_id forwarding — aggregator must pass it through to output
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_aggregator_forwards_yes_token_id_to_output():
@@ -224,15 +230,14 @@ async def test_aggregator_forwards_yes_token_id_to_output():
     agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xcond123")
 
     # _last_emit_time == 0 means first message always triggers time-based emit
-    snap = _make_snapshot(
-        best_bid=0.45, best_ask=0.55, yes_token_id="tok-yes-001"
-    )
+    snap = _make_snapshot(best_bid=0.45, best_ask=0.55, yes_token_id="tok-yes-001")
     await agg._process_message(snap)
 
     assert out_q.qsize() == 1, "first message should trigger emit"
     payload = out_q.get_nowait()
-    assert payload.get("yes_token_id") == "tok-yes-001", \
+    assert payload.get("yes_token_id") == "tok-yes-001", (
         "output payload must include yes_token_id from the snapshot"
+    )
 
 
 @pytest.mark.asyncio
@@ -256,5 +261,6 @@ async def test_aggregator_retains_yes_token_id_across_messages():
     await agg._process_message(snap2)
     assert out_q.qsize() == 1
     p2 = out_q.get_nowait()
-    assert p2["yes_token_id"] == "tok-yes-001", \
+    assert p2["yes_token_id"] == "tok-yes-001", (
         "yes_token_id must be retained even when later snapshots omit it"
+    )

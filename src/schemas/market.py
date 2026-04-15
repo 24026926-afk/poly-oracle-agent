@@ -17,6 +17,7 @@ def _utc_now() -> datetime:
 
 class PerMarketAggregatorState(BaseModel):
     """Tracks per-market subscription status, last-seen timestamp, and frame count."""
+
     model_config = ConfigDict(frozen=True)
 
     token_ids: list[str]
@@ -24,11 +25,13 @@ class PerMarketAggregatorState(BaseModel):
     last_seen_utc: datetime | None = None
     frame_count: int = 0
 
+
 class CLOBTick(BaseModel):
     """
     Represents a single price level in the orderbook.
     Polymarket CLOB sends these as strings, so Pydantic will coerce them to floats.
     """
+
     price: float = Field(..., description="The limit price of the order")
     size: float = Field(..., description="The quantity available at this price")
 
@@ -36,14 +39,20 @@ class CLOBTick(BaseModel):
         "frozen": True,
     }
 
+
 class CLOBMessage(BaseModel):
     """
     Message structure received from the Polymarket CLOB WebSocket.
     """
+
     event: str = Field(..., description="Event type, e.g., 'book' or 'price_change'")
     market: str = Field(..., description="The condition_id representing the market")
-    bids: Optional[List[CLOBTick]] = Field(default=None, description="List of bid price levels")
-    asks: Optional[List[CLOBTick]] = Field(default=None, description="List of ask price levels")
+    bids: Optional[List[CLOBTick]] = Field(
+        default=None, description="List of bid price levels"
+    )
+    asks: Optional[List[CLOBTick]] = Field(
+        default=None, description="List of ask price levels"
+    )
 
     model_config = {
         "frozen": True,

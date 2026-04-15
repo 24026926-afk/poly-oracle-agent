@@ -104,7 +104,9 @@ def test_pnl_calculator_contract_exists_and_has_one_public_async_method():
 
     public_methods = [
         name
-        for name, member in inspect.getmembers(calculator_cls, predicate=inspect.isfunction)
+        for name, member in inspect.getmembers(
+            calculator_cls, predicate=inspect.isfunction
+        )
         if not name.startswith("_")
     ]
     assert public_methods == ["settle"]
@@ -395,7 +397,9 @@ async def test_live_settle_raises_pnl_calculation_error_when_position_not_found(
     db_session_factory = MagicMock(return_value=_SessionCtx())
     repo = MagicMock()
     repo.record_settlement = AsyncMock(return_value=None)
-    monkeypatch.setattr(calculator_module, "PositionRepository", MagicMock(return_value=repo))
+    monkeypatch.setattr(
+        calculator_module, "PositionRepository", MagicMock(return_value=repo)
+    )
 
     calculator = _build_calculator(
         calculator_module,
@@ -425,7 +429,9 @@ async def test_live_settle_wraps_db_failures_as_pnl_calculation_error(monkeypatc
     db_session_factory = MagicMock(return_value=_SessionCtx())
     repo = MagicMock()
     repo.record_settlement = AsyncMock(return_value=MagicMock())
-    monkeypatch.setattr(calculator_module, "PositionRepository", MagicMock(return_value=repo))
+    monkeypatch.setattr(
+        calculator_module, "PositionRepository", MagicMock(return_value=repo)
+    )
 
     calculator = _build_calculator(
         calculator_module,
@@ -459,7 +465,9 @@ def test_pnl_calculator_module_import_boundary():
         if module_name.startswith(FORBIDDEN_IMPORT_PREFIXES)
     )
     forbidden_exact_matches = sorted(
-        module_name for module_name in imported_modules if module_name in FORBIDDEN_IMPORTS
+        module_name
+        for module_name in imported_modules
+        if module_name in FORBIDDEN_IMPORTS
     )
     assert forbidden_prefix_matches == []
     assert forbidden_exact_matches == []

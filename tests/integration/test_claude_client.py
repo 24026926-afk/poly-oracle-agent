@@ -22,6 +22,7 @@ from tests.conftest import APPROVED_REFLECTION_JSON
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _mock_anthropic_response(raw_json: str):
     """Build a mock Anthropic message response object."""
     content_block = MagicMock()
@@ -142,14 +143,19 @@ async def test_evaluation_rejected_trade_not_enqueued(
 
 @pytest.mark.asyncio
 async def test_evaluation_persists_decision_log(
-    test_config, mock_anthropic_buy_json, async_engine, db_session_factory,
+    test_config,
+    mock_anthropic_buy_json,
+    async_engine,
+    db_session_factory,
     mock_polymarket,
 ):
     """After evaluation, an AgentDecisionLog row must be persisted."""
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
     client = ClaudeClient(
-        in_queue=in_q, out_queue=out_q, config=test_config,
+        in_queue=in_q,
+        out_queue=out_q,
+        config=test_config,
         db_session_factory=db_session_factory,
     )
 

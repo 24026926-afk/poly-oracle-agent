@@ -5,7 +5,7 @@ Unit tests for ClaudeClient._route_market Layer 0 classification.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

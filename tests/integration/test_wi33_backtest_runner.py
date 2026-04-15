@@ -7,7 +7,6 @@ RED-phase integration tests for WI-33 Backtesting Framework.
 from __future__ import annotations
 
 import ast
-import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 import importlib
@@ -113,7 +112,9 @@ async def test_backtest_runner_refuses_dry_run_false_at_initialization(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_backtest_runner_replay_pipeline_and_metrics_contract(tmp_path, monkeypatch):
+async def test_backtest_runner_replay_pipeline_and_metrics_contract(
+    tmp_path, monkeypatch
+):
     runner_module = _load_module(RUNNER_MODULE)
     schemas = _load_module(SCHEMA_MODULE)
     cfg = _make_config(schemas, tmp_path)
@@ -168,7 +169,9 @@ async def test_backtest_runner_replay_pipeline_and_metrics_contract(tmp_path, mo
 
         def build_context(self, snapshot):
             calls["aggregator"] += 1
-            replay_order.append(_as_datetime(_snapshot_field(snapshot, "timestamp_utc")))
+            replay_order.append(
+                _as_datetime(_snapshot_field(snapshot, "timestamp_utc"))
+            )
             return {"snapshot": snapshot}
 
     class FakePromptFactory:
@@ -372,9 +375,13 @@ async def test_backtest_runner_zero_database_writes(tmp_path, monkeypatch):
         raise AssertionError("Database write in backtest path is forbidden.")
 
     monkeypatch.setattr(sa_async.AsyncSession, "add", _forbidden_sync, raising=False)
-    monkeypatch.setattr(sa_async.AsyncSession, "commit", _forbidden_async, raising=False)
+    monkeypatch.setattr(
+        sa_async.AsyncSession, "commit", _forbidden_async, raising=False
+    )
     monkeypatch.setattr(sa_async.AsyncSession, "flush", _forbidden_async, raising=False)
-    monkeypatch.setattr(sa_async.AsyncSession, "execute", _forbidden_async, raising=False)
+    monkeypatch.setattr(
+        sa_async.AsyncSession, "execute", _forbidden_async, raising=False
+    )
 
     backtest_runner = _build_runner(runner_module, cfg)
     await _run_runner(backtest_runner)
@@ -465,6 +472,8 @@ def test_backtest_runner_module_has_no_live_ingestion_imports():
             imported_modules.add(node.module)
 
     forbidden = sorted(
-        module_name for module_name in imported_modules if module_name in FORBIDDEN_IMPORTS
+        module_name
+        for module_name in imported_modules
+        if module_name in FORBIDDEN_IMPORTS
     )
     assert forbidden == []

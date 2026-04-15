@@ -114,7 +114,9 @@ async def test_exposure_validator_allows_entry_at_exact_global_limit_boundary():
 
 
 @pytest.mark.asyncio
-async def test_execution_consumer_skips_with_exposure_limit_exceeded_result(test_config):
+async def test_execution_consumer_skips_with_exposure_limit_exceeded_result(
+    test_config,
+):
     cfg = test_config.model_copy(deep=True)
     object.__setattr__(cfg, "enable_exposure_validator", True)
     object.__setattr__(cfg, "gas_check_enabled", False)

@@ -29,11 +29,9 @@ from eth_account import Account
 from pydantic import ValidationError
 
 from src.agents.execution.signer import (
-    CHAIN_ID,
     TransactionSigner,
     SignRequest,
     SignedArtifact,
-    KeyProvider,
 )
 from src.schemas.web3 import OrderData, OrderSide, SIGNATURE_TYPE_EOA
 
@@ -108,7 +106,9 @@ class TestTransactionSignerAPISurface:
     def test_no_send_or_broadcast_method(self):
         """WI-15 must not introduce any send/broadcast capability."""
         public = [m for m in dir(TransactionSigner) if not m.startswith("_")]
-        forbidden = [m for m in public if "send" in m.lower() or "broadcast" in m.lower()]
+        forbidden = [
+            m for m in public if "send" in m.lower() or "broadcast" in m.lower()
+        ]
         assert forbidden == [], f"Forbidden methods found: {forbidden}"
 
 
@@ -134,9 +134,13 @@ class TestSecureKeyProvider:
         assert "dotenv" not in source, "dotenv import found in signer source"
 
     @pytest.mark.asyncio
-    async def test_provider_failure_is_fail_closed(self, mock_key_provider, valid_sign_request):
+    async def test_provider_failure_is_fail_closed(
+        self, mock_key_provider, valid_sign_request
+    ):
         """When vault/keystore fails, signer must raise — no insecure fallback."""
-        mock_key_provider.load_private_key.side_effect = RuntimeError("vault unavailable")
+        mock_key_provider.load_private_key.side_effect = RuntimeError(
+            "vault unavailable"
+        )
         signer = TransactionSigner(key_provider=mock_key_provider)
 
         with pytest.raises(Exception):
@@ -145,7 +149,9 @@ class TestSecureKeyProvider:
         assert mock_key_provider.load_private_key.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_vault_provider_returns_typed_artifact(self, mock_key_provider, valid_sign_request):
+    async def test_vault_provider_returns_typed_artifact(
+        self, mock_key_provider, valid_sign_request
+    ):
         """Vault key-provider success path returns typed SignedArtifact."""
         mock_key_provider.source_type.return_value = "vault"
         signer = TransactionSigner(key_provider=mock_key_provider)
@@ -155,7 +161,9 @@ class TestSecureKeyProvider:
         assert result.key_source_type == "vault"
 
     @pytest.mark.asyncio
-    async def test_keystore_provider_returns_typed_artifact(self, mock_key_provider, valid_sign_request):
+    async def test_keystore_provider_returns_typed_artifact(
+        self, mock_key_provider, valid_sign_request
+    ):
         """Encrypted keystore success path returns typed SignedArtifact."""
         mock_key_provider.source_type.return_value = "encrypted_keystore"
         signer = TransactionSigner(key_provider=mock_key_provider)
@@ -165,7 +173,9 @@ class TestSecureKeyProvider:
         assert result.key_source_type == "encrypted_keystore"
 
     @pytest.mark.asyncio
-    async def test_forbidden_source_type_rejected(self, mock_key_provider, valid_sign_request):
+    async def test_forbidden_source_type_rejected(
+        self, mock_key_provider, valid_sign_request
+    ):
         """Source types other than vault/encrypted_keystore must be rejected."""
         mock_key_provider.source_type.return_value = "plaintext_env"
         signer = TransactionSigner(key_provider=mock_key_provider)
@@ -188,7 +198,9 @@ class TestNoKeyLogging:
     """Private key material must never appear in logs."""
 
     @pytest.mark.asyncio
-    async def test_success_path_no_key_in_logs(self, mock_key_provider, valid_sign_request, caplog):
+    async def test_success_path_no_key_in_logs(
+        self, mock_key_provider, valid_sign_request, caplog
+    ):
         """Signing success must not log private key material."""
         mock_key_provider.load_private_key.return_value = _TEST_PRIVATE_KEY
         signer = TransactionSigner(key_provider=mock_key_provider)
@@ -200,7 +212,9 @@ class TestNoKeyLogging:
         assert "ab" * 32 not in caplog.text, "Raw key bytes found in success logs"
 
     @pytest.mark.asyncio
-    async def test_error_path_no_key_in_logs(self, mock_key_provider, valid_sign_request, caplog):
+    async def test_error_path_no_key_in_logs(
+        self, mock_key_provider, valid_sign_request, caplog
+    ):
         """Signing error path must not log private key material."""
         mock_key_provider.load_private_key.return_value = _TEST_PRIVATE_KEY
         signer = TransactionSigner(key_provider=mock_key_provider)
@@ -338,7 +352,9 @@ class TestSignOrderSecureContract:
     """sign_order_secure() must be async, typed, and return signed artifact only."""
 
     @pytest.mark.asyncio
-    async def test_returns_typed_signed_artifact(self, mock_key_provider, valid_sign_request):
+    async def test_returns_typed_signed_artifact(
+        self, mock_key_provider, valid_sign_request
+    ):
         """Return value must be a typed SignedArtifact."""
         signer = TransactionSigner(key_provider=mock_key_provider)
         result = await signer.sign_order_secure(valid_sign_request)
@@ -351,7 +367,9 @@ class TestSignOrderSecureContract:
         assert result.key_source_type in ("vault", "encrypted_keystore")
 
     @pytest.mark.asyncio
-    async def test_no_send_broadcast_side_effect(self, mock_key_provider, valid_sign_request):
+    async def test_no_send_broadcast_side_effect(
+        self, mock_key_provider, valid_sign_request
+    ):
         """sign_order_secure() must not send, broadcast, or POST anywhere."""
         signer = TransactionSigner(key_provider=mock_key_provider)
 
@@ -362,7 +380,9 @@ class TestSignOrderSecureContract:
     @pytest.mark.asyncio
     async def test_fail_closed_on_signing_error(self, mock_key_provider):
         """Signing failure must not produce an execution-eligible artifact."""
-        mock_key_provider.load_private_key.side_effect = RuntimeError("key decrypt failed")
+        mock_key_provider.load_private_key.side_effect = RuntimeError(
+            "key decrypt failed"
+        )
         signer = TransactionSigner(key_provider=mock_key_provider)
 
         request = SignRequest(
@@ -392,12 +412,20 @@ class TestSignOrderSecureContract:
         order = _sample_order()
 
         req_std = SignRequest(
-            order=order, chain_id=137, neg_risk=False,
-            key_ref="vault://k", maker_amount_usdc=Decimal("10"), taker_amount_usdc=Decimal("20"),
+            order=order,
+            chain_id=137,
+            neg_risk=False,
+            key_ref="vault://k",
+            maker_amount_usdc=Decimal("10"),
+            taker_amount_usdc=Decimal("20"),
         )
         req_neg = SignRequest(
-            order=order, chain_id=137, neg_risk=True,
-            key_ref="vault://k", maker_amount_usdc=Decimal("10"), taker_amount_usdc=Decimal("20"),
+            order=order,
+            chain_id=137,
+            neg_risk=True,
+            key_ref="vault://k",
+            maker_amount_usdc=Decimal("10"),
+            taker_amount_usdc=Decimal("20"),
         )
 
         sig_std = (await signer.sign_order_secure(req_std)).signature
@@ -443,7 +471,9 @@ class TestAddressMismatch:
     """Derived signer address must match configured wallet identity."""
 
     @pytest.mark.asyncio
-    async def test_address_mismatch_rejected(self, mock_key_provider, valid_sign_request):
+    async def test_address_mismatch_rejected(
+        self, mock_key_provider, valid_sign_request
+    ):
         """If derived address differs from expected_address, signing must fail."""
         mock_key_provider.load_private_key.return_value = "0x" + "cd" * 32
         signer = TransactionSigner(

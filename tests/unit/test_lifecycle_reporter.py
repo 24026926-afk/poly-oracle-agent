@@ -305,7 +305,9 @@ def test_position_lifecycle_reporter_contract_exists_with_single_public_async_me
 
     public_methods = [
         name
-        for name, member in inspect.getmembers(reporter_cls, predicate=inspect.isfunction)
+        for name, member in inspect.getmembers(
+            reporter_cls, predicate=inspect.isfunction
+        )
         if not name.startswith("_")
     ]
     assert public_methods == ["generate_report"]
@@ -340,7 +342,9 @@ async def test_generate_report_zero_positions_returns_zero_report_and_empty_entr
 
 
 @pytest.mark.asyncio
-async def test_generate_report_one_settled_position_returns_expected_aggregates(monkeypatch):
+async def test_generate_report_one_settled_position_returns_expected_aggregates(
+    monkeypatch,
+):
     reporter_module = _load_module(REPORTER_MODULE_NAME)
     mock_logger = MagicMock()
     monkeypatch.setattr(reporter_module, "logger", mock_logger)
@@ -423,7 +427,10 @@ async def test_generate_report_multiple_settled_positions_aggregates_and_classif
     assert report.total_realized_pnl == Decimal("1")
     assert report.best_pnl == Decimal("2")
     assert report.worst_pnl == Decimal("-1")
-    assert report.winning_count + report.losing_count + report.breakeven_count == report.total_settled_count
+    assert (
+        report.winning_count + report.losing_count + report.breakeven_count
+        == report.total_settled_count
+    )
 
 
 @pytest.mark.asyncio
@@ -457,7 +464,9 @@ async def test_generate_report_open_positions_are_in_entries_but_not_settled_cou
 
     assert report.total_settled_count == 1
     assert len(report.entries) == 2
-    open_entry = next(entry for entry in report.entries if entry.position_id == "pos-open")
+    open_entry = next(
+        entry for entry in report.entries if entry.position_id == "pos-open"
+    )
     assert open_entry.exit_price is None
     assert open_entry.realized_pnl is None
     assert open_entry.settled_at_utc is None
@@ -583,7 +592,9 @@ async def test_generate_report_start_and_end_date_intersection_filters():
         closed_at_utc=now - timedelta(hours=10),
         exit_price=Decimal("0.52"),
     )
-    reporter, _, _ = _build_reporter(reporter_module, all_positions=[pos_a, pos_b, pos_c])
+    reporter, _, _ = _build_reporter(
+        reporter_module, all_positions=[pos_a, pos_b, pos_c]
+    )
 
     report = await reporter.generate_report(
         start_date=now - timedelta(days=2, hours=12),
@@ -693,7 +704,9 @@ def test_lifecycle_reporter_module_import_boundary():
         if module_name.startswith(FORBIDDEN_IMPORT_PREFIXES)
     )
     forbidden_exact_matches = sorted(
-        module_name for module_name in imported_modules if module_name in FORBIDDEN_IMPORTS
+        module_name
+        for module_name in imported_modules
+        if module_name in FORBIDDEN_IMPORTS
     )
     assert forbidden_prefix_matches == []
     assert forbidden_exact_matches == []

@@ -118,7 +118,9 @@ def _list_columns(sync_database_url: str, table_name: str) -> set[str]:
 
 
 @pytest.mark.asyncio
-async def test_record_settlement_persists_explicit_gas_and_fee_columns(db_session_factory):
+async def test_record_settlement_persists_explicit_gas_and_fee_columns(
+    db_session_factory,
+):
     repo_module = _load_module(REPO_MODULE_NAME)
     async with db_session_factory() as session:
         repo = repo_module.PositionRepository(session)
@@ -170,7 +172,9 @@ async def test_record_settlement_normalizes_legacy_missing_fee_values_to_zero(
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_report_treats_legacy_null_fee_columns_as_zero(db_session_factory):
+async def test_lifecycle_report_treats_legacy_null_fee_columns_as_zero(
+    db_session_factory,
+):
     reporter_module = _load_module(REPORTER_MODULE_NAME)
     async with db_session_factory() as session:
         row = _make_position_row(position_id="pos-wi28-int-103", status="CLOSED")

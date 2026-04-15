@@ -80,7 +80,9 @@ def _make_alert(
 
 
 def _build_breaker(module, *, override_closed: bool = False):
-    breaker = module.CircuitBreaker(config=_make_config(override_closed=override_closed))
+    breaker = module.CircuitBreaker(
+        config=_make_config(override_closed=override_closed)
+    )
     breaker._log = MagicMock()
     return breaker
 

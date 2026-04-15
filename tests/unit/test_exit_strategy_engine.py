@@ -626,11 +626,7 @@ async def test_dry_run_true_emits_structured_log(monkeypatch):
 
     await engine.evaluate_position(signal)
 
-    info_events = [
-        call.args[0]
-        for call in logger.info.call_args_list
-        if call.args
-    ]
+    info_events = [call.args[0] for call in logger.info.call_args_list if call.args]
     assert "exit_engine.dry_run_exit" in info_events
 
 

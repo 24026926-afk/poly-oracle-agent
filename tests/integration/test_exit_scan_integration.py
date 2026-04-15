@@ -79,9 +79,7 @@ async def test_orchestrator_start_registers_six_named_tasks_with_exit_scan(
     with patch.multiple("src.orchestrator", **patches):
         orchestrator = Orchestrator(test_config)
 
-    object.__setattr__(
-        orchestrator.config, "exit_scan_interval_seconds", Decimal("60")
-    )
+    object.__setattr__(orchestrator.config, "exit_scan_interval_seconds", Decimal("60"))
 
     mock_http_session = MagicMock(close=AsyncMock())
     mock_httpx_client = MagicMock(aclose=AsyncMock())
@@ -182,9 +180,7 @@ async def test_shutdown_cancels_exit_scan_task_cleanly(test_config):
 
 
 @pytest.mark.asyncio
-async def test_full_boot_exit_scan_loop_fires_and_calls_scan(
-    monkeypatch, test_config
-):
+async def test_full_boot_exit_scan_loop_fires_and_calls_scan(monkeypatch, test_config):
     patches = _patch_heavy_deps()
     with patch.multiple("src.orchestrator", **patches):
         orchestrator = Orchestrator(test_config)

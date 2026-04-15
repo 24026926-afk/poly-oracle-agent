@@ -364,7 +364,9 @@ async def test_portfolio_aggregation_loop_sleep_first_and_calls_compute_snapshot
         if sleep_calls >= 2:
             raise asyncio.CancelledError
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=MagicMock())
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=MagicMock()
+    )
     monkeypatch.setattr("src.orchestrator.asyncio.sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
@@ -458,7 +460,11 @@ async def test_compute_snapshot_performs_zero_db_writes(
         event.remove(async_engine.sync_engine, "before_cursor_execute", _capture_sql)
 
     write_ops = [
-        stmt for stmt in observed_sql if stmt.startswith("INSERT") or stmt.startswith("UPDATE") or stmt.startswith("DELETE")
+        stmt
+        for stmt in observed_sql
+        if stmt.startswith("INSERT")
+        or stmt.startswith("UPDATE")
+        or stmt.startswith("DELETE")
     ]
     assert write_ops == []
 
@@ -497,7 +503,9 @@ def test_portfolio_aggregator_module_has_no_forbidden_imports():
     }
 
     forbidden_prefix_matches = sorted(
-        module_name for module_name in imported if module_name.startswith(forbidden_prefixes)
+        module_name
+        for module_name in imported
+        if module_name.startswith(forbidden_prefixes)
     )
     forbidden_exact_matches = sorted(
         module_name for module_name in imported if module_name in forbidden_exact

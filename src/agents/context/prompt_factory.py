@@ -40,6 +40,7 @@ _PERSONA_MAP: Dict[MarketCategory, str] = {
     ),
 }
 
+
 class PromptFactory:
     """
     Builds the explicit instructions and injects current state for the LLM.
@@ -90,12 +91,12 @@ class PromptFactory:
 Your objective is to evaluate a live binary options market on Polymarket and determine if there is a positive Expected Value (EV) trading opportunity.
 
 ### LIVE MARKET DATA SNAPSHOT
-Condition ID: {market_state.get('condition_id', 'Unknown')}
-Best Bid: {market_state.get('best_bid', 0.0):.4f} USDC
-Best Ask: {market_state.get('best_ask', 0.0):.4f} USDC
-Midpoint (Implied Market Probability): {market_state.get('midpoint', 0.0):.4f}
-Bid-Ask Spread: {market_state.get('spread', 0.0):.4f} USDC
-Timestamp: {market_state.get('timestamp', 0.0)}
+Condition ID: {market_state.get("condition_id", "Unknown")}
+Best Bid: {market_state.get("best_bid", 0.0):.4f} USDC
+Best Ask: {market_state.get("best_ask", 0.0):.4f} USDC
+Midpoint (Implied Market Probability): {market_state.get("midpoint", 0.0):.4f}
+Bid-Ask Spread: {market_state.get("spread", 0.0):.4f} USDC
+Timestamp: {market_state.get("timestamp", 0.0)}
 
 {sentiment_block}
 ### INSTRUCTIONS
@@ -138,12 +139,12 @@ JSON Schema for your output:
 snapshot_id: {snapshot_id}
 
 ### MARKET STATE
-Condition ID: {market_state.get('condition_id', 'Unknown')}
-Best Bid: {market_state.get('best_bid', 0.0)}
-Best Ask: {market_state.get('best_ask', 0.0)}
-Midpoint: {market_state.get('midpoint', 0.0)}
-Spread: {market_state.get('spread', 0.0)}
-Timestamp: {market_state.get('timestamp', 0)}
+Condition ID: {market_state.get("condition_id", "Unknown")}
+Best Bid: {market_state.get("best_bid", 0.0)}
+Best Ask: {market_state.get("best_ask", 0.0)}
+Midpoint: {market_state.get("midpoint", 0.0)}
+Spread: {market_state.get("spread", 0.0)}
+Timestamp: {market_state.get("timestamp", 0)}
 
 {sentiment_block}
 ### RISK CONSTANTS

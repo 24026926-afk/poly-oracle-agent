@@ -88,9 +88,7 @@ async def test_concurrent_nonces_are_unique():
     mgr = NonceManager(w3, MOCK_ADDRESS)
     await mgr.initialize()
 
-    results = await asyncio.gather(
-        *(mgr.get_next_nonce() for _ in range(10))
-    )
+    results = await asyncio.gather(*(mgr.get_next_nonce() for _ in range(10)))
 
     # All 10 must be unique and form a contiguous range 0..9
     assert sorted(results) == list(range(10))

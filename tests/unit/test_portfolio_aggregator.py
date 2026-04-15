@@ -111,7 +111,9 @@ def test_portfolio_snapshot_schema_exists_and_is_frozen():
     schema_module = _load_module(SCHEMA_MODULE_NAME)
     snapshot_cls = getattr(schema_module, "PortfolioSnapshot", None)
 
-    assert snapshot_cls is not None, "Expected PortfolioSnapshot model in src.schemas.risk."
+    assert snapshot_cls is not None, (
+        "Expected PortfolioSnapshot model in src.schemas.risk."
+    )
     assert {
         "snapshot_at_utc",
         "position_count",
@@ -203,7 +205,9 @@ def test_portfolio_aggregator_contract_exists_with_single_public_async_method():
 
     public_methods = [
         name
-        for name, member in inspect.getmembers(aggregator_cls, predicate=inspect.isfunction)
+        for name, member in inspect.getmembers(
+            aggregator_cls, predicate=inspect.isfunction
+        )
         if not name.startswith("_")
     ]
     assert public_methods == ["compute_snapshot"]
@@ -426,7 +430,9 @@ async def test_compute_snapshot_profitable_position_has_positive_unrealized_pnl(
 
 
 @pytest.mark.asyncio
-async def test_compute_snapshot_losing_position_has_negative_unrealized_pnl(monkeypatch):
+async def test_compute_snapshot_losing_position_has_negative_unrealized_pnl(
+    monkeypatch,
+):
     aggregator_module = _load_module(AGGREGATOR_MODULE_NAME)
     mock_logger = MagicMock()
     monkeypatch.setattr(aggregator_module, "logger", mock_logger)
@@ -509,7 +515,9 @@ def test_portfolio_aggregator_module_import_boundary():
         if module_name.startswith(FORBIDDEN_IMPORT_PREFIXES)
     )
     forbidden_exact_matches = sorted(
-        module_name for module_name in imported_modules if module_name in FORBIDDEN_IMPORTS
+        module_name
+        for module_name in imported_modules
+        if module_name in FORBIDDEN_IMPORTS
     )
     assert forbidden_prefix_matches == []
     assert forbidden_exact_matches == []

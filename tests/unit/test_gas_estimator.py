@@ -53,7 +53,9 @@ async def test_estimate_returns_gas_price_model():
     client = _mock_httpx_client(post_result=response)
 
     estimator = GasEstimator(_config())
-    with patch("src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client):
+    with patch(
+        "src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client
+    ):
         result = await estimator.estimate()
 
     assert isinstance(result, GasPrice)
@@ -67,7 +69,9 @@ async def test_estimate_uses_rpc_fallback_on_http_error():
     client = _mock_httpx_client(post_side_effect=httpx.HTTPError("rpc down"))
     estimator = GasEstimator(_config(fallback_gas_price_gwei=50.0))
 
-    with patch("src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client):
+    with patch(
+        "src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client
+    ):
         result = await estimator.estimate()
 
     assert isinstance(result, GasPrice)
@@ -86,7 +90,9 @@ async def test_estimate_uses_dry_run_value_without_http():
     )
     client = _mock_httpx_client()
 
-    with patch("src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client):
+    with patch(
+        "src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client
+    ):
         result = await estimator.estimate()
 
     client.post.assert_not_awaited()
@@ -104,7 +110,9 @@ async def test_estimate_gas_price_wei_parses_hex_response():
     client = _mock_httpx_client(post_result=response)
 
     estimator = GasEstimator(_config())
-    with patch("src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client):
+    with patch(
+        "src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client
+    ):
         gas_wei = await estimator.estimate_gas_price_wei()
 
     assert gas_wei == Decimal("30000000000")
@@ -116,9 +124,10 @@ async def test_estimate_gas_price_wei_fallback_never_raises():
     client = _mock_httpx_client(post_side_effect=RuntimeError("bad rpc"))
     estimator = GasEstimator(_config())
 
-    with patch("src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client):
+    with patch(
+        "src.agents.execution.gas_estimator.httpx.AsyncClient", return_value=client
+    ):
         gas_wei = await estimator.estimate_gas_price_wei()
 
     assert gas_wei == Decimal("50000000000")
     assert isinstance(gas_wei, Decimal)
-

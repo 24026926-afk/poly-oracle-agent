@@ -42,9 +42,7 @@ class GasEstimator:
     def _rpc_fallback_gas_price_wei(self) -> Decimal:
         fallback_gwei = getattr(self._config, "fallback_gas_price_gwei", None)
         if fallback_gwei is not None:
-            return (
-                Decimal(str(fallback_gwei)) * _WEI_PER_GWEI
-            ).quantize(Decimal("1"))
+            return (Decimal(str(fallback_gwei)) * _WEI_PER_GWEI).quantize(Decimal("1"))
         return self._dry_run_gas_price_wei()
 
     async def estimate_gas_price_wei(self) -> Decimal:
@@ -101,7 +99,9 @@ class GasEstimator:
         gas_cost_usdc: Decimal,
     ) -> bool:
         """Require EV to exceed gas cost by configured buffer percentage."""
-        buffer_pct = Decimal(str(getattr(self._config, "gas_ev_buffer_pct", Decimal("0.10"))))
+        buffer_pct = Decimal(
+            str(getattr(self._config, "gas_ev_buffer_pct", Decimal("0.10")))
+        )
         buffered_threshold = gas_cost_usdc * (Decimal("1") + buffer_pct)
         passes = expected_value_usdc > buffered_threshold
         self._log.info(
@@ -124,4 +124,3 @@ class GasEstimator:
             max_fee_per_gas_gwei=gwei,
             is_fallback=self._last_is_fallback,
         )
-

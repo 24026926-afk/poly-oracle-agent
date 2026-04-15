@@ -103,7 +103,9 @@ def test_position_status_enum_exists_with_expected_values():
     schema_module = _load_schema_module()
 
     status_cls = getattr(schema_module, "PositionStatus", None)
-    assert status_cls is not None, "Expected PositionStatus enum in src.schemas.execution"
+    assert status_cls is not None, (
+        "Expected PositionStatus enum in src.schemas.execution"
+    )
     assert {member.value for member in status_cls} == {"OPEN", "CLOSED", "FAILED"}
 
 
@@ -124,7 +126,9 @@ def test_position_record_rejects_float_financial_fields(field_name):
     status_cls = getattr(schema_module, "PositionStatus", None)
     action_cls = getattr(schema_module, "ExecutionAction", None)
 
-    assert model_cls is not None, "Expected PositionRecord model in src.schemas.execution"
+    assert model_cls is not None, (
+        "Expected PositionRecord model in src.schemas.execution"
+    )
     assert status_cls is not None
     assert action_cls is not None
 
@@ -157,7 +161,9 @@ def test_position_record_accepts_decimal_financial_fields_and_is_frozen():
     status_cls = getattr(schema_module, "PositionStatus", None)
     action_cls = getattr(schema_module, "ExecutionAction", None)
 
-    assert model_cls is not None, "Expected PositionRecord model in src.schemas.execution"
+    assert model_cls is not None, (
+        "Expected PositionRecord model in src.schemas.execution"
+    )
 
     record = model_cls(
         id="pos-test-002",
@@ -199,7 +205,9 @@ def test_position_tracker_contract_exists_and_has_one_public_method():
 
     public_methods = [
         name
-        for name, member in inspect.getmembers(tracker_cls, predicate=inspect.isfunction)
+        for name, member in inspect.getmembers(
+            tracker_cls, predicate=inspect.isfunction
+        )
         if not name.startswith("_")
     ]
     assert public_methods == ["record_execution"]
@@ -314,7 +322,9 @@ async def test_failed_result_none_financials_uses_decimal_zero_sentinels():
 
 
 @pytest.mark.asyncio
-async def test_dry_run_true_does_not_open_session_or_instantiate_repository(monkeypatch):
+async def test_dry_run_true_does_not_open_session_or_instantiate_repository(
+    monkeypatch,
+):
     schema_module = _load_schema_module()
     tracker_module = _load_tracker_module()
 
@@ -383,7 +393,9 @@ async def test_live_executed_calls_insert_position(monkeypatch):
 
     repo_mock = MagicMock()
     repo_mock.insert_position = AsyncMock()
-    monkeypatch.setattr(tracker_module, "PositionRepository", MagicMock(return_value=repo_mock))
+    monkeypatch.setattr(
+        tracker_module, "PositionRepository", MagicMock(return_value=repo_mock)
+    )
 
     await tracker.record_execution(
         result=result,
@@ -415,7 +427,9 @@ async def test_live_failed_calls_insert_position(monkeypatch):
 
     repo_mock = MagicMock()
     repo_mock.insert_position = AsyncMock()
-    monkeypatch.setattr(tracker_module, "PositionRepository", MagicMock(return_value=repo_mock))
+    monkeypatch.setattr(
+        tracker_module, "PositionRepository", MagicMock(return_value=repo_mock)
+    )
 
     await tracker.record_execution(
         result=result,
@@ -447,7 +461,10 @@ async def test_unreachable_executed_in_dry_run_logs_error_and_returns_none(monke
 
     assert record is None
     logger.error.assert_called_once()
-    assert logger.error.call_args.args[0] == "position_tracker.unreachable_executed_in_dry_run"
+    assert (
+        logger.error.call_args.args[0]
+        == "position_tracker.unreachable_executed_in_dry_run"
+    )
 
 
 @pytest.mark.asyncio
@@ -471,7 +488,9 @@ async def test_unreachable_dry_run_in_live_logs_error_and_returns_none(monkeypat
 
     assert record is None
     logger.error.assert_called_once()
-    assert logger.error.call_args.args[0] == "position_tracker.unreachable_dry_run_in_live"
+    assert (
+        logger.error.call_args.args[0] == "position_tracker.unreachable_dry_run_in_live"
+    )
 
 
 def test_position_tracker_module_has_no_forbidden_imports():

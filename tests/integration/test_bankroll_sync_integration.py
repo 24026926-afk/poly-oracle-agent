@@ -80,12 +80,16 @@ async def test_tracker_compute_position_size_propagates_balance_fetch_error(
 async def test_orchestrator_wires_bankroll_sync_provider_into_tracker(test_config):
     patches = _patch_heavy_deps()
 
-    with patch.multiple("src.orchestrator", **patches), patch(
-        "src.orchestrator.BankrollSyncProvider",
-        create=True,
-    ) as mock_sync_cls, patch(
-        "src.orchestrator.BankrollPortfolioTracker",
-    ) as mock_tracker_cls:
+    with (
+        patch.multiple("src.orchestrator", **patches),
+        patch(
+            "src.orchestrator.BankrollSyncProvider",
+            create=True,
+        ) as mock_sync_cls,
+        patch(
+            "src.orchestrator.BankrollPortfolioTracker",
+        ) as mock_tracker_cls,
+    ):
         Orchestrator(test_config)
 
     mock_sync_cls.assert_called_once_with(config=test_config)

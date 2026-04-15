@@ -77,9 +77,7 @@ class MarketDiscoveryEngine:
                 stats["ttr_fail"] += 1
                 continue
 
-            exposure = await self._bankroll_tracker.get_exposure(
-                market.condition_id
-            )
+            exposure = await self._bankroll_tracker.get_exposure(market.condition_id)
             if exposure >= exposure_cap:
                 stats["exposure_fail"] += 1
                 logger.debug(
@@ -114,9 +112,7 @@ class MarketDiscoveryEngine:
         """True when condition_id is present and token_ids is non-empty."""
         return bool(market.condition_id) and len(market.token_ids) > 0
 
-    def _compute_hours_to_resolution(
-        self, end_date_iso: str | None
-    ) -> float | None:
+    def _compute_hours_to_resolution(self, end_date_iso: str | None) -> float | None:
         """Parse ISO-8601 *end_date_iso* and return hours until resolution.
 
         Returns ``None`` when the string is missing or unparseable.
@@ -124,9 +120,7 @@ class MarketDiscoveryEngine:
         if end_date_iso is None:
             return None
         try:
-            end_dt = datetime.fromisoformat(
-                end_date_iso.replace("Z", "+00:00")
-            )
+            end_dt = datetime.fromisoformat(end_date_iso.replace("Z", "+00:00"))
             if end_dt.tzinfo is None:
                 end_dt = end_dt.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)

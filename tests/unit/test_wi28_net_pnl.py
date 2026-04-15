@@ -428,7 +428,9 @@ async def test_dry_run_settle_returns_fee_aware_record_without_persisting():
 
     assert record.gas_cost_usdc == Decimal("0.50")
     assert record.fees_usdc == Decimal("0.25")
-    assert record.net_realized_pnl == record.realized_pnl - Decimal("0.50") - Decimal("0.25")
+    assert record.net_realized_pnl == record.realized_pnl - Decimal("0.50") - Decimal(
+        "0.25"
+    )
     db_session_factory.assert_not_called()
 
 

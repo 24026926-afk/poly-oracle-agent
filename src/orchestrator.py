@@ -92,13 +92,15 @@ class Orchestrator:
 
         self.w3 = AsyncWeb3(AsyncHTTPProvider(self.config.polygon_rpc_url))
         self.nonce_manager = NonceManager(
-            self.w3, self.config.wallet_address, dry_run=self.config.dry_run,
+            self.w3,
+            self.config.wallet_address,
+            dry_run=self.config.dry_run,
         )
         self.gas_estimator = GasEstimator(config=self.config)
         if self.config.gas_check_enabled:
             self._gas_estimator: GasEstimator | None = self.gas_estimator
-            self._matic_price_provider: MaticPriceProvider | None = (
-                MaticPriceProvider(config=self.config)
+            self._matic_price_provider: MaticPriceProvider | None = MaticPriceProvider(
+                config=self.config
             )
         else:
             self._gas_estimator = None
@@ -395,7 +397,9 @@ class Orchestrator:
                     and getattr(self.config, "enable_wallet_balance_check", False)
                     and self._wallet_balance_provider is not None
                 ):
-                    balance_result = await self._wallet_balance_provider.check_balances()
+                    balance_result = (
+                        await self._wallet_balance_provider.check_balances()
+                    )
                     logger.info(
                         "wallet.balance_checked",
                         matic_balance_wei=str(
@@ -447,7 +451,9 @@ class Orchestrator:
                     )
                     if expected_value_raw is not None:
                         expected_value_usdc = Decimal(str(expected_value_raw))
-                        gas_price_wei = await self._gas_estimator.estimate_gas_price_wei()
+                        gas_price_wei = (
+                            await self._gas_estimator.estimate_gas_price_wei()
+                        )
                         matic_price = await self._matic_price_provider.get_matic_usdc()
                         gas_cost_usdc = self._gas_estimator.estimate_gas_cost_usdc(
                             gas_units=21000,
@@ -501,7 +507,9 @@ class Orchestrator:
 
                 yes_token_id = item.get("yes_token_id")
                 if yes_token_id is None:
-                    yes_token_id = getattr(eval_resp.market_context, "yes_token_id", None)
+                    yes_token_id = getattr(
+                        eval_resp.market_context, "yes_token_id", None
+                    )
                 if yes_token_id is None:
                     logger.warning(
                         "execution.position_tracking_skipped_missing_yes_token_id",
@@ -520,10 +528,9 @@ class Orchestrator:
                             error=str(exc),
                         )
 
-                if (
-                    self.telegram_notifier is not None
-                    and execution_result.action
-                    in (ExecutionAction.EXECUTED, ExecutionAction.DRY_RUN)
+                if self.telegram_notifier is not None and execution_result.action in (
+                    ExecutionAction.EXECUTED,
+                    ExecutionAction.DRY_RUN,
                 ):
                     order_size = (
                         str(execution_result.order_size_usdc)
@@ -641,7 +648,8 @@ class Orchestrator:
                         continue
 
                     if (
-                        exit_order_result.action in (
+                        exit_order_result.action
+                        in (
                             ExitOrderAction.SELL_ROUTED,
                             ExitOrderAction.DRY_RUN,
                         )
@@ -736,9 +744,7 @@ class Orchestrator:
     async def _portfolio_aggregation_loop(self) -> None:
         """Periodic portfolio snapshot, lifecycle report, and alert evaluation (WI-23/24/25)."""
         while True:
-            await asyncio.sleep(
-                float(self.config.portfolio_aggregation_interval_sec)
-            )
+            await asyncio.sleep(float(self.config.portfolio_aggregation_interval_sec))
             snapshot: PortfolioSnapshot | None = None
             report: LifecycleReport | None = None
             try:
@@ -817,9 +823,7 @@ class Orchestrator:
                         error=str(exc),
                     )
 
-    async def _fetch_position_record(
-        self, position_id: str
-    ) -> PositionRecord | None:
+    async def _fetch_position_record(self, position_id: str) -> PositionRecord | None:
         """Lookup and materialize a PositionRecord by id for exit routing."""
         async with AsyncSessionLocal() as session:
             repo = PositionRepository(session)
@@ -902,7 +906,7 @@ class Orchestrator:
                         discovered=len(snapshots),
                         capped_to=self.config.max_concurrent_markets,
                     )
-                    snapshots = snapshots[:self.config.max_concurrent_markets]
+                    snapshots = snapshots[: self.config.max_concurrent_markets]
 
                 # Group token IDs per market
                 token_ids_list = [
@@ -949,7 +953,10 @@ class Orchestrator:
         logger.info("orchestrator.shutdown_start")
 
         # WI-32: Cancel MarketTrackingTask if running
-        if self.market_tracking_task is not None and not self.market_tracking_task.done():
+        if (
+            self.market_tracking_task is not None
+            and not self.market_tracking_task.done()
+        ):
             self.market_tracking_task.cancel()
             try:
                 await self.market_tracking_task
@@ -962,7 +969,11 @@ class Orchestrator:
             try:
                 await stoppable.stop()
             except Exception as exc:
-                logger.warning("orchestrator.stop_failed", component=type(stoppable).__name__, error=str(exc))
+                logger.warning(
+                    "orchestrator.stop_failed",
+                    component=type(stoppable).__name__,
+                    error=str(exc),
+                )
 
         for task in self._tasks:
             if not task.done():

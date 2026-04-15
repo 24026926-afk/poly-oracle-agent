@@ -43,7 +43,9 @@ _MOCK_SENTIMENT = SentimentResponse(
 
 GROK_TIMEOUT_SECONDS: float = 2.0
 
-_SYSTEM_PROMPT = "You are a market sentiment extraction engine. Return only strict JSON."
+_SYSTEM_PROMPT = (
+    "You are a market sentiment extraction engine. Return only strict JSON."
+)
 
 _USER_PROMPT_TEMPLATE = """\
 Analyze public X/Twitter discourse for this market in the last 60 minutes.

@@ -27,7 +27,8 @@ def test_build_prompt_default_is_general():
 
 def test_build_prompt_crypto_persona():
     prompt = PromptFactory.build_evaluation_prompt(
-        _SAMPLE_MARKET_STATE, category=MarketCategory.CRYPTO,
+        _SAMPLE_MARKET_STATE,
+        category=MarketCategory.CRYPTO,
     )
     assert "on-chain analyst" in prompt
     assert "Quantitative Developer" not in prompt
@@ -35,14 +36,16 @@ def test_build_prompt_crypto_persona():
 
 def test_build_prompt_politics_persona():
     prompt = PromptFactory.build_evaluation_prompt(
-        _SAMPLE_MARKET_STATE, category=MarketCategory.POLITICS,
+        _SAMPLE_MARKET_STATE,
+        category=MarketCategory.POLITICS,
     )
     assert "political risk analyst" in prompt
 
 
 def test_build_prompt_sports_persona():
     prompt = PromptFactory.build_evaluation_prompt(
-        _SAMPLE_MARKET_STATE, category=MarketCategory.SPORTS,
+        _SAMPLE_MARKET_STATE,
+        category=MarketCategory.SPORTS,
     )
     assert "quantitative sports analyst" in prompt
 
@@ -50,7 +53,8 @@ def test_build_prompt_sports_persona():
 @pytest.mark.parametrize("category", list(MarketCategory))
 def test_all_variants_contain_json_schema_block(category):
     prompt = PromptFactory.build_evaluation_prompt(
-        _SAMPLE_MARKET_STATE, category=category,
+        _SAMPLE_MARKET_STATE,
+        category=category,
     )
     assert "### CRITICAL OUTPUT FORMAT" in prompt
     assert "JSON Schema" in prompt

@@ -19,11 +19,15 @@ from alembic import command
 from alembic.config import Config
 import pytest
 from sqlalchemy import inspect, select
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from src.db.models import Position
 from src.orchestrator import Orchestrator
-from src.schemas.execution import ExitOrderAction, ExitOrderResult, ExitReason, ExitResult
+from src.schemas.execution import (
+    ExitOrderAction,
+    ExitOrderResult,
+    ExitReason,
+    ExitResult,
+)
 from src.schemas.position import PositionRecord, PositionStatus
 from src.schemas.web3 import OrderData, OrderSide, SIGNATURE_TYPE_EOA, SignedOrder
 
@@ -155,7 +159,9 @@ def _make_signed_order(order: OrderData) -> SignedOrder:
     )
 
 
-def _make_exit_order_result(*, position_id: str, action: ExitOrderAction) -> ExitOrderResult:
+def _make_exit_order_result(
+    *, position_id: str, action: ExitOrderAction
+) -> ExitOrderResult:
     payload = OrderData(
         salt=1,
         maker="0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
@@ -170,7 +176,9 @@ def _make_exit_order_result(*, position_id: str, action: ExitOrderAction) -> Exi
         side=OrderSide.SELL,
         signature_type=SIGNATURE_TYPE_EOA,
     )
-    signed = _make_signed_order(payload) if action == ExitOrderAction.SELL_ROUTED else None
+    signed = (
+        _make_signed_order(payload) if action == ExitOrderAction.SELL_ROUTED else None
+    )
     return ExitOrderResult(
         position_id=position_id,
         condition_id=f"condition-{position_id}",
@@ -232,7 +240,9 @@ async def test_record_settlement_writes_columns_and_round_trips(db_session_facto
 
 
 @pytest.mark.asyncio
-async def test_record_settlement_is_idempotent_and_does_not_overwrite(db_session_factory):
+async def test_record_settlement_is_idempotent_and_does_not_overwrite(
+    db_session_factory,
+):
     repo_module = _load_module(REPO_MODULE_NAME)
     first_closed = datetime.now(timezone.utc)
     async with db_session_factory() as session:
@@ -354,7 +364,9 @@ def test_pnl_calculator_module_has_no_forbidden_imports():
         if module_name.startswith(FORBIDDEN_IMPORT_PREFIXES)
     )
     forbidden_exact_matches = sorted(
-        module_name for module_name in imported_modules if module_name in FORBIDDEN_IMPORTS
+        module_name
+        for module_name in imported_modules
+        if module_name in FORBIDDEN_IMPORTS
     )
     assert forbidden_prefix_matches == []
     assert forbidden_exact_matches == []
@@ -393,9 +405,10 @@ def test_migration_0003_downgrade_removes_expected_columns(tmp_path):
 
 
 def test_orchestrator_constructs_pnl_calculator_after_exit_order_router(test_config):
-    with patch.multiple("src.orchestrator", **_patch_heavy_deps()), patch(
-        "src.orchestrator.PnLCalculator"
-    ) as mock_pnl_cls:
+    with (
+        patch.multiple("src.orchestrator", **_patch_heavy_deps()),
+        patch("src.orchestrator.PnLCalculator") as mock_pnl_cls,
+    ):
         orch = Orchestrator(test_config)
 
     assert orch.pnl_calculator is mock_pnl_cls.return_value
@@ -468,7 +481,9 @@ async def test_exit_scan_loop_does_not_call_pnl_settle_when_route_exit_fails(
     object.__setattr__(orch.config, "dry_run", True)
 
     exit_result = _make_exit_result(position_id="pos-int-303", should_exit=True)
-    orch.exit_strategy_engine.scan_open_positions = AsyncMock(return_value=[exit_result])
+    orch.exit_strategy_engine.scan_open_positions = AsyncMock(
+        return_value=[exit_result]
+    )
     orch._fetch_position_record = AsyncMock(
         return_value=_make_position_record(position_id="pos-int-303")
     )

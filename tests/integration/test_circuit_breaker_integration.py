@@ -27,7 +27,12 @@ from src.schemas.execution import (
     PositionRecord,
     PositionStatus,
 )
-from src.schemas.risk import AlertEvent, AlertSeverity, LifecycleReport, PortfolioSnapshot
+from src.schemas.risk import (
+    AlertEvent,
+    AlertSeverity,
+    LifecycleReport,
+    PortfolioSnapshot,
+)
 
 
 CIRCUIT_BREAKER_MODULE_NAME = "src.agents.execution.circuit_breaker"
@@ -101,7 +106,9 @@ def _build_orchestrator(test_config, *, db_session_factory=None) -> Orchestrator
         return Orchestrator(test_config)
 
 
-def _make_evaluation(condition_id: str = "condition-001", token_id: str = "token-yes-001"):
+def _make_evaluation(
+    condition_id: str = "condition-001", token_id: str = "token-yes-001"
+):
     market_context = MagicMock()
     market_context.condition_id = condition_id
     market_context.yes_token_id = token_id
@@ -198,7 +205,9 @@ def _make_exit_result(*, position_id: str) -> ExitResult:
     )
 
 
-def _make_exit_order_result(*, position_id: str, action: ExitOrderAction) -> ExitOrderResult:
+def _make_exit_order_result(
+    *, position_id: str, action: ExitOrderAction
+) -> ExitOrderResult:
     return ExitOrderResult(
         position_id=position_id,
         condition_id=f"condition-{position_id}",
@@ -337,7 +346,9 @@ async def test_position_tracker_receives_skip_result_when_breaker_blocks_entry(
 
     item = {
         "snapshot_id": "snap-002",
-        "evaluation": _make_evaluation(condition_id="condition-002", token_id="token-002"),
+        "evaluation": _make_evaluation(
+            condition_id="condition-002", token_id="token-002"
+        ),
     }
 
     await _run_consumer_once(orchestrator, item)
@@ -363,7 +374,9 @@ async def test_execution_consumer_routes_normally_when_breaker_closed(test_confi
 
     item = {
         "snapshot_id": "snap-003",
-        "evaluation": _make_evaluation(condition_id="condition-003", token_id="token-003"),
+        "evaluation": _make_evaluation(
+            condition_id="condition-003", token_id="token-003"
+        ),
     }
 
     await _run_consumer_once(orchestrator, item)
@@ -385,7 +398,9 @@ async def test_execution_consumer_routes_normally_when_breaker_disabled(test_con
 
     item = {
         "snapshot_id": "snap-004",
-        "evaluation": _make_evaluation(condition_id="condition-004", token_id="token-004"),
+        "evaluation": _make_evaluation(
+            condition_id="condition-004", token_id="token-004"
+        ),
     }
 
     await _run_consumer_once(orchestrator, item)
@@ -426,7 +441,9 @@ async def test_portfolio_aggregation_loop_trips_breaker_and_sends_telegram_on_tr
         if sleep_calls >= 2:
             raise asyncio.CancelledError
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=snapshot)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=snapshot
+    )
     orchestrator.lifecycle_reporter.generate_report = AsyncMock(return_value=report)
     orchestrator.alert_engine.evaluate = MagicMock(return_value=alerts)
     orchestrator.telegram_notifier = MagicMock()
@@ -486,7 +503,9 @@ async def test_portfolio_aggregation_loop_processes_override_when_no_alerts(
         True,
     )
 
-    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(return_value=snapshot)
+    orchestrator.portfolio_aggregator.compute_snapshot = AsyncMock(
+        return_value=snapshot
+    )
     orchestrator.lifecycle_reporter.generate_report = AsyncMock(return_value=report)
     orchestrator.alert_engine.evaluate = MagicMock(return_value=[])
     monkeypatch.setattr("src.orchestrator.asyncio.sleep", _fake_sleep)
@@ -505,7 +524,9 @@ async def test_exit_scan_loop_remains_active_when_breaker_open(
 ):
     _set_circuit_breaker_flags(test_config, enabled=True)
     orchestrator = _build_orchestrator(test_config)
-    object.__setattr__(orchestrator.config, "exit_scan_interval_seconds", Decimal("0.01"))
+    object.__setattr__(
+        orchestrator.config, "exit_scan_interval_seconds", Decimal("0.01")
+    )
 
     sleep_calls = 0
 

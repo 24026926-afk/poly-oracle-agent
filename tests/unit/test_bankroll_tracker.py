@@ -32,11 +32,12 @@ from src.db.models import Base, ExecutionTx, TxStatus
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_config(
     bankroll: Decimal = Decimal("1000"),
     kelly_frac: float = 0.25,
     max_exposure: float = 0.03,
-) -> "FakeConfig":
+) -> object:
     """Minimal config stub matching the fields tracker reads."""
 
     class FakeConfig:
@@ -103,6 +104,7 @@ async def _seed_executions(
 # Tests — Bankroll queries
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_total_bankroll_returns_config_value(db_factory):
     config = _make_config(bankroll=Decimal("5000"))
@@ -126,12 +128,15 @@ async def test_exposure_returns_zero_for_empty_db(db_factory):
 
 @pytest.mark.asyncio
 async def test_exposure_sums_pending_and_confirmed(db_factory):
-    await _seed_executions(db_factory, [
-        _make_execution_tx("cond-1", 10.0, TxStatus.CONFIRMED),
-        _make_execution_tx("cond-1", 20.0, TxStatus.PENDING),
-        _make_execution_tx("cond-1", 5.0, TxStatus.FAILED),  # excluded
-        _make_execution_tx("cond-2", 100.0, TxStatus.CONFIRMED),  # diff market
-    ])
+    await _seed_executions(
+        db_factory,
+        [
+            _make_execution_tx("cond-1", 10.0, TxStatus.CONFIRMED),
+            _make_execution_tx("cond-1", 20.0, TxStatus.PENDING),
+            _make_execution_tx("cond-1", 5.0, TxStatus.FAILED),  # excluded
+            _make_execution_tx("cond-2", 100.0, TxStatus.CONFIRMED),  # diff market
+        ],
+    )
     tracker = BankrollPortfolioTracker(_make_config(), db_factory)
 
     exposure = await tracker.get_exposure("cond-1")
@@ -141,9 +146,12 @@ async def test_exposure_sums_pending_and_confirmed(db_factory):
 
 @pytest.mark.asyncio
 async def test_available_bankroll_subtracts_exposure(db_factory):
-    await _seed_executions(db_factory, [
-        _make_execution_tx("cond-1", 200.0, TxStatus.CONFIRMED),
-    ])
+    await _seed_executions(
+        db_factory,
+        [
+            _make_execution_tx("cond-1", 200.0, TxStatus.CONFIRMED),
+        ],
+    )
     config = _make_config(bankroll=Decimal("1000"))
     tracker = BankrollPortfolioTracker(config, db_factory)
 
@@ -154,9 +162,12 @@ async def test_available_bankroll_subtracts_exposure(db_factory):
 
 @pytest.mark.asyncio
 async def test_available_bankroll_floors_at_zero(db_factory):
-    await _seed_executions(db_factory, [
-        _make_execution_tx("cond-1", 1500.0, TxStatus.CONFIRMED),
-    ])
+    await _seed_executions(
+        db_factory,
+        [
+            _make_execution_tx("cond-1", 1500.0, TxStatus.CONFIRMED),
+        ],
+    )
     config = _make_config(bankroll=Decimal("1000"))
     tracker = BankrollPortfolioTracker(config, db_factory)
 
@@ -168,6 +179,7 @@ async def test_available_bankroll_floors_at_zero(db_factory):
 # ---------------------------------------------------------------------------
 # Tests — Position sizing
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_compute_position_size_quarter_kelly(db_factory):
@@ -218,6 +230,7 @@ async def test_compute_position_size_never_negative(db_factory):
 # Tests — Trade validation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_validate_trade_passes_within_limits(db_factory):
     config = _make_config(bankroll=Decimal("1000"))
@@ -240,9 +253,12 @@ async def test_validate_trade_raises_on_exposure_cap(db_factory):
 @pytest.mark.asyncio
 async def test_validate_trade_raises_on_insufficient_bankroll(db_factory):
     # Seed 990 USDC of existing exposure
-    await _seed_executions(db_factory, [
-        _make_execution_tx("cond-1", 990.0, TxStatus.CONFIRMED),
-    ])
+    await _seed_executions(
+        db_factory,
+        [
+            _make_execution_tx("cond-1", 990.0, TxStatus.CONFIRMED),
+        ],
+    )
     config = _make_config(bankroll=Decimal("1000"))
     tracker = BankrollPortfolioTracker(config, db_factory)
 
@@ -255,12 +271,16 @@ async def test_validate_trade_raises_on_insufficient_bankroll(db_factory):
 # Tests — Type safety
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_all_math_uses_decimal(db_factory):
     """Every return value must be Decimal, never float."""
-    await _seed_executions(db_factory, [
-        _make_execution_tx("cond-1", 50.0, TxStatus.CONFIRMED),
-    ])
+    await _seed_executions(
+        db_factory,
+        [
+            _make_execution_tx("cond-1", 50.0, TxStatus.CONFIRMED),
+        ],
+    )
     config = _make_config(bankroll=Decimal("1000"))
     tracker = BankrollPortfolioTracker(config, db_factory)
 
@@ -277,15 +297,19 @@ async def test_all_math_uses_decimal(db_factory):
 # Tests — Restart recovery
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_restart_recovery_from_db(db_factory):
     """Tracker reconstructs exposure state from persisted ExecutionTx rows."""
     # Simulate prior run: seed 3 executions spread across 2 markets
-    await _seed_executions(db_factory, [
-        _make_execution_tx("cond-A", 100.0, TxStatus.CONFIRMED),
-        _make_execution_tx("cond-A", 50.0, TxStatus.PENDING),
-        _make_execution_tx("cond-B", 200.0, TxStatus.CONFIRMED),
-    ])
+    await _seed_executions(
+        db_factory,
+        [
+            _make_execution_tx("cond-A", 100.0, TxStatus.CONFIRMED),
+            _make_execution_tx("cond-A", 50.0, TxStatus.PENDING),
+            _make_execution_tx("cond-B", 200.0, TxStatus.CONFIRMED),
+        ],
+    )
 
     # New tracker instance — simulates fresh startup
     config = _make_config(bankroll=Decimal("1000"))

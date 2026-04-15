@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.schemas.position import PositionRecord, PositionStatus
+from src.schemas.position import PositionRecord
 from src.schemas.web3 import OrderData, SignedOrder
 
 
@@ -38,9 +38,7 @@ class ExecutionResult(BaseModel):
     midpoint_probability: Decimal | None = None
     best_ask: Decimal | None = None
     bankroll_usdc: Decimal | None = None
-    routed_at_utc: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    routed_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator(
         "kelly_fraction",
@@ -151,9 +149,7 @@ class ExitOrderResult(BaseModel):
     signed_order: SignedOrder | None = None
     exit_price: Decimal | None = None
     order_size_usdc: Decimal | None = None
-    routed_at_utc: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    routed_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("exit_price", "order_size_usdc", mode="before")
     @classmethod

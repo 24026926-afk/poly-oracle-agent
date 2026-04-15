@@ -19,22 +19,20 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.agents.evaluation.claude_client import ClaudeClient
 from src.schemas.llm import (
-    LLMEvaluationResponse,
-    RecommendedAction,
-    ReflectionResponse,  # does NOT exist yet — expected ImportError
+    RecommendedAction,  # does NOT exist yet — expected ImportError
 )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_anthropic_response(raw_json: str):
     """Build a mock Anthropic message response object."""
@@ -160,6 +158,7 @@ def _setup_client(test_config):
 # Test 1: APPROVED — reflection passes candidate through; Gatekeeper terminal
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_reflection_approved_passes_to_gatekeeper(test_config, mock_polymarket):
     """When reflection returns APPROVED, the original Stage B candidate passes
@@ -190,7 +189,9 @@ async def test_reflection_approved_passes_to_gatekeeper(test_config, mock_polyma
     )
 
     # Trade must reach execution queue (APPROVED -> Gatekeeper passes -> enqueue)
-    assert out_q.qsize() == 1, "APPROVED reflection + passing Gatekeeper must enqueue trade"
+    assert out_q.qsize() == 1, (
+        "APPROVED reflection + passing Gatekeeper must enqueue trade"
+    )
     result = out_q.get_nowait()
     eval_resp = result["evaluation"]
 
@@ -202,12 +203,15 @@ async def test_reflection_approved_passes_to_gatekeeper(test_config, mock_polyma
 
     # Reflection audit artifact must be persisted
     persist_call = client._persist_decision.call_args
-    assert persist_call is not None, "Decision must be persisted with reflection metadata"
+    assert persist_call is not None, (
+        "Decision must be persisted with reflection metadata"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Test 2: REJECTED via bias — forces HOLD path, no execution enqueue
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_reflection_rejected_bias_forces_hold(test_config, mock_polymarket):
@@ -254,8 +258,11 @@ async def test_reflection_rejected_bias_forces_hold(test_config, mock_polymarket
 # Test 3: ADJUSTED via math fix — corrected candidate passes Gatekeeper
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_reflection_adjusted_uses_corrected_candidate(test_config, mock_polymarket):
+async def test_reflection_adjusted_uses_corrected_candidate(
+    test_config, mock_polymarket
+):
     """When reflection returns ADJUSTED, the corrected candidate JSON is used
     for Gatekeeper validation instead of the original. The corrected candidate
     must still pass LLMEvaluationResponse terminal validation."""
@@ -263,13 +270,19 @@ async def test_reflection_adjusted_uses_corrected_candidate(test_config, mock_po
 
     # Primary candidate has overstated p_true (math error the auditor catches)
     primary_json = _primary_candidate_json(
-        decision=True, action="BUY", p_true=0.90, confidence=0.85,
+        decision=True,
+        action="BUY",
+        p_true=0.90,
+        confidence=0.85,
     )
 
     # Auditor corrects p_true down and recalculates — still positive EV
     corrected_candidate = json.loads(
         _primary_candidate_json(
-            decision=True, action="BUY", p_true=0.65, confidence=0.85,
+            decision=True,
+            action="BUY",
+            p_true=0.65,
+            confidence=0.85,
         )
     )
     reflection_resp_json = _reflection_json(
@@ -291,7 +304,9 @@ async def test_reflection_adjusted_uses_corrected_candidate(test_config, mock_po
     await client._process_evaluation(_crypto_market_item())
 
     # Corrected candidate should still pass Gatekeeper and be enqueued
-    assert out_q.qsize() == 1, "ADJUSTED reflection with valid correction must pass Gatekeeper"
+    assert out_q.qsize() == 1, (
+        "ADJUSTED reflection with valid correction must pass Gatekeeper"
+    )
     result = out_q.get_nowait()
     eval_resp = result["evaluation"]
 
@@ -307,8 +322,11 @@ async def test_reflection_adjusted_uses_corrected_candidate(test_config, mock_po
 # Test 4: TIMEOUT via 2.0s shared budget exhaustion — conservative HOLD
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_reflection_timeout_yields_conservative_hold(test_config, mock_polymarket):
+async def test_reflection_timeout_yields_conservative_hold(
+    test_config, mock_polymarket
+):
     """When the shared 2.0s latency budget is exhausted before reflection
     completes, the system must default to conservative HOLD behavior.
     Audit artifact with BUDGET_EXHAUSTED reason must be persisted.
@@ -337,9 +355,7 @@ async def test_reflection_timeout_yields_conservative_hold(test_config, mock_pol
             return primary_resp
         # Second call: simulate slow reflection that exceeds budget
         await asyncio.sleep(3.0)
-        return _mock_anthropic_response(
-            _reflection_json(verdict="APPROVED")
-        )
+        return _mock_anthropic_response(_reflection_json(verdict="APPROVED"))
 
     client.client = MagicMock()
     client.client.messages.create = AsyncMock(

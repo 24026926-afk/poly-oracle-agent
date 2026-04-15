@@ -9,7 +9,6 @@ No downstream code is responsible for re-validating these invariants.
 
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
@@ -21,6 +20,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ---------------------------------------------------------------------------
 # Decimal safety helpers
 # ---------------------------------------------------------------------------
+
 
 def _recursive_float_to_decimal(obj: object) -> object:
     """Recursively traverse a dict/list structure and convert every ``float``
@@ -38,12 +38,13 @@ def _recursive_float_to_decimal(obj: object) -> object:
 # ---------------------------------------------------------------------------
 # Risk Parameter Constants
 # ---------------------------------------------------------------------------
-KELLY_FRACTION: float = 0.25       # Quarter-Kelly multiplier
-MIN_CONFIDENCE: float = 0.75       # Filter 1: LLM epistemic confidence floor
-MAX_SPREAD_PCT: float = 0.015      # Filter 2: Max bid-ask spread (1.5%)
-MAX_EXPOSURE_PCT: float = 0.03     # Filter 3: Max bankroll fraction per trade (3%)
-MIN_EV_THRESHOLD: float = 0.02     # Filter 4: Min positive EV (2% edge floor)
-MIN_TTR_HOURS: float = 4.0         # Filter 5: Min hours until market resolution
+KELLY_FRACTION: float = 0.25  # Quarter-Kelly multiplier
+MIN_CONFIDENCE: float = 0.75  # Filter 1: LLM epistemic confidence floor
+MAX_SPREAD_PCT: float = 0.015  # Filter 2: Max bid-ask spread (1.5%)
+MAX_EXPOSURE_PCT: float = 0.03  # Filter 3: Max bankroll fraction per trade (3%)
+MIN_EV_THRESHOLD: float = 0.02  # Filter 4: Min positive EV (2% edge floor)
+MIN_TTR_HOURS: float = 4.0  # Filter 5: Min hours until market resolution
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -53,9 +54,11 @@ class RecommendedAction(str, Enum):
     SELL = "SELL"
     HOLD = "HOLD"
 
+
 class OutcomeLabel(str, Enum):
     YES = "YES"
     NO = "NO"
+
 
 class GatekeeperFilter(str, Enum):
     EV_NON_POSITIVE = "EV_NON_POSITIVE"
@@ -65,16 +68,19 @@ class GatekeeperFilter(str, Enum):
     MIN_EV_THRESHOLD = "MIN_EV_THRESHOLD"
     MIN_TIME_TO_RESOLUTION = "MIN_TIME_TO_RESOLUTION"
 
+
 class MarketCategory(str, Enum):
     CRYPTO = "CRYPTO"
     POLITICS = "POLITICS"
     SPORTS = "SPORTS"
     GENERAL = "GENERAL"
 
+
 class ReflectionVerdict(str, Enum):
     APPROVED = "APPROVED"
     ADJUSTED = "ADJUSTED"
     REJECTED = "REJECTED"
+
 
 # ---------------------------------------------------------------------------
 # Sub-schema: ReflectionResponse (Stage C — Reflection Auditor output)
@@ -104,6 +110,7 @@ class ReflectionResponse(BaseModel):
 
     model_config = {"frozen": True}
 
+
 # ---------------------------------------------------------------------------
 # Sub-schema: SentimentResponse (Stage A — Grok Oracle output)
 # ---------------------------------------------------------------------------
@@ -123,6 +130,7 @@ class SentimentResponse(BaseModel):
 
     model_config = {"frozen": True}
 
+
 # ---------------------------------------------------------------------------
 # Sub-schema: MarketContext
 # ---------------------------------------------------------------------------
@@ -138,7 +146,9 @@ class MarketContext(BaseModel):
     @model_validator(mode="after")
     def validate_bid_ask_ordering(self) -> "MarketContext":
         if self.best_ask < self.best_bid:
-            raise ValueError(f"best_ask ({self.best_ask}) must be >= best_bid ({self.best_bid})")
+            raise ValueError(
+                f"best_ask ({self.best_ask}) must be >= best_bid ({self.best_bid})"
+            )
         return self
 
     @property
@@ -154,6 +164,7 @@ class MarketContext(BaseModel):
         return delta.total_seconds() / 3600.0
 
     model_config = {"frozen": True}
+
 
 # ---------------------------------------------------------------------------
 # Sub-schema: ProbabilisticEstimate
@@ -187,6 +198,7 @@ class ProbabilisticEstimate(BaseModel):
 
     model_config = {"frozen": True}
 
+
 # ---------------------------------------------------------------------------
 # Sub-schema: RiskAssessment
 # ---------------------------------------------------------------------------
@@ -197,6 +209,7 @@ class RiskAssessment(BaseModel):
     risk_notes: str = Field(..., min_length=20)
 
     model_config = {"frozen": True}
+
 
 # ---------------------------------------------------------------------------
 # Sub-schema: GatekeeperAudit
@@ -212,7 +225,11 @@ class GatekeeperAudit(BaseModel):
     override_applied: bool = False
 
     def to_log_prefix(self) -> str:
-        status = "PASS" if self.all_filters_passed else f"HOLD | filter={self.triggered_filter.value}"
+        status = (
+            "PASS"
+            if self.all_filters_passed
+            else f"HOLD | filter={self.triggered_filter.value}"
+        )
         return (
             f"[GATEKEEPER] {status} | "
             f"ev={self.computed_ev:.4f} | "
@@ -223,6 +240,7 @@ class GatekeeperAudit(BaseModel):
         )
 
     model_config = {"frozen": True}
+
 
 # ---------------------------------------------------------------------------
 # Primary Schema: LLMEvaluationResponse  (THE GATEKEEPER)
@@ -304,7 +322,9 @@ class LLMEvaluationResponse(BaseModel):
         audit = self.gatekeeper_audit
         assert audit is not None
 
-        llm_wanted_to_trade = self.decision_boolean or (self.recommended_action != RecommendedAction.HOLD)
+        llm_wanted_to_trade = self.decision_boolean or (
+            self.recommended_action != RecommendedAction.HOLD
+        )
         should_hold = not audit.all_filters_passed or self.position_size_pct == 0.0
 
         if should_hold:
@@ -336,11 +356,17 @@ class LLMEvaluationResponse(BaseModel):
     @model_validator(mode="after")
     def _validate_final_consistency(self) -> "LLMEvaluationResponse":
         if self.decision_boolean and self.recommended_action == RecommendedAction.HOLD:
-            raise AssertionError("[BUG] decision_boolean=True but recommended_action=HOLD after override.")
+            raise AssertionError(
+                "[BUG] decision_boolean=True but recommended_action=HOLD after override."
+            )
         if not self.decision_boolean and self.position_size_pct > 0.0:
-            raise AssertionError(f"[BUG] decision_boolean=False but position_size_pct={self.position_size_pct} > 0.")
+            raise AssertionError(
+                f"[BUG] decision_boolean=False but position_size_pct={self.position_size_pct} > 0."
+            )
         if self.decision_boolean and self.expected_value <= 0.0:
-            raise AssertionError(f"[BUG] decision_boolean=True but EV={self.expected_value} <= 0 slipped through.")
+            raise AssertionError(
+                f"[BUG] decision_boolean=True but EV={self.expected_value} <= 0 slipped through."
+            )
         return self
 
     model_config = {

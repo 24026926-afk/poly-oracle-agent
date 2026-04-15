@@ -342,9 +342,7 @@ class ExitStrategyEngine:
     ) -> Decimal:
         routed = ExitStrategyEngine._as_utc(routed_at_utc)
         evaluated = ExitStrategyEngine._as_utc(evaluated_at_utc)
-        age_seconds = Decimal(
-            str((evaluated - routed).total_seconds())
-        )
+        age_seconds = Decimal(str((evaluated - routed).total_seconds()))
         return age_seconds / _HOUR_SECONDS
 
     @staticmethod

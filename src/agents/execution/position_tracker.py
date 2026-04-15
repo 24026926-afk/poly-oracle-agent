@@ -16,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.core.config import AppConfig
 from src.db.models import Position
 from src.db.repositories.position_repo import PositionRepository
-from src.schemas.execution import ExecutionAction, ExecutionResult, PositionRecord, PositionStatus
+from src.schemas.execution import (
+    ExecutionAction,
+    ExecutionResult,
+    PositionRecord,
+    PositionStatus,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -64,11 +69,21 @@ class PositionTracker:
         if status is None:
             return None
 
-        entry_price = result.midpoint_probability if result.midpoint_probability is not None else _ZERO
-        order_size_usdc = result.order_size_usdc if result.order_size_usdc is not None else _ZERO
-        kelly_fraction = result.kelly_fraction if result.kelly_fraction is not None else _ZERO
+        entry_price = (
+            result.midpoint_probability
+            if result.midpoint_probability is not None
+            else _ZERO
+        )
+        order_size_usdc = (
+            result.order_size_usdc if result.order_size_usdc is not None else _ZERO
+        )
+        kelly_fraction = (
+            result.kelly_fraction if result.kelly_fraction is not None else _ZERO
+        )
         best_ask = result.best_ask if result.best_ask is not None else _ZERO
-        bankroll_usdc = result.bankroll_usdc if result.bankroll_usdc is not None else _ZERO
+        bankroll_usdc = (
+            result.bankroll_usdc if result.bankroll_usdc is not None else _ZERO
+        )
 
         record = PositionRecord(
             id=str(uuid.uuid4()),

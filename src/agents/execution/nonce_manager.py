@@ -30,7 +30,10 @@ class NonceManager:
     """
 
     def __init__(
-        self, w3: AsyncWeb3, address: str, dry_run: bool = False,
+        self,
+        w3: AsyncWeb3,
+        address: str,
+        dry_run: bool = False,
     ) -> None:
         self._w3 = w3
         self._address: str = AsyncWeb3.to_checksum_address(address)

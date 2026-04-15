@@ -35,6 +35,7 @@ def _mock_db_factory() -> MagicMock:
 # BUG 1: yes_token_id propagation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_ws_client_accepts_token_id_mapping():
     """WS client must accept a token_id → yes_token_id mapping at init or via setter."""
@@ -46,7 +47,7 @@ async def test_ws_client_accepts_token_id_mapping():
         queue=queue,
         db_session_factory=db,
         assets_ids=["tok_yes_123"],
-        token_id_to_yes_token_id={"tok_yes_123": "asset_yes_id_123"}
+        token_id_to_yes_token_id={"tok_yes_123": "asset_yes_id_123"},
     )
 
     assert "tok_yes_123" in client._token_id_mapping
@@ -81,17 +82,19 @@ async def test_market_snapshot_includes_yes_token_id():
         config=_mock_config(),
         queue=queue,
         db_session_factory=db,
-        token_id_to_yes_token_id={"tok_yes_123": "yes_asset_123"}
+        token_id_to_yes_token_id={"tok_yes_123": "yes_asset_123"},
     )
 
     # Simulate a price_change event with asset_id=tok_yes_123
-    msg = json.dumps({
-        "event": "price_change",
-        "market": "0xcond123",
-        "asset_id": "tok_yes_123",
-        "best_bid": 0.45,
-        "best_ask": 0.55,
-    })
+    msg = json.dumps(
+        {
+            "event": "price_change",
+            "market": "0xcond123",
+            "asset_id": "tok_yes_123",
+            "best_bid": 0.45,
+            "best_ask": 0.55,
+        }
+    )
 
     await client._handle_message(msg)
 
@@ -105,6 +108,7 @@ async def test_market_snapshot_includes_yes_token_id():
 # BUG 2: midpoint computation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_ws_client_computes_midpoint_from_bids_asks():
     """For book frames with bids/asks lists, midpoint must be computed."""
@@ -117,12 +121,14 @@ async def test_ws_client_computes_midpoint_from_bids_asks():
         db_session_factory=db,
     )
 
-    msg = json.dumps({
-        "event": "book",
-        "market": "0xcond456",
-        "bids": [{"price": "0.40", "size": "100"}],
-        "asks": [{"price": "0.60", "size": "100"}],
-    })
+    msg = json.dumps(
+        {
+            "event": "book",
+            "market": "0xcond456",
+            "bids": [{"price": "0.40", "size": "100"}],
+            "asks": [{"price": "0.60", "size": "100"}],
+        }
+    )
 
     await client._handle_message(msg)
 
@@ -144,12 +150,14 @@ async def test_ws_client_computes_midpoint_from_best_bid_ask():
         db_session_factory=db,
     )
 
-    msg = json.dumps({
-        "event": "price_change",
-        "market": "0xcond789",
-        "best_bid": 0.35,
-        "best_ask": 0.65,
-    })
+    msg = json.dumps(
+        {
+            "event": "price_change",
+            "market": "0xcond789",
+            "best_bid": 0.35,
+            "best_ask": 0.65,
+        }
+    )
 
     await client._handle_message(msg)
 
@@ -162,6 +170,7 @@ async def test_ws_client_computes_midpoint_from_best_bid_ask():
 # ---------------------------------------------------------------------------
 # BUG 3: INVALID OPERATION logging and subscription audit
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_ws_client_logs_outbound_messages():
@@ -176,7 +185,7 @@ async def test_ws_client_logs_outbound_messages():
         assets_ids=["tok1", "tok2"],
     )
 
-    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+    with patch("src.agents.ingestion.ws_client.logger"):
         msg = client._build_subscription_message()
         # Verify that when a subscription is sent, it was logged
         # (This would happen in _stream before await ws.send)
@@ -206,6 +215,7 @@ async def test_ws_client_logs_subscription_audit():
 # BUG 1b: yes_token_id via condition_id fallback
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_ws_client_resolves_yes_token_id_from_condition_id():
     """Book frames without asset_id should resolve yes_token_id via condition_id."""
@@ -221,12 +231,14 @@ async def test_ws_client_resolves_yes_token_id_from_condition_id():
     )
 
     # Book frame has NO asset_id — only market (condition_id)
-    msg = json.dumps({
-        "event": "book",
-        "market": "0xcond_abc",
-        "bids": [{"price": "0.40", "size": "100"}],
-        "asks": [{"price": "0.60", "size": "100"}],
-    })
+    msg = json.dumps(
+        {
+            "event": "book",
+            "market": "0xcond_abc",
+            "bids": [{"price": "0.40", "size": "100"}],
+            "asks": [{"price": "0.60", "size": "100"}],
+        }
+    )
     await client._handle_message(msg)
 
     assert queue.qsize() == 1
@@ -251,13 +263,15 @@ async def test_ws_client_no_token_maps_to_yes_token():
         },
     )
 
-    msg = json.dumps({
-        "event": "price_change",
-        "market": "0xcond789",
-        "asset_id": "tok_no",
-        "best_bid": 0.35,
-        "best_ask": 0.65,
-    })
+    msg = json.dumps(
+        {
+            "event": "price_change",
+            "market": "0xcond789",
+            "asset_id": "tok_no",
+            "best_bid": 0.35,
+            "best_ask": 0.65,
+        }
+    )
     await client._handle_message(msg)
 
     assert queue.qsize() == 1
@@ -269,6 +283,7 @@ async def test_ws_client_no_token_maps_to_yes_token():
 # BUG 2b: midpoint=0 suppression
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_ws_client_parses_price_changes_array():
     """price_change events with price_changes[] array are parsed correctly."""
@@ -276,14 +291,16 @@ async def test_ws_client_parses_price_changes_array():
 
     data = {
         "market": "0xtest",
-        "price_changes": [{
-            "asset_id": "123",
-            "price": "0.50",
-            "size": "1000",
-            "side": "SELL",
-            "best_bid": "0.48",
-            "best_ask": "0.52",
-        }]
+        "price_changes": [
+            {
+                "asset_id": "123",
+                "price": "0.50",
+                "size": "1000",
+                "side": "SELL",
+                "best_bid": "0.48",
+                "best_ask": "0.52",
+            }
+        ],
     }
     # Simulate ws_client extraction logic
     price_changes = data.get("price_changes", [])
@@ -320,12 +337,14 @@ async def test_ws_client_skips_price_change_with_missing_ask():
         db_session_factory=db,
     )
 
-    msg = json.dumps({
-        "event": "price_change",
-        "market": "0xcond_no_ask",
-        "best_bid": 0.45,
-        # best_ask absent → defaults to 0.0
-    })
+    msg = json.dumps(
+        {
+            "event": "price_change",
+            "market": "0xcond_no_ask",
+            "best_bid": 0.45,
+            # best_ask absent → defaults to 0.0
+        }
+    )
     await client._handle_message(msg)
 
     assert queue.qsize() == 0, "must not emit snapshot when best_ask is missing"
@@ -343,12 +362,14 @@ async def test_ws_client_skips_book_with_empty_lists_and_no_fallback():
         db_session_factory=db,
     )
 
-    msg = json.dumps({
-        "event": "book",
-        "market": "0xcond_empty",
-        "bids": [],
-        "asks": [],
-    })
+    msg = json.dumps(
+        {
+            "event": "book",
+            "market": "0xcond_empty",
+            "bids": [],
+            "asks": [],
+        }
+    )
     await client._handle_message(msg)
 
     assert queue.qsize() == 0, "must not emit snapshot when book has no bids/asks"

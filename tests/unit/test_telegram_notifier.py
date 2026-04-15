@@ -58,10 +58,7 @@ def _make_alert(
         alert_at_utc=datetime(2026, 4, 1, 14, 30, tzinfo=timezone.utc),
         severity=severity,
         rule_name=rule_name,
-        message=(
-            "Portfolio drawdown exceeds 100 USDC: "
-            "unrealized PnL is -142.50 USDC"
-        ),
+        message=("Portfolio drawdown exceeds 100 USDC: unrealized PnL is -142.50 USDC"),
         threshold_value=threshold_value,
         actual_value=actual_value,
         dry_run=dry_run,
@@ -161,7 +158,9 @@ async def test_send_alert_prefixes_dry_run_messages():
     client = _make_success_client()
     notifier = module.TelegramNotifier(_make_config(), client)
 
-    await notifier.send_alert(_make_alert(severity=AlertSeverity.CRITICAL, dry_run=True))
+    await notifier.send_alert(
+        _make_alert(severity=AlertSeverity.CRITICAL, dry_run=True)
+    )
 
     text = client.post.await_args.kwargs["json"]["text"]
     assert text.startswith("[DRY RUN] ")
@@ -242,16 +241,22 @@ async def test_send_alert_swallows_timeout_exception():
     client.post = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
     notifier = module.TelegramNotifier(_make_config(), client)
 
-    await notifier.send_alert(_make_alert(severity=AlertSeverity.CRITICAL, dry_run=False))
+    await notifier.send_alert(
+        _make_alert(severity=AlertSeverity.CRITICAL, dry_run=False)
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status_code", [403, 500])
 async def test_send_alert_swallows_http_status_errors(status_code: int):
     module = _load_module(TELEGRAM_MODULE_NAME)
-    notifier = module.TelegramNotifier(_make_config(), _make_http_status_client(status_code))
+    notifier = module.TelegramNotifier(
+        _make_config(), _make_http_status_client(status_code)
+    )
 
-    await notifier.send_alert(_make_alert(severity=AlertSeverity.CRITICAL, dry_run=False))
+    await notifier.send_alert(
+        _make_alert(severity=AlertSeverity.CRITICAL, dry_run=False)
+    )
 
 
 @pytest.mark.asyncio
@@ -262,10 +267,14 @@ async def test_send_alert_swallows_connect_error():
         "https://api.telegram.org/bottelegram-secret-token/sendMessage",
     )
     client = MagicMock()
-    client.post = AsyncMock(side_effect=httpx.ConnectError("connect boom", request=request))
+    client.post = AsyncMock(
+        side_effect=httpx.ConnectError("connect boom", request=request)
+    )
     notifier = module.TelegramNotifier(_make_config(), client)
 
-    await notifier.send_alert(_make_alert(severity=AlertSeverity.CRITICAL, dry_run=False))
+    await notifier.send_alert(
+        _make_alert(severity=AlertSeverity.CRITICAL, dry_run=False)
+    )
 
 
 @pytest.mark.asyncio
@@ -275,7 +284,9 @@ async def test_send_alert_swallows_generic_runtime_error():
     client.post = AsyncMock(side_effect=RuntimeError("unexpected-boom"))
     notifier = module.TelegramNotifier(_make_config(), client)
 
-    await notifier.send_alert(_make_alert(severity=AlertSeverity.CRITICAL, dry_run=False))
+    await notifier.send_alert(
+        _make_alert(severity=AlertSeverity.CRITICAL, dry_run=False)
+    )
 
 
 @pytest.mark.asyncio
@@ -303,7 +314,9 @@ async def test_failed_send_does_not_log_raw_bot_token():
     )
     notifier._log = MagicMock()
 
-    await notifier.send_alert(_make_alert(severity=AlertSeverity.CRITICAL, dry_run=False))
+    await notifier.send_alert(
+        _make_alert(severity=AlertSeverity.CRITICAL, dry_run=False)
+    )
 
     rendered = " ".join(
         [

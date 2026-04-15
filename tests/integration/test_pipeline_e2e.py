@@ -22,7 +22,6 @@ from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
 from src.db.models import AgentDecisionLog, ExecutionTx, MarketSnapshot
-from src.schemas.market import MarketMetadata
 from tests.conftest import APPROVED_REFLECTION_JSON
 
 
@@ -51,15 +50,17 @@ def _approved_reflection():
 
 
 def _book_frame_json() -> str:
-    return json.dumps({
-        "event": "book",
-        "market": CONDITION_ID,
-        "question": "Will ETH exceed $5000?",
-        "best_bid": 0.45,
-        "best_ask": 0.55,
-        "last_trade_price": 0.50,
-        "outcome_token": "YES",
-    })
+    return json.dumps(
+        {
+            "event": "book",
+            "market": CONDITION_ID,
+            "question": "Will ETH exceed $5000?",
+            "best_bid": 0.45,
+            "best_ask": 0.55,
+            "last_trade_price": 0.50,
+            "outcome_token": "YES",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +249,9 @@ async def test_persistence_all_three_tables(
     in_q: asyncio.Queue = asyncio.Queue()
     out_q: asyncio.Queue = asyncio.Queue()
     claude = ClaudeClient(
-        in_queue=in_q, out_queue=out_q, config=test_config,
+        in_queue=in_q,
+        out_queue=out_q,
+        config=test_config,
         db_session_factory=db_session_factory,
     )
     claude.client = MagicMock()
@@ -259,11 +262,13 @@ async def test_persistence_all_three_tables(
         ],
     )
 
-    await claude._process_evaluation({
-        "prompt": "Evaluate this market",
-        "snapshot_id": snapshot_id,
-        "yes_token_id": "tok-yes-001",
-    })
+    await claude._process_evaluation(
+        {
+            "prompt": "Evaluate this market",
+            "snapshot_id": snapshot_id,
+            "yes_token_id": "tok-yes-001",
+        }
+    )
 
     # -- Verify all three tables --
     async with db_session_factory() as session:
@@ -273,9 +278,7 @@ async def test_persistence_all_three_tables(
         dec_count = len(
             (await session.execute(select(AgentDecisionLog))).scalars().all()
         )
-        exec_count = len(
-            (await session.execute(select(ExecutionTx))).scalars().all()
-        )
+        exec_count = len((await session.execute(select(ExecutionTx))).scalars().all())
 
     assert snap_count >= 1, "MarketSnapshot table must have rows"
     assert dec_count >= 1, "AgentDecisionLog table must have rows"

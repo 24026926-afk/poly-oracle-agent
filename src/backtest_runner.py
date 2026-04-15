@@ -80,9 +80,7 @@ class BacktestDataLoader:
                     f"Malformed JSON in {json_file}: {exc}"
                 ) from exc
             except OSError as exc:
-                raise BacktestDataError(
-                    f"Failed reading {json_file}: {exc}"
-                ) from exc
+                raise BacktestDataError(f"Failed reading {json_file}: {exc}") from exc
 
             if not isinstance(records, list):
                 raise BacktestDataError(
@@ -157,7 +155,10 @@ class BacktestDataLoader:
         return parsed
 
     def _is_within_date_window(self, snapshot_date: date) -> bool:
-        if self._config.start_date is not None and snapshot_date < self._config.start_date:
+        if (
+            self._config.start_date is not None
+            and snapshot_date < self._config.start_date
+        ):
             return False
         if self._config.end_date is not None and snapshot_date > self._config.end_date:
             return False
@@ -309,7 +310,9 @@ class BacktestRunner:
                     timestamp_utc=timestamp_utc.isoformat(),
                 )
 
-                decision, trade_executed, trade_pnl = await self._replay_snapshot(snapshot)
+                decision, trade_executed, trade_pnl = await self._replay_snapshot(
+                    snapshot
+                )
                 decision_rows.append(decision)
 
                 accumulator = market_accumulators.setdefault(
@@ -324,10 +327,12 @@ class BacktestRunner:
                 accumulator["total_decisions"] = int(accumulator["total_decisions"]) + 1
 
                 if trade_executed:
-                    accumulator["trades_executed"] = int(accumulator["trades_executed"]) + 1
-                    accumulator["net_pnl_usdc"] = _decimal_value(
-                        accumulator["net_pnl_usdc"]
-                    ) + trade_pnl
+                    accumulator["trades_executed"] = (
+                        int(accumulator["trades_executed"]) + 1
+                    )
+                    accumulator["net_pnl_usdc"] = (
+                        _decimal_value(accumulator["net_pnl_usdc"]) + trade_pnl
+                    )
                     if trade_pnl > _ZERO:
                         accumulator["wins"] = int(accumulator["wins"]) + 1
 
@@ -407,7 +412,9 @@ class BacktestRunner:
 
         decision_boolean = bool(_safe_attr(validated, "decision_boolean", False))
         action = _action_value(_safe_attr(validated, "recommended_action", "HOLD"))
-        position_size_pct = _to_decimal(_safe_attr(validated, "position_size_pct", _ZERO))
+        position_size_pct = _to_decimal(
+            _safe_attr(validated, "position_size_pct", _ZERO)
+        )
         ev = _to_decimal(_safe_attr(validated, "expected_value", _ZERO))
         confidence = _to_decimal(_safe_attr(validated, "confidence_score", _ZERO))
         reason = str(_safe_attr(validated, "reasoning_log", ""))
@@ -641,14 +648,20 @@ def _load_config_overrides(config_path: Path) -> dict[str, Any]:
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
-        raise BacktestDataError("Backtest config file must deserialize to a dictionary.")
+        raise BacktestDataError(
+            "Backtest config file must deserialize to a dictionary."
+        )
     return loaded
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="WI-33 offline backtesting runner")
-    parser.add_argument("--data-dir", required=True, help="Directory of historical JSON files")
-    parser.add_argument("--config", required=False, help="Optional backtest config (JSON or YAML)")
+    parser.add_argument(
+        "--data-dir", required=True, help="Directory of historical JSON files"
+    )
+    parser.add_argument(
+        "--config", required=False, help="Optional backtest config (JSON or YAML)"
+    )
     parser.add_argument(
         "--output",
         required=False,

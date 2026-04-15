@@ -78,9 +78,18 @@ class TestOrderMessage:
         msg = _order_to_message(order)
 
         expected_keys = {
-            "salt", "maker", "signer", "taker", "tokenId",
-            "makerAmount", "takerAmount", "expiration", "nonce",
-            "feeRateBps", "side", "signatureType",
+            "salt",
+            "maker",
+            "signer",
+            "taker",
+            "tokenId",
+            "makerAmount",
+            "takerAmount",
+            "expiration",
+            "nonce",
+            "feeRateBps",
+            "side",
+            "signatureType",
         }
         assert set(msg.keys()) == expected_keys
 

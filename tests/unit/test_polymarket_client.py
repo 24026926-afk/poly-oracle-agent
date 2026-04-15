@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -84,7 +84,9 @@ class TestFetchOrderBookHappyPath:
     async def test_returns_market_snapshot(self):
         """Valid order book returns a MarketSnapshot instance."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert isinstance(result, MarketSnapshot)
@@ -93,7 +95,9 @@ class TestFetchOrderBookHappyPath:
     async def test_snapshot_contains_token_id(self):
         """Snapshot reflects the requested token_id."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result.token_id == "tok-yes-001"
@@ -102,7 +106,9 @@ class TestFetchOrderBookHappyPath:
     async def test_snapshot_best_bid_is_decimal(self):
         """best_bid field is Decimal-typed."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert isinstance(result.best_bid, Decimal)
@@ -112,7 +118,9 @@ class TestFetchOrderBookHappyPath:
     async def test_snapshot_best_ask_is_decimal(self):
         """best_ask field is Decimal-typed."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert isinstance(result.best_ask, Decimal)
@@ -122,7 +130,9 @@ class TestFetchOrderBookHappyPath:
     async def test_snapshot_source_is_clob(self):
         """source field identifies order book origin."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result.source == "clob_orderbook"
@@ -131,7 +141,9 @@ class TestFetchOrderBookHappyPath:
     async def test_snapshot_has_fetched_at_utc(self):
         """Snapshot must include a fetched_at_utc timestamp."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result.fetched_at_utc is not None
@@ -149,7 +161,9 @@ class TestDecimalMidpointMath:
     async def test_midpoint_is_decimal(self):
         """midpoint_probability must be Decimal-typed."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert isinstance(result.midpoint_probability, Decimal)
@@ -158,7 +172,9 @@ class TestDecimalMidpointMath:
     async def test_midpoint_correct_value(self):
         """midpoint = (best_bid + best_ask) / 2 using Decimal."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         expected = (Decimal("0.45") + Decimal("0.55")) / Decimal("2")
@@ -168,7 +184,9 @@ class TestDecimalMidpointMath:
     async def test_spread_is_decimal(self):
         """spread must be Decimal-typed."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert isinstance(result.spread, Decimal)
@@ -177,7 +195,9 @@ class TestDecimalMidpointMath:
     async def test_spread_correct_value(self):
         """spread = best_ask - best_bid."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         expected = Decimal("0.55") - Decimal("0.45")
@@ -187,7 +207,9 @@ class TestDecimalMidpointMath:
     async def test_tight_spread_precision(self):
         """Tight spread (0.002) must be precise with Decimal."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _TIGHT_SPREAD_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result.best_bid == Decimal("0.500")
@@ -199,12 +221,16 @@ class TestDecimalMidpointMath:
     async def test_no_float_in_snapshot_money_fields(self):
         """No float type in any money-path field of the snapshot."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         for field_name in ("best_bid", "best_ask", "midpoint_probability", "spread"):
             val = getattr(result, field_name)
-            assert isinstance(val, Decimal), f"{field_name} is {type(val)}, expected Decimal"
+            assert isinstance(val, Decimal), (
+                f"{field_name} is {type(val)}, expected Decimal"
+            )
             assert not isinstance(val, float), f"{field_name} must not be float"
 
 
@@ -220,7 +246,9 @@ class TestInvalidOrderBook:
     async def test_missing_bids_returns_none(self):
         """Empty bids list → non-tradable (None)."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _EMPTY_BIDS_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -229,7 +257,9 @@ class TestInvalidOrderBook:
     async def test_missing_asks_returns_none(self):
         """Empty asks list → non-tradable (None)."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _EMPTY_ASKS_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -238,7 +268,9 @@ class TestInvalidOrderBook:
     async def test_crossed_book_returns_none(self):
         """best_ask < best_bid (crossed book) → rejected, returns None."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _CROSSED_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -247,7 +279,9 @@ class TestInvalidOrderBook:
     async def test_empty_book_returns_none(self):
         """Completely empty order book → non-tradable."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = {"bids": [], "asks": []}
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -265,7 +299,9 @@ class TestErrorHandling:
     async def test_timeout_returns_none(self):
         """SDK timeout → returns None (non-tradable), no crash."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.side_effect = asyncio.TimeoutError()
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -274,7 +310,9 @@ class TestErrorHandling:
     async def test_connection_error_returns_none(self):
         """Connection error → returns None (non-tradable), no crash."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.side_effect = ConnectionError("CLOB unreachable")
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -283,7 +321,9 @@ class TestErrorHandling:
     async def test_generic_exception_returns_none(self):
         """Any unexpected exception → returns None (non-tradable), no crash."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.side_effect = RuntimeError("SDK internal error")
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -375,7 +415,9 @@ class TestMalformedPriceFields:
             "bids": [{"size": "100"}],
             "asks": [{"price": "0.55", "size": "80"}],
         }
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = book
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -388,7 +430,9 @@ class TestMalformedPriceFields:
             "bids": [{"price": None, "size": "100"}],
             "asks": [{"price": "0.55", "size": "80"}],
         }
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = book
             result = await client.fetch_order_book("tok-yes-001")
         assert result is None
@@ -427,7 +471,9 @@ class TestOrderBookSummaryDataclassInput:
         )
 
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = sdk_response
             result = await client.fetch_order_book("tok-yes-001")
 
@@ -439,7 +485,9 @@ class TestOrderBookSummaryDataclassInput:
     async def test_parse_still_works_with_dict_input(self):
         """Dict input must continue to work after dataclass support is added."""
         client = PolymarketClient(host="https://clob.polymarket.com")
-        with patch.object(client, "_fetch_raw_order_book", new_callable=AsyncMock) as mock_fetch:
+        with patch.object(
+            client, "_fetch_raw_order_book", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = _VALID_ORDER_BOOK
             result = await client.fetch_order_book("tok-yes-001")
         assert isinstance(result, MarketSnapshot)

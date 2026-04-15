@@ -19,6 +19,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+
 # Keep Alembic independent from AppConfig so migrations do not require
 # unrelated runtime secrets (Anthropic/Web3 keys).
 def _resolve_database_url() -> str:

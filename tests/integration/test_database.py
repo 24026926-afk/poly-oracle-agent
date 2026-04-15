@@ -11,7 +11,6 @@ import json
 import uuid
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import MarketSnapshot
@@ -40,12 +39,14 @@ def _make_snapshot_payload(
         "outcome_token": "YES",
         "yes_token_id": yes_token_id,
         "no_token_id": no_token_id,
-        "raw_ws_payload": json.dumps({
-            "event": "book",
-            "market": condition_id,
-            "bids": [{"price": 0.45, "size": 100}],
-            "asks": [{"price": 0.46, "size": 100}],
-        }),
+        "raw_ws_payload": json.dumps(
+            {
+                "event": "book",
+                "market": condition_id,
+                "bids": [{"price": 0.45, "size": 100}],
+                "asks": [{"price": 0.46, "size": 100}],
+            }
+        ),
     }
 
 

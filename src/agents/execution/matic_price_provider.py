@@ -61,4 +61,3 @@ class MaticPriceProvider:
         except Exception as exc:
             self._log.error("matic_price.fetch_failed", error=str(exc))
             return self._fallback_price()
-

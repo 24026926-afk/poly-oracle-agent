@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -33,6 +33,7 @@ from src.db.models import Base
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_integration_config(**overrides) -> AppConfig:
     """Build AppConfig for integration tests."""
@@ -126,14 +127,10 @@ async def test_db_session_factory(test_async_engine):
 # 1. Full fan-out cycle
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_full_fan_out_cycle():
     """discover → subscribe_batch → aggregate → prompt_queue: all markets tracked."""
-    config = _make_integration_config(
-        max_concurrent_markets=3,
-        market_tracking_interval_sec=Decimal("10"),
-    )
-
     # Test the fan-out pattern directly without full Orchestrator
     mock_aggregator = AsyncMock()
     mock_aggregator.track_market.side_effect = lambda token_ids: [
@@ -149,10 +146,7 @@ async def test_full_fan_out_cycle():
     assert len(snapshots) == 3
 
     token_ids_list = [s.token_ids for s in snapshots]
-    tasks = [
-        mock_aggregator.track_market(token_ids)
-        for token_ids in token_ids_list
-    ]
+    tasks = [mock_aggregator.track_market(token_ids) for token_ids in token_ids_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     success = [r for r in results if not isinstance(r, Exception)]
@@ -162,6 +156,7 @@ async def test_full_fan_out_cycle():
 # ---------------------------------------------------------------------------
 # 2. Single WebSocket connection
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_single_websocket_connection_for_all_markets():
@@ -190,6 +185,7 @@ async def test_single_websocket_connection_for_all_markets():
 # 3. Market failure isolation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_market_failure_isolation():
     """Crash in one aggregator must NOT affect the other 2."""
@@ -203,10 +199,7 @@ async def test_market_failure_isolation():
     mock_aggregator.track_market.side_effect = track_with_one_failure
 
     token_ids_list = [["t1"], ["t2"], ["t3"]]
-    tasks = [
-        mock_aggregator.track_market(token_ids)
-        for token_ids in token_ids_list
-    ]
+    tasks = [mock_aggregator.track_market(token_ids) for token_ids in token_ids_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     exceptions = [r for r in results if isinstance(r, Exception)]
@@ -219,6 +212,7 @@ async def test_market_failure_isolation():
 # ---------------------------------------------------------------------------
 # 4. Frame routing correctness
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_frame_routing_no_cross_contamination():
@@ -237,6 +231,7 @@ async def test_frame_routing_no_cross_contamination():
     def make_handler(key):
         def handler(frame):
             received_frames[key].append(frame)
+
         return handler
 
     mock_agg_t1 = MagicMock(spec=DataAggregator)
@@ -258,9 +253,15 @@ async def test_frame_routing_no_cross_contamination():
 
     # Send frames for all 3 markets concurrently
     frames = [
-        json.dumps({"asset_id": "t1", "event_type": "book", "best_bid": 0.45, "best_ask": 0.55}),
-        json.dumps({"asset_id": "t2", "event_type": "book", "best_bid": 0.30, "best_ask": 0.40}),
-        json.dumps({"asset_id": "t3", "event_type": "book", "best_bid": 0.60, "best_ask": 0.70}),
+        json.dumps(
+            {"asset_id": "t1", "event_type": "book", "best_bid": 0.45, "best_ask": 0.55}
+        ),
+        json.dumps(
+            {"asset_id": "t2", "event_type": "book", "best_bid": 0.30, "best_ask": 0.40}
+        ),
+        json.dumps(
+            {"asset_id": "t3", "event_type": "book", "best_bid": 0.60, "best_ask": 0.70}
+        ),
     ]
 
     await asyncio.gather(*[client._handle_message(f) for f in frames])
@@ -280,6 +281,7 @@ async def test_frame_routing_no_cross_contamination():
 # 5. dry_run=True concurrent pipeline
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_dry_run_concurrent_pipeline():
     """Full concurrent tracking with dry_run=True: no live WS connections."""
@@ -290,9 +292,9 @@ async def test_dry_run_concurrent_pipeline():
 
     # Mock aggregator
     mock_aggregator = AsyncMock()
-    mock_aggregator.track_market = AsyncMock(return_value=[
-        {"token_ids": ["t1"], "condition_id": "cid_1"}
-    ])
+    mock_aggregator.track_market = AsyncMock(
+        return_value=[{"token_ids": ["t1"], "condition_id": "cid_1"}]
+    )
 
     # Simulate discovery
     snapshots = [
@@ -312,20 +314,20 @@ async def test_dry_run_concurrent_pipeline():
 # 6. Market truncation end-to-end
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_market_truncation_end_to_end():
     """Discover 7 markets, max_concurrent_markets=5: only 5 tracked."""
     config = _make_integration_config(max_concurrent_markets=5)
 
     snapshots = [
-        MagicMock(condition_id=f"cid_{i}", token_ids=[f"t{i}"])
-        for i in range(7)
+        MagicMock(condition_id=f"cid_{i}", token_ids=[f"t{i}"]) for i in range(7)
     ]
     assert len(snapshots) == 7
 
     # Apply truncation
     if len(snapshots) > config.max_concurrent_markets:
-        snapshots = snapshots[:config.max_concurrent_markets]
+        snapshots = snapshots[: config.max_concurrent_markets]
 
     assert len(snapshots) == 5
 
@@ -333,6 +335,7 @@ async def test_market_truncation_end_to_end():
 # ---------------------------------------------------------------------------
 # 7. Concurrent queue production
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_concurrent_queue_production():

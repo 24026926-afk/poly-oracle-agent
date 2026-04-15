@@ -26,15 +26,14 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -48,6 +47,7 @@ def _new_uuid() -> str:
 # Declarative Base
 # ---------------------------------------------------------------------------
 
+
 class Base(DeclarativeBase):
     """Project-wide SQLAlchemy declarative base."""
 
@@ -55,6 +55,7 @@ class Base(DeclarativeBase):
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 class DecisionAction(str, enum.Enum):
     BUY = "BUY"
@@ -73,6 +74,7 @@ class TxStatus(str, enum.Enum):
 # Table 1: MarketSnapshot
 # ---------------------------------------------------------------------------
 
+
 class MarketSnapshot(Base):
     """
     Captures a point-in-time view of a Polymarket CLOB market.
@@ -82,16 +84,15 @@ class MarketSnapshot(Base):
 
     __tablename__ = "market_snapshots"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_new_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
     condition_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True,
-        comment="Polymarket condition ID (market identifier)"
+        String(128),
+        nullable=False,
+        index=True,
+        comment="Polymarket condition ID (market identifier)",
     )
     question: Mapped[str] = mapped_column(
-        Text, nullable=False,
-        comment="Human-readable market question"
+        Text, nullable=False, comment="Human-readable market question"
     )
 
     # --- Pricing ---
@@ -101,21 +102,26 @@ class MarketSnapshot(Base):
     midpoint: Mapped[float] = mapped_column(Float, nullable=False)
 
     # --- Liquidity ---
-    bid_liquidity_usdc: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    ask_liquidity_usdc: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    bid_liquidity_usdc: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
+    ask_liquidity_usdc: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
 
     # --- Market Metadata ---
     outcome_token: Mapped[str] = mapped_column(
-        String(64), nullable=False,
-        comment="YES or NO token address being tracked"
+        String(64), nullable=False, comment="YES or NO token address being tracked"
     )
     yes_token_id: Mapped[Optional[str]] = mapped_column(
-        String(256), nullable=True,
-        comment="CLOB asset ID for the YES outcome (resolved from ws_client mapping)"
+        String(256),
+        nullable=True,
+        comment="CLOB asset ID for the YES outcome (resolved from ws_client mapping)",
     )
     no_token_id: Mapped[Optional[str]] = mapped_column(
-        String(256), nullable=True,
-        comment="CLOB asset ID for the NO outcome (resolved from ws_client mapping)"
+        String(256),
+        nullable=True,
+        comment="CLOB asset ID for the NO outcome (resolved from ws_client mapping)",
     )
     market_end_date: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -124,8 +130,9 @@ class MarketSnapshot(Base):
 
     # --- Raw Payload ---
     raw_ws_payload: Mapped[str] = mapped_column(
-        Text, nullable=False,
-        comment="Original JSON string received from CLOB WebSocket"
+        Text,
+        nullable=False,
+        comment="Original JSON string received from CLOB WebSocket",
     )
 
     # --- Timestamps ---
@@ -153,6 +160,7 @@ class MarketSnapshot(Base):
 # Table 2: AgentDecisionLog
 # ---------------------------------------------------------------------------
 
+
 class AgentDecisionLog(Base):
     """
     Full audit record of a single LLM evaluation cycle.
@@ -162,9 +170,7 @@ class AgentDecisionLog(Base):
 
     __tablename__ = "agent_decision_logs"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_new_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
     snapshot_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("market_snapshots.id", ondelete="CASCADE"),
@@ -174,16 +180,17 @@ class AgentDecisionLog(Base):
 
     # --- LLM Structured Output (mirrors LLMEvaluationResponse Pydantic schema) ---
     confidence_score: Mapped[float] = mapped_column(
-        Float, nullable=False,
-        comment="LLM confidence [0.0 – 1.0] in its probability estimate"
+        Float,
+        nullable=False,
+        comment="LLM confidence [0.0 – 1.0] in its probability estimate",
     )
     expected_value: Mapped[float] = mapped_column(
-        Float, nullable=False,
-        comment="Computed EV of the trade in USDC-equivalent basis"
+        Float,
+        nullable=False,
+        comment="Computed EV of the trade in USDC-equivalent basis",
     )
     decision_boolean: Mapped[bool] = mapped_column(
-        Boolean, nullable=False,
-        comment="True = execute trade; False = hold"
+        Boolean, nullable=False, comment="True = execute trade; False = hold"
     )
     recommended_action: Mapped[DecisionAction] = mapped_column(
         SAEnum(DecisionAction, name="decision_action_enum"),
@@ -191,22 +198,27 @@ class AgentDecisionLog(Base):
         default=DecisionAction.HOLD,
     )
     implied_probability: Mapped[float] = mapped_column(
-        Float, nullable=False,
-        comment="LLM's estimated true probability for the outcome"
+        Float,
+        nullable=False,
+        comment="LLM's estimated true probability for the outcome",
     )
 
     # --- Full Audit Trail ---
     reasoning_log: Mapped[str] = mapped_column(
-        Text, nullable=False,
-        comment="Raw Chain-of-Thought text block returned verbatim by Claude"
+        Text,
+        nullable=False,
+        comment="Raw Chain-of-Thought text block returned verbatim by Claude",
     )
     prompt_version: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="v1.0.0",
-        comment="Slug identifying the CoT prompt template version used"
+        String(32),
+        nullable=False,
+        default="v1.0.0",
+        comment="Slug identifying the CoT prompt template version used",
     )
     llm_model_id: Mapped[str] = mapped_column(
-        String(64), nullable=False,
-        comment="Exact model string returned by Anthropic API, e.g. claude-3-5-sonnet-20241022"
+        String(64),
+        nullable=False,
+        comment="Exact model string returned by Anthropic API, e.g. claude-3-5-sonnet-20241022",
     )
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -236,6 +248,7 @@ class AgentDecisionLog(Base):
 # Table 3: ExecutionTx
 # ---------------------------------------------------------------------------
 
+
 class ExecutionTx(Base):
     """
     Records every on-chain transaction attempt initiated by the
@@ -245,9 +258,7 @@ class ExecutionTx(Base):
 
     __tablename__ = "execution_txs"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_new_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
     decision_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("agent_decision_logs.id", ondelete="CASCADE"),
@@ -258,8 +269,10 @@ class ExecutionTx(Base):
 
     # --- Transaction Identity ---
     tx_hash: Mapped[Optional[str]] = mapped_column(
-        String(66), nullable=True, unique=True,
-        comment="0x-prefixed Polygon transaction hash"
+        String(66),
+        nullable=True,
+        unique=True,
+        comment="0x-prefixed Polygon transaction hash",
     )
     status: Mapped[TxStatus] = mapped_column(
         SAEnum(TxStatus, name="tx_status_enum"),
@@ -269,21 +282,14 @@ class ExecutionTx(Base):
     )
 
     # --- Order Details ---
-    side: Mapped[str] = mapped_column(
-        String(4), nullable=False,
-        comment="BUY or SELL"
-    )
+    side: Mapped[str] = mapped_column(String(4), nullable=False, comment="BUY or SELL")
     size_usdc: Mapped[float] = mapped_column(
-        Float, nullable=False,
-        comment="USDC amount committed to this order"
+        Float, nullable=False, comment="USDC amount committed to this order"
     )
     limit_price: Mapped[float] = mapped_column(
-        Float, nullable=False,
-        comment="Limit price submitted to the CLOB"
+        Float, nullable=False, comment="Limit price submitted to the CLOB"
     )
-    condition_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True
-    )
+    condition_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     outcome_token: Mapped[str] = mapped_column(String(64), nullable=False)
 
     # --- Gas Accounting ---
@@ -295,8 +301,7 @@ class ExecutionTx(Base):
     # --- Receipt ---
     block_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(
-        Text, nullable=True,
-        comment="Revert reason or RPC error string if tx failed"
+        Text, nullable=True, comment="Revert reason or RPC error string if tx failed"
     )
 
     # --- Timestamps ---
@@ -327,14 +332,13 @@ class ExecutionTx(Base):
 # Table 4: Position
 # ---------------------------------------------------------------------------
 
+
 class Position(Base):
     """Execution-time position tracking snapshot (WI-17)."""
 
     __tablename__ = "positions"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_new_uuid
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
     condition_id: Mapped[str] = mapped_column(String(256), nullable=False)
     token_id: Mapped[str] = mapped_column(String(256), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -363,7 +367,9 @@ class Position(Base):
 
     execution_action: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    routed_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    routed_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     recorded_at_utc: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

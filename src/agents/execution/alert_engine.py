@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from src.core.config import AppConfig
-from src.schemas.risk import AlertEvent, AlertSeverity, LifecycleReport, PortfolioSnapshot
+from src.schemas.risk import (
+    AlertEvent,
+    AlertSeverity,
+    LifecycleReport,
+    PortfolioSnapshot,
+)
 
 _ZERO = Decimal("0")
 
