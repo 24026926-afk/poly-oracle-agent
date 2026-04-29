@@ -12,10 +12,10 @@ import structlog
 from src.core.config import AppConfig
 from src.schemas.risk import AlertEvent, AlertSeverity
 
-_SEVERITY_EMOJI: dict[AlertSeverity, str] = {
-    AlertSeverity.CRITICAL: "🚨",
-    AlertSeverity.WARNING: "⚠️",
-    AlertSeverity.INFO: "ℹ️",
+_SEVERITY_LABEL: dict[AlertSeverity, str] = {
+    AlertSeverity.CRITICAL: "CRITICAL",
+    AlertSeverity.WARNING: "WARNING",
+    AlertSeverity.INFO: "INFO",
 }
 
 
@@ -35,9 +35,9 @@ class TelegramNotifier:
 
     async def send_alert(self, alert: AlertEvent) -> None:
         """Format and send a structured alert event."""
-        emoji = _SEVERITY_EMOJI[alert.severity]
+        severity_label = _SEVERITY_LABEL[alert.severity]
         text = (
-            f"{emoji} ALERT: {alert.rule_name}\n\n"
+            f"[{severity_label}] ALERT: {alert.rule_name}\n\n"
             f"{alert.message}\n\n"
             f"Threshold: {alert.threshold_value}\n"
             f"Actual: {alert.actual_value}\n"

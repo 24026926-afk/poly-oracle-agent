@@ -22,6 +22,7 @@ import pytest
 
 
 SCHEMA_MODULE_NAME = "src.schemas.execution"
+POSITION_SCHEMA_MODULE_NAME = "src.schemas.position"
 TRACKER_MODULE_NAME = "src.agents.execution.position_tracker"
 TRACKER_MODULE_PATH = Path("src/agents/execution/position_tracker.py")
 FORBIDDEN_IMPORT_PREFIXES = (
@@ -42,6 +43,21 @@ def _load_schema_module():
     except Exception as exc:
         pytest.fail(
             f"Execution schema module import failed unexpectedly: {exc!r}",
+            pytrace=False,
+        )
+
+
+def _load_position_schema_module():
+    try:
+        return importlib.import_module(POSITION_SCHEMA_MODULE_NAME)
+    except ModuleNotFoundError:
+        pytest.fail(
+            "Expected position schema module src.schemas.position to exist.",
+            pytrace=False,
+        )
+    except Exception as exc:
+        pytest.fail(
+            f"Position schema module import failed unexpectedly: {exc!r}",
             pytrace=False,
         )
 
@@ -100,11 +116,11 @@ def _build_tracker_config(*, dry_run: bool):
 
 
 def test_position_status_enum_exists_with_expected_values():
-    schema_module = _load_schema_module()
+    position_schema_module = _load_position_schema_module()
 
-    status_cls = getattr(schema_module, "PositionStatus", None)
+    status_cls = getattr(position_schema_module, "PositionStatus", None)
     assert status_cls is not None, (
-        "Expected PositionStatus enum in src.schemas.execution"
+        "Expected PositionStatus enum in src.schemas.position"
     )
     assert {member.value for member in status_cls} == {"OPEN", "CLOSED", "FAILED"}
 
@@ -121,9 +137,10 @@ def test_position_status_enum_exists_with_expected_values():
 )
 def test_position_record_rejects_float_financial_fields(field_name):
     schema_module = _load_schema_module()
+    position_schema_module = _load_position_schema_module()
 
     model_cls = getattr(schema_module, "PositionRecord", None)
-    status_cls = getattr(schema_module, "PositionStatus", None)
+    status_cls = getattr(position_schema_module, "PositionStatus", None)
     action_cls = getattr(schema_module, "ExecutionAction", None)
 
     assert model_cls is not None, (
@@ -156,9 +173,10 @@ def test_position_record_rejects_float_financial_fields(field_name):
 
 def test_position_record_accepts_decimal_financial_fields_and_is_frozen():
     schema_module = _load_schema_module()
+    position_schema_module = _load_position_schema_module()
 
     model_cls = getattr(schema_module, "PositionRecord", None)
-    status_cls = getattr(schema_module, "PositionStatus", None)
+    status_cls = getattr(position_schema_module, "PositionStatus", None)
     action_cls = getattr(schema_module, "ExecutionAction", None)
 
     assert model_cls is not None, (
@@ -216,6 +234,7 @@ def test_position_tracker_contract_exists_and_has_one_public_method():
 @pytest.mark.asyncio
 async def test_status_mapping_executed_to_open():
     schema_module = _load_schema_module()
+    position_schema_module = _load_position_schema_module()
     tracker_module = _load_tracker_module()
 
     tracker = tracker_module.PositionTracker(
@@ -231,12 +250,13 @@ async def test_status_mapping_executed_to_open():
     )
 
     assert record is not None
-    assert record.status == schema_module.PositionStatus.OPEN
+    assert record.status == position_schema_module.PositionStatus.OPEN
 
 
 @pytest.mark.asyncio
 async def test_status_mapping_dry_run_to_open():
     schema_module = _load_schema_module()
+    position_schema_module = _load_position_schema_module()
     tracker_module = _load_tracker_module()
 
     tracker = tracker_module.PositionTracker(
@@ -252,12 +272,13 @@ async def test_status_mapping_dry_run_to_open():
     )
 
     assert record is not None
-    assert record.status == schema_module.PositionStatus.OPEN
+    assert record.status == position_schema_module.PositionStatus.OPEN
 
 
 @pytest.mark.asyncio
 async def test_status_mapping_failed_to_failed():
     schema_module = _load_schema_module()
+    position_schema_module = _load_position_schema_module()
     tracker_module = _load_tracker_module()
 
     tracker = tracker_module.PositionTracker(
@@ -273,7 +294,7 @@ async def test_status_mapping_failed_to_failed():
     )
 
     assert record is not None
-    assert record.status == schema_module.PositionStatus.FAILED
+    assert record.status == position_schema_module.PositionStatus.FAILED
 
 
 @pytest.mark.asyncio

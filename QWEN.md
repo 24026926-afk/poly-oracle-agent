@@ -1,4 +1,4 @@
-# GEMINI.md — Read this file before touching any code.
+# QWEN.md — Read this file before touching any code.
 
 ---
 
@@ -171,7 +171,7 @@ At the end of every session — whether a WI completes or not — append a summa
 Format:
 ```
 ## [HH:MM] Session Summary
-- Agent: [Claude Code / Gemini / Codex]
+- Agent: [Claude Code / Qwen Code / Codex]
 - Active WI: [WI-XX or "none"]
 - Actions taken: [bullet list]
 - Files created/modified: [list with vault-relative paths]

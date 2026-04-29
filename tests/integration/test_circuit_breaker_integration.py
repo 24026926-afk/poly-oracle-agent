@@ -25,8 +25,8 @@ from src.schemas.execution import (
     ExitReason,
     ExitResult,
     PositionRecord,
-    PositionStatus,
 )
+from src.schemas.position import PositionStatus
 from src.schemas.risk import (
     AlertEvent,
     AlertSeverity,

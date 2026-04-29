@@ -125,14 +125,14 @@ def test_app_config_includes_telegram_fields_with_expected_defaults():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("severity", "emoji"),
+    ("severity", "severity_label"),
     [
-        (AlertSeverity.CRITICAL, "🚨"),
-        (AlertSeverity.WARNING, "⚠️"),
-        (AlertSeverity.INFO, "ℹ️"),
+        (AlertSeverity.CRITICAL, "CRITICAL"),
+        (AlertSeverity.WARNING, "WARNING"),
+        (AlertSeverity.INFO, "INFO"),
     ],
 )
-async def test_send_alert_formats_expected_alert_message(severity, emoji):
+async def test_send_alert_formats_expected_alert_message(severity, severity_label):
     module = _load_module(TELEGRAM_MODULE_NAME)
     client = _make_success_client()
     notifier = module.TelegramNotifier(_make_config(), client)
@@ -144,7 +144,7 @@ async def test_send_alert_formats_expected_alert_message(severity, emoji):
     post_call = client.post.await_args
     assert post_call is not None
     assert post_call.kwargs["json"]["text"] == (
-        f"{emoji} ALERT: drawdown\n\n"
+        f"[{severity_label}] ALERT: drawdown\n\n"
         "Portfolio drawdown exceeds 100 USDC: unrealized PnL is -142.50 USDC\n\n"
         "Threshold: 100\n"
         "Actual: -142.50\n"

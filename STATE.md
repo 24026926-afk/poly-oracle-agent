@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-04-15
-**Version:** 0.11.0
-**Status:** Phase 11 — 100% COMPLETE (WI-34 and WI-35 sealed)
-**Active WI:** Phase 11 complete; awaiting Phase 12 scope
+**Version:** 0.12.0
+**Status:** Phase 12 — COMPLETE
+**Active WI:** None — all WI-39 through WI-42 sealed
 
 ---
 
@@ -24,6 +24,32 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | Coverage | 94% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
+
+Phase 12 sealed 2026-04-15 — Command Center Dashboard (WI-39 through WI-42):
+- `src/ui/__init__.py` and `src/ui/dashboard.py` created as the project's read-only operator UI.
+- Dark-themed Streamlit dashboard (`"Poly-Oracle Command Center"`) with sidebar DB vitals, manual refresh, and four content sections.
+- `render_metrics()` — `st.columns(5)` layout: Realized PnL, Win Rate, Open Exposure, Total Decisions, Active Positions; graceful zero-state on empty DB.
+- Plotly `px.line` PnL-over-time chart with mock-curve fallback when no closed positions exist; visual distinction (dotted vs solid line).
+- `render_decision_table()` — last 20 LLM decisions with confidence%, EV%, Kelly% columns; adapter layer handles both `decisions` and `agent_decision_logs` table schemas.
+- `render_market_watch()` — all tracked markets sorted by 24h volume descending; adapter layer handles both `markets` and `market_snapshots` table schemas.
+- `@st.cache_data(ttl=30)` applied to all DB query functions per PRD-v12.0 §3.2.
+- Added UI dependencies to both manifests: `streamlit>=1.32.0`, `pandas>=2.0.0`, `plotly>=5.20.0`.
+- Fixed pre-existing `PositionStatus` import collision (16 pytest collection errors): moved consumers to `from src.schemas.position import PositionStatus` in `exit_strategy_engine.py`, `position_tracker.py`, `orchestrator.py`, and two integration test files.
+- Final regression gate: 678 passed, 94% coverage.
+
+WI-40 completion 2026-04-15 (Metrics View + RED-phase import/dependency fixes):
+- Resolved `PositionStatus` ownership violation that caused collection/import cascade failures by moving consumers to `from src.schemas.position import PositionStatus`.
+- Fixed import sites:
+  - `src/agents/execution/exit_strategy_engine.py`
+  - `src/agents/execution/position_tracker.py`
+  - `src/orchestrator.py`
+  - `tests/integration/test_circuit_breaker_integration.py`
+  - `tests/integration/test_telegram_notifier_integration.py`
+- Added missing UI dependencies in both manifests: `streamlit>=1.32.0`, `pandas>=2.0.0`, `plotly>=5.20.0`.
+- Refactored `src/ui/dashboard.py::render_metrics()` to `st.columns(5)` with all PRD metrics: Realized PnL, Win Rate, Open Exposure, Total Decisions, Active Positions.
+- Regression gates after WI-40:
+  - `.venv/bin/python -m pytest tests/ -q --asyncio-mode=auto` → 678 passed
+  - `.venv/bin/coverage run -m pytest tests/ --asyncio-mode=auto && .venv/bin/coverage report -m` → 94%
 
 Recent hotfixes (dry-run boot-to-evaluation stabilization + WS bugs, 2026-04-03):
 - `NonceManager.initialize()` and `sync()` short-circuit when `dry_run=True` — zero RPC calls, nonce set to 0
@@ -610,6 +636,57 @@ WI-33 completion 2026-04-15 (Backtesting Framework):
 - [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated
 - [x] `docs/archive/ARCHIVE_PHASE_11.md` created
 - [x] Phase 11 marked 100% COMPLETE
+
+---
+
+## Phase 12: Command Center Dashboard
+
+### Work Items
+
+- [x] **WI-39 — Streamlit Core Setup** (completed 2026-04-15)
+  - Created `src/ui/__init__.py` and `src/ui/dashboard.py`.
+  - `st.set_page_config(title="Poly-Oracle Command Center", layout="wide")`.
+  - `DB_PATH` resolved via `Path(__file__).resolve().parents[2] / "poly_oracle.db"` — read-only.
+  - `render_sidebar()`: DB vitals block (`DB_CONNECTION`, `ENGINE_STATUS`, `LATENCY_MS`, `LAST_REFRESH`, `DB_FILE`), manual refresh button with `st.cache_data.clear()`.
+  - `@st.cache_data(ttl=30)` on all four DB query functions.
+  - Terminal dark theme injected via `st.markdown()` / inline CSS with IBM Plex Mono font and Bloomberg-palette colours.
+
+- [x] **WI-40 — Metrics View** (completed 2026-04-15)
+  - `render_metrics()` refactored to `st.columns(5)`: Realized PnL, Win Rate, Open Exposure, Total Decisions, Active Positions.
+  - Delta indicators for PnL (24h), Win Rate (7-day WoW), and Exposure (24h); mock deltas rendered when no position data exists.
+  - `fetch_metrics()` queries both `positions` and `decisions` tables with `COALESCE` guards; zero-state returns gracefully.
+  - RED-phase fixes: resolved `PositionStatus` import collision across 3 production files + 2 test files (16 collection errors eliminated).
+  - Added `streamlit>=1.32.0`, `pandas>=2.0.0`, `plotly>=5.20.0` to `requirements.txt` and `pyproject.toml`.
+
+- [x] **WI-41 — Decision Audit Log** (completed 2026-04-15)
+  - `render_decision_table()` renders last 20 decisions in `st.dataframe` with `use_container_width=True`.
+  - Adapter layer handles both `decisions` schema (direct) and `agent_decision_logs` schema (joined with `market_snapshots`).
+  - Column normalisation: `confidence_pct`, `expected_value_pct`, `kelly_pct` all formatted as `%.2f%%`.
+  - Empty state renders `st.info("No decisions logged yet.")` without raising.
+
+- [x] **WI-42 — Market Watch Panel** (completed 2026-04-15)
+  - `render_market_watch()` renders all tracked markets sorted by `volume_24h DESC`.
+  - Adapter layer handles both `markets` schema (direct) and `market_snapshots` schema (CTE with `ROW_NUMBER()` to get latest per `condition_id`).
+  - Numeric formatting: `yes_price` and `no_price` at `%.4f`, `volume_24h` at `$%.2f`.
+  - Empty state renders `st.info("No markets ingested yet.")` without raising.
+
+- [x] **Plotly PnL Chart** (completed as part of Phase 12, beyond PRD floor)
+  - `render_chart()` renders cumulative realised PnL using `plotly.express.line` with `template="plotly_dark"`.
+  - Mock 36-hour sinusoidal curve rendered (dotted line) when no closed position history exists.
+  - Live curve rendered as solid line when real data is available.
+
+### Phase 12 Completion Gate
+
+- [x] WI-39 implemented and validated
+- [x] WI-40 implemented and validated (including RED-phase import/dependency fixes)
+- [x] WI-41 implemented and validated
+- [x] WI-42 implemented and validated
+- [x] `streamlit run src/ui/dashboard.py` starts and displays all sections on empty DB
+- [x] No `INSERT`, `UPDATE`, or `DELETE` SQL in `src/ui/`
+- [x] Full regression baseline unchanged: 678 passed, 94% coverage
+- [x] `STATE.md`, `README.md`, and `CLAUDE.md` updated
+- [x] `docs/archive/ARCHIVE_PHASE_12.md` created
+- [x] Phase 12 marked COMPLETE
 
 ---
 

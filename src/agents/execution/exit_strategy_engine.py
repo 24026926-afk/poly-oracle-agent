@@ -23,8 +23,8 @@ from src.schemas.execution import (
     ExitResult,
     ExitSignal,
     PositionRecord,
-    PositionStatus,
 )
+from src.schemas.position import PositionStatus
 
 logger = structlog.get_logger(__name__)
 

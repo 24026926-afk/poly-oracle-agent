@@ -457,12 +457,14 @@ def render_sidebar() -> None:
 
 
 def render_metrics(metrics: dict[str, object]) -> None:
-    st.header("Performance Metrics")
-    col_pnl, col_win, col_exp = st.columns(3)
+    st.header("📊 Performance Metrics")
+    col_pnl, col_win, col_exp, col_decisions, col_positions = st.columns(5)
 
     total_pnl = to_decimal(metrics.get("total_pnl", ZERO))
     win_rate_pct = to_decimal(metrics.get("win_rate", ZERO)) * Decimal("100")
     exposure = to_decimal(metrics.get("open_exposure", ZERO))
+    total_decisions = int(metrics.get("total_decisions", 0))
+    active_positions = int(metrics.get("active_positions", 0))
 
     pnl_delta = to_decimal(metrics.get("pnl_delta", ZERO))
     win_rate_delta_pct = to_decimal(metrics.get("win_rate_delta_pct", ZERO))
@@ -483,6 +485,14 @@ def render_metrics(metrics: dict[str, object]) -> None:
         value=format_usdc(exposure),
         delta=format_signed_usdc(exposure_delta),
         delta_color="inverse",
+    )
+    col_decisions.metric(
+        label="Total Decisions",
+        value=str(total_decisions),
+    )
+    col_positions.metric(
+        label="Active Positions",
+        value=str(active_positions),
     )
 
     if bool(metrics.get("using_mock_deltas", False)):

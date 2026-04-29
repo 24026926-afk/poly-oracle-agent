@@ -1,23 +1,64 @@
-# Read this file before touching any code.
+# AGENTS.md — Read this file before touching any code.
 
 ---
 
 ## 🎯 Role
-You are a Staff Software Engineer and Quantitative Developer working on
-`poly-oracle-agent`, an async autonomous trading agent for Polymarket.
-All decisions must prioritize financial integrity and system auditability
-above code elegance.
+You are a Staff Software Engineer and Quantitative Systems Engineer,
+working on `poly-oracle-agent`, an autonomous Polymarket trading agent.
+All decisions must prioritize financial integrity, typed validation, and auditability above code elegance.
+
+---
+
+## 🗂️ Vault Structure (MANDATORY PATHS)
+```
+VAULT ROOT:    ~/documents/integration_task/
+PROJECT CODE:  ~/documents/integration_task/poly-oracle-agent/
+DELIVERABLES:  ~/documents/integration_task/poly-oracle-agent/docs/deliverables/
+DAILY NOTES:   ~/documents/integration_task/03_Daily/
+ARCHIVE:       ~/documents/integration_task/04_Archive/poly-oracle-agent/
+GLOBAL RES:    ~/documents/integration_task/04_Global_Resources/
+BRIEF CONTEXT: ~/documents/integration_task/01_Brief Context/
+```
+
+**RULE:** Markdown deliverables (business_logic, prompts, PRDs, archive records) → project paths above.
+Daily notes → `03_Daily/`.
+Source code (`.py`, tests, config) → `poly-oracle-agent/` only.
+**NEVER** write WI deliverables outside `poly-oracle-agent/docs/`.
+
+---
+
+## 📁 File Naming Convention (MANDATORY)
+DELIVERABLE FILES — only these formats are valid:
+
+`~/documents/integration_task/poly-oracle-agent/docs/deliverables/business_logic/`
+→ `business_logic_WI-XX-kebab-title.md`
+
+`~/documents/integration_task/poly-oracle-agent/docs/deliverables/implementation_prompts/`
+→ `prompt_WI-XX-kebab-title.md`
+
+`poly-oracle-agent/tests/`
+→ `test_WI-XX-kebab-title.py`
+
+Git branches:
+→ `feat/wi-XX-kebab-title`
+
+Where `XX` = zero-padded number (01, 02 ... 99)
+`kebab-title` = lowercase hyphenated WI title
+
+**NEVER** use: `prompt_WI-08.md`, `business_logic_WI-08.md` (no title = invalid)
+**NEVER** use underscores in the title part (`WI-02_position-tracker` = invalid)
 
 ---
 
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
-- `docs/archive/` ← Historical context 
-- `docs/PRD.md`            ← Current Phase scope and acceptance criteria
-- `docs/system_architecture.md` ← 4-layer pipeline, class names, data flow
-- `docs/risk_management.md`     ← Kelly formula, 5 safety filters, constants
-- `docs/business_logic.md`      ← EV rule: the single source of trade truth
-- `STATE.md`                    ← Current system state and progress
+- `STATE.md` (in `poly-oracle-agent/`) ← Current system state and progress
+- `README.md` (in `poly-oracle-agent/`) ← Stack, commands, and operating model
+- `docs/PRD-v*.md` (in `poly-oracle-agent/`) ← Current Phase scope and acceptance criteria
+- `~/documents/integration_task/poly-oracle-agent/docs/deliverables/business_logic/business_logic_WI-XX-*.md` ← WI-specific rules
+- `~/documents/integration_task/poly-oracle-agent/docs/deliverables/implementation_prompts/prompt_WI-XX-*.md` ← Execution instructions
+- `docs/archive/` ← Historical context
+- `docs/system_architecture.md` ← Module-level rules and pipeline boundaries
 
 These documents are the law. Code must conform to them, not the other way around.
 
@@ -26,177 +67,156 @@ These documents are the law. Code must conform to them, not the other way around
 ## ⚠️ Critical Class Name Reference
 These are the ONLY valid class names. Do NOT rename, alias, or create variants.
 
-| Module                              | Correct Class Name       |
-|-------------------------------------|--------------------------|
-| `src/agents/ingestion/ws_client.py` | `CLOBWebSocketClient`    |
-| `src/agents/ingestion/rest_client.py`| `GammaRESTClient`       |
-| `src/agents/execution/broadcaster.py`| `OrderBroadcaster`      |
-| `src/agents/evaluation/claude_client.py`| `ClaudeClient`       |
-| `src/agents/context/aggregator.py`  | `DataAggregator`         |
-| `src/agents/context/prompt_factory.py`| `PromptFactory`        |
-| `src/agents/execution/position_tracker.py`| `PositionTracker`  |
-| `src/db/repositories/position_repository.py`| `PositionRepository` |
+| Module                                   | Correct Class Name      |
+|------------------------------------------|-------------------------|
+| `src/orchestrator.py`                    | `Orchestrator`          |
+| `src/agents/ingestion/ws_client.py`      | `CLOBWebSocketClient`   |
+| `src/agents/evaluation/claude_client.py` | `ClaudeClient`          |
+| `src/agents/execution/execution_router.py` | `ExecutionRouter`     |
+| `src/db/repositories/position_repository.py` | `PositionRepository` |
+| `src/agents/context/prompt_factory.py`   | `PromptFactory`         |
 
 ---
 
-## 💰 Financial Integrity (Non-Negotiable)
-1. Use `Decimal` for ALL USDC/price calculations. Never `float`.
-2. USDC has 6 decimals — always convert with `Decimal('1e6')`, never `1000000`.
-3. Kelly fraction is `0.25` (Quarter-Kelly). Hardcoded deviation is a bug.
-4. Position size is ALWAYS capped at `min(kelly_size, 0.03 × bankroll)`.
-5. `dry_run` flag in `AppConfig` MUST be checked at the top of Layer 4
-   execution before any order is signed or broadcast. No exceptions.
+## 💹 Trading Integrity (Non-Negotiable)
+1. Every money, pricing, EV, and sizing calculation MUST use `Decimal()` — never raw `float`
+2. `dry_run` MUST be checked before any signing, broadcasting, or state-mutating execution call
+3. Order routing MUST fail closed on crossed books, invalid quotes, or missing token context
+4. Every WebSocket, RPC, and HTTP path MUST use explicit timeout or bounded retry behavior
+5. Live safety gates (exposure, gas, balance, circuit breaker) MUST return typed skip/failure results — never silent fallthrough
+
+---
+
+## 🧠 LLM Evaluation Guard (Non-Negotiable)
+1. `LLMEvaluationResponse` is the terminal Gatekeeper schema before execution
+2. `PromptFactory` must assemble real market context, not invented data
+3. Never invent balances, positions, fees, or market metadata not present in repositories or upstream APIs
+4. Decisions below configured confidence, EV, or risk thresholds are SKIPPED — never routed live
 
 ---
 
 ## 🤖 Multi-Agent Audit Protocol (MAAP)
+Before any `git commit` on core logic:
 
-Before any `git commit` on core logic (schemas, agents, execution, db):
-
-1. **Maker** (Claude) produces the implementation and runs the test suite to confirm green.
+1. **Maker** (Claude/Codex) produces implementation and runs the test suite to confirm green.
 2. **Maker** outputs `git diff` of all staged changes.
-3. **Checker** (Gemini 2.5 Pro / GPT-5.4) reviews the diff against `PRD.md` and `ARCHIVE_PHASES`.
-4. **Checker** must explicitly clear or flag the following before commit is allowed:
-   - **Decimal violations** — any `float` used for monetary calculations
-   - **Gatekeeper bypasses** — any path that routes to execution without passing `LLMEvaluationResponse` validation
-   - **Business logic drift** — any deviation from Kelly formula, 5 safety filters, or exposure caps defined in `ARCHIVE_PHASES`
-5. Any finding in step 4 **must be fixed** before the commit proceeds. No "fix in follow-up" exceptions for these three categories.
+3. **Checker** (second agent) reviews the diff against PRD.md and business_logic files.
+4. **Checker** must explicitly clear or flag:
+   - **Decimal Integrity Risk** — `float` in money, price, EV, Kelly, or PnL paths
+   - **Gatekeeper Bypass** — execution path that skips `LLMEvaluationResponse`
+   - **Repository Violation** — direct DB session or raw SQL in agent code
+   - **Live Safety Violation** — missing `dry_run`, exposure, gas, or balance guard before execution
+5. Any finding MUST be fixed before commit. No "fix in follow-up" exceptions.
 
-MAAP applies to: `src/schemas/`, `src/agents/`, `src/db/`, `src/orchestrator.py`, `src/core/`.
+MAAP applies to: `src/agents/`, `src/schemas/`, `src/db/`, `src/orchestrator.py`, `src/backtest_runner.py`.
 MAAP is optional for: `docs/`, `tests/`, `scripts/`, config files.
 
 ---
 
 ## 🔀 Git Rules
-- All work goes on `develop`. Never commit directly to `master`.
+- All work goes on `develop`. Never commit directly to `main`.
 - PRs only: `feat|fix|perf|docs|chore(scope): description`
 - Never commit `.env`, `venv/`, `*.pyc`, or `__pycache__/`
-- One logical change per commit (atomic). No "WIP" commits on develop.
-- After every completed Work Item, open a PR from `develop` → `master`.
+- One logical change per commit (atomic). No "WIP" commits on `develop`.
+- After every completed Work Item, open a PR from `develop` → `main`.
 
 ---
 
 ## 🧪 Testing Commands
 ```bash
 # Run full test suite
-pytest --asyncio-mode=auto tests/
+python -m pytest --asyncio-mode=auto tests/
 
 # Run with coverage (target ≥ 80%)
-coverage run -m pytest && coverage report -m
+python -m coverage run -m pytest tests/ --asyncio-mode=auto
+python -m coverage report -m
 
 # Run single layer tests
-pytest tests/unit/test_schemas.py -v
-pytest tests/unit/test_nonce_manager.py -v
+python -m pytest tests/unit/test_schemas.py -v
 ```
 
 New code must not decrease coverage below 80%.
 
-## Update Documentation
-After every completed Work Item, update: STATE.md (metrics/tasks), README.md (env/commands), and CLAUDE.md (status/current WI set).
-
 ---
 
 ## 🗄️ Database Rules
-
-- Never use raw SQL. All DB access via SQLAlchemy Async ORM only.
-- Always use repository classes in `src/db/repositories/` — never
-instantiate sessions directly in agent code.
-- Migrations via Alembic only. Never use `Base.metadata.create_all()`
-in production paths.
+- All runtime DB access via repository classes only. Never raw SQL in agent code.
+- Always route persistence through `MarketRepository`, `DecisionRepository`, `ExecutionRepository`, or `PositionRepository`.
+- Never use `Base.metadata.create_all()` in runtime paths. Alembic is the only supported schema path.
 
 ---
 
 ## 🏗️ Engineering Standards
-
 1. **Language:** Python 3.12+
-2. **Concurrency:** `asyncio` for all non-blocking I/O
-3. **Validation:** Pydantic V2 for all data schemas — validation belongs
-at the schema boundary, never scattered in business logic
-4. **Database:** SQLAlchemy 2.0 Async with `aiosqlite`
-5. **Logging:** `structlog` — structured JSON/console output only.
-No bare `print()` statements anywhere.
-6. **HTTP:** `httpx` (async) exclusively. `aiohttp` is NOT in the stack.
-
-Do not introduce new external dependencies without explicit approval.
+2. **Concurrency:** `asyncio` for all I/O-bound tasks
+3. **Validation:** Pydantic V2 — validation at schema boundary, never in business logic
+4. **Database:** SQLAlchemy 2.0 Async + `aiosqlite` via repository pattern
+5. **Logging:** `structlog` only. No `print()`, no `logging.basicConfig()`
+6. **HTTP/Chain/LLM:** `httpx`, `websockets`, `web3.py`, and `anthropic` only
 
 ---
 
 ## 🧠 Core Coding Philosophies
+1. **Data Structures First:** Pydantic models before any logic. If not in a schema, it doesn't exist.
+2. **Early Returns:** Eliminate edge cases at the top of functions. Max 2 levels of nesting.
+3. **Readability > Cleverness:** Boring, predictable Python. PEP 8 strict, 4 spaces, no tabs.
+4. **Comments (Why, not What):** Only comment to explain a trading, risk, or auditability decision.
 
-1. **Talk is cheap. Show me the code:** Bias toward implementation.
-Skip preamble unless explicitly asked.
-2. **Data Structures First:** Pydantic models handle validation before
-data reaches logic. If it's not in a schema, it doesn't exist.
-3. **Early Returns:** Eliminate edge cases at the top of functions.
-Max 2 levels of nesting — refactor deeper logic into helper functions.
-4. **Readability > Cleverness:** Boring, predictable Python. PEP 8 strict.
-4 spaces, no tabs.
-5. **Comments (Why, not What):** Only comment to explain a business or
-trading decision. Code explains what — comments explain why.
+---
+
+## 📅 Session End (Mandatory)
+At the end of every session — whether a WI completes or not — append a summary to:
+`~/documents/integration_task/03_Daily/YYYY-MM-DD.md`
+
+Format:
+```
+## [HH:MM] Session Summary
+- Agent: [Claude Code / Qwen Code / Codex]
+- Active WI: [WI-XX or "none"]
+- Actions taken: [bullet list]
+- Files created/modified: [list with vault-relative paths]
+- Blockers or decisions: [any]
+- Next: [next action]
+```
 
 ---
 
 ## 🚫 Hard Constraints
-
 - No `float` for money. Ever.
-- No direct `master` commits. Ever.
+- No live order signing or broadcast when `dry_run=True`. Ever.
+- No execution path that bypasses `LLMEvaluationResponse`. Ever.
+- No direct `main` commits. Ever.
 - No `.env` in version control. Ever.
-- No order broadcast when `dry_run=True`. Ever.
-- No new class names for existing modules. Ever.
 
-**Every Claude Code session MUST read these files first.**
+---
 
 ## 📋 Mandatory Read Order (Plan Mode)
-
 1. **STATE.md** — Current project state, test coverage, known gaps
-2. **PRD.md** — Current Phase work items + acceptance criteria
-3. **docs/business_logic/business_logic_wiXX.md** — WI-specific rules
-4. **.agents/rules/[relevant].md** — Role-specific constraints
-5. **docs/prompts/PX-WI-XX.md** — Execution instructions
+2. **README.md** — Stack, commands, runtime dependencies, and operator flow
+3. **docs/PRD-v*.md** — Current Phase work items + acceptance criteria
+4. **`~/documents/integration_task/poly-oracle-agent/docs/deliverables/business_logic/business_logic_WI-XX-*.md`** — WI-specific rules
+5. **`~/documents/integration_task/poly-oracle-agent/docs/deliverables/implementation_prompts/prompt_WI-XX-*.md`** — Execution instructions
 
 ## 🎯 Session Template
-
 STEP 0: Read AGENTS.md
-STEP 1: Read STATE.md, PRD.md, business_logic_wiXX.md, .agents/rules/[relevant].md
-STEP 2: Read PX-WI-XX.md
+STEP 1: Read STATE.md, README.md, PRD-v*.md, business_logic_WI-XX-*.md
+STEP 2: Read prompt_WI-XX-*.md
 STEP 3: Enter Plan Mode — propose atomic steps before touching any file
 STEP 4: Await approval → execute one step → test → report
-STEP 5: Run Regression Gate from PX-WI-XX.md
-STEP 6: Request Reflection Pass review
+STEP 5: Run Red Phase check — confirm test file exists and passes
+STEP 6: Run /maap before commit
 
-text
+---
 
-## 🔒 Agent Constraints Summary
+## 🛑 Mandatory Definition of Done (DoD)
+### PHASE PLANNING PROTOCOL
+Before writing any new PRD or defining WIs for a new Phase:
+1. Ask the user for the Phase objective in one sentence.
+2. Propose a list of WIs with scope and dependencies.
+3. WAIT for explicit user approval before writing the PRD.
+NEVER auto-generate a new Phase PRD without user confirmation.
 
-| Agent | Constraint |
-|---|---|
-| `db-engineer.md` | Zero direct AsyncSession calls outside `src/db/repositories/` |
-| `async-architect.md` | Session lifecycle per-task only, no cross-task reuse |
-| `risk-auditor.md` | Decimal math preserved exactly (R-04) |
-| `test-engineer.md` | Coverage ≥ 80%, 92 tests pass |
-| `git-ops.md` | Atomic commits, PR title format: `feat|docs(scope): description` |
-
-## 📊 Current Phase Reference
-
-Phase 9: Completed. All Work Items for Phase 9 are finalized.
-Current Test Status: pytest → 92 pass, coverage ≥ 80%
-
-text
-
-## 🚫 NEVER
-
-- Commit `.env`, `venv/`, `.pyc`
-- Hardcode `condition_id` — use MarketDiscoveryEngine
-- Use `float` for money — always `Decimal`
-- Merge to `master` directly — PR from `develop` only
-- Skip Plan Mode or Reflection Pass
-
-## 🛑 MANDATORY DEFINITION OF DONE (DoD)
-Before declaring ANY Work Item (WI) or Phase complete, and BEFORE asking the user for the next task, you MUST automatically execute the following Memory Consolidation step without being prompted:
-1. Update `STATE.md` with the new test count, coverage, and change the active WI.
-2. Document any critical bugs fixed or invariant violations caught during the WI into the appropriate `.agents/rules/` file or `AGENTS.md`.
-3. Print a "🧠 Memory Consolidation Complete" summary in the terminal for the user.
-4. **PHASE COMPLETION AUTOMATION:** If the completed Work Item marks the end of a Phase (e.g., Phase 4 is complete), you MUST automatically generate a historical archive file before stopping. 
-   - Create `docs/archive/ARCHIVE_PHASE_[X].md`.
-   - Summarize the pipeline architecture, completed WIs, MAAP audit findings, and critical invariants established during this phase.
-   - NEVER modify older archive files like `ARCHIVE_PHASES`.
+### PRD SCOPE BOUNDARY
+The /prd command generates ONLY `docs/PRD-v{N}.0.md` and updates `STATE.md`.
+Do NOT generate `docs/deliverables/business_logic/`, `docs/deliverables/implementation_prompts/`, or any other WI deliverable files during PRD creation.
+Business logic and implementation prompts are generated ONE AT A TIME, only when `/wi-start {WI}` is explicitly called by the user.

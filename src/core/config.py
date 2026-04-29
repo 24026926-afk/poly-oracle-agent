@@ -347,7 +347,7 @@ class AppConfig(BaseSettings):
     def _warn_dry_run(cls, v: bool) -> bool:
         if v:
             warnings.warn(
-                "⚠️  DRY_RUN=True — orders will be evaluated but NEVER executed.",
+                "WARNING: DRY_RUN=True - orders will be evaluated but NEVER executed.",
                 UserWarning,
                 stacklevel=2,
             )

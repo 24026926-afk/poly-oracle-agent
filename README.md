@@ -7,8 +7,8 @@
 The agent operates as a fully async (`asyncio`) pipeline with four isolated processing layers connected by `asyncio.Queue` bridges.
 
 Current project state:
-- **Version:** 0.11.0
-- **Status:** Phase 11 complete (WI-34 and WI-35 sealed)
+- **Version:** 0.12.0
+- **Status:** Phase 12 complete — Command Center Dashboard sealed
 - **Tests:** 678 automated tests passing
 - **Coverage:** 94% (target: ≥ 80%)
 - **CI:** GitHub Actions pipeline at `.github/workflows/ci.yml` with blocking jobs `format-check` -> `test` -> `docker-build`
@@ -278,6 +278,36 @@ Notes:
 - Backtesting enforces `dry_run=True` by invariant and rejects live execution mode.
 - Historical snapshots are replayed in strict chronological order.
 - Output persistence is JSON report only (no DB write path).
+
+---
+
+### Dashboard / UI (Phase 12)
+
+Launch the local read-only operator dashboard:
+
+```bash
+uv run streamlit run src/ui/dashboard.py
+```
+
+Or with a plain `venv`:
+
+```bash
+streamlit run src/ui/dashboard.py
+```
+
+The dashboard connects to `poly_oracle.db` in the project root and exposes four sections:
+
+| Section | Content |
+|---|---|
+| **System Vitals** (sidebar) | DB connectivity status, query latency, last-refresh timestamp, manual refresh button |
+| **Performance Metrics** | Five `st.metric` cards: Realized PnL, Win Rate, Open Exposure, Total Decisions, Active Positions |
+| **PnL Over Time** | Plotly cumulative PnL chart (solid = live data; dotted = mock placeholder when no closed positions) |
+| **LLM Decision Audit Log** | Last 20 LLM decisions with confidence%, EV%, Kelly%, and full reasoning text |
+| **Market Watch** | All tracked markets sorted by 24h volume; yes/no prices and end date |
+
+All DB queries are read-only. The dashboard never writes to `poly_oracle.db`. Cache TTL is 30 seconds; use the **Refresh View** sidebar button to force an immediate reload.
+
+The dashboard works on an empty database — all sections display graceful empty states rather than raising exceptions.
 
 ---
 

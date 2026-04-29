@@ -22,6 +22,7 @@ import pytest
 
 
 SCHEMA_MODULE_NAME = "src.schemas.execution"
+POSITION_SCHEMA_MODULE_NAME = "src.schemas.position"
 ENGINE_MODULE_NAME = "src.agents.execution.exit_strategy_engine"
 ENGINE_MODULE_PATH = Path("src/agents/execution/exit_strategy_engine.py")
 FORBIDDEN_IMPORT_PREFIXES = (
@@ -42,6 +43,21 @@ def _load_schema_module():
     except Exception as exc:
         pytest.fail(
             f"Execution schema module import failed unexpectedly: {exc!r}",
+            pytrace=False,
+        )
+
+
+def _load_position_schema_module():
+    try:
+        return importlib.import_module(POSITION_SCHEMA_MODULE_NAME)
+    except ModuleNotFoundError:
+        pytest.fail(
+            "Expected position schema module src.schemas.position to exist.",
+            pytrace=False,
+        )
+    except Exception as exc:
+        pytest.fail(
+            f"Position schema module import failed unexpectedly: {exc!r}",
             pytrace=False,
         )
 
@@ -79,12 +95,13 @@ def _build_position_record(
 ):
     if routed_at_utc is None:
         routed_at_utc = datetime.now(timezone.utc) - timedelta(hours=1)
+    position_schema_module = _load_position_schema_module()
 
     return schema_module.PositionRecord(
         id="pos-unit-001",
         condition_id="condition-unit-001",
         token_id="token-unit-001",
-        status=getattr(schema_module.PositionStatus, status),
+        status=getattr(position_schema_module.PositionStatus, status),
         side="BUY",
         entry_price=entry_price,
         order_size_usdc=Decimal("10"),
@@ -672,10 +689,11 @@ async def test_live_should_exit_true_calls_update_status_closed(monkeypatch):
     kwargs = repo_mock.update_status.await_args.kwargs
     position_id = kwargs.get("position_id", args[0] if args else None)
     new_status = kwargs.get("new_status", args[1] if len(args) > 1 else None)
+    position_schema_module = _load_position_schema_module()
     assert position_id == signal.position.id
     assert new_status in {
-        schema_module.PositionStatus.CLOSED,
-        schema_module.PositionStatus.CLOSED.value,
+        position_schema_module.PositionStatus.CLOSED,
+        position_schema_module.PositionStatus.CLOSED.value,
     }
 
 

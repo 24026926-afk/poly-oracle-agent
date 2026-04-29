@@ -24,6 +24,7 @@ from src.schemas.web3 import OrderData, OrderSide, SIGNATURE_TYPE_EOA, SignedOrd
 
 ROUTER_MODULE_NAME = "src.agents.execution.exit_order_router"
 SCHEMA_MODULE_NAME = "src.schemas.execution"
+POSITION_SCHEMA_MODULE_NAME = "src.schemas.position"
 ROUTER_MODULE_PATH = Path("src/agents/execution/exit_order_router.py")
 FORBIDDEN_IMPORT_PREFIXES = (
     "src.agents.context",
@@ -82,11 +83,12 @@ def _make_position_record(
     order_size_usdc: Decimal = Decimal("30"),
 ):
     now = datetime.now(timezone.utc)
+    position_schema_module = importlib.import_module(POSITION_SCHEMA_MODULE_NAME)
     return schema_module.PositionRecord(
         id=position_id,
         condition_id=f"condition-{position_id}",
         token_id=token_id,
-        status=schema_module.PositionStatus.CLOSED,
+        status=position_schema_module.PositionStatus.CLOSED,
         side="BUY",
         entry_price=entry_price,
         order_size_usdc=order_size_usdc,

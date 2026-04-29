@@ -34,6 +34,11 @@ Invoke me for:
    - mocked external service fixtures
 6. Each WI must have at least one test file before marked done.
 
+## WI-40 Invariant P-1 (2026-04-15)
+- `PositionStatus` is owned by `src/schemas/position.py`.
+- Never import `PositionStatus` from `src.schemas.execution`.
+- Any `from src.schemas.execution import ..., PositionStatus, ...` pattern is a hard bug and can trigger broad pytest collection/import failures.
+
 ## Verification
 ```bash
 coverage run -m pytest tests/ --asyncio-mode=auto

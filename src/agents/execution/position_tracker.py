@@ -20,8 +20,8 @@ from src.schemas.execution import (
     ExecutionAction,
     ExecutionResult,
     PositionRecord,
-    PositionStatus,
 )
+from src.schemas.position import PositionStatus
 
 logger = structlog.get_logger(__name__)
 

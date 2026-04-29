@@ -21,6 +21,7 @@ from src.schemas.web3 import SignedOrder
 
 ROUTER_MODULE_NAME = "src.agents.execution.exit_order_router"
 SCHEMA_MODULE_NAME = "src.schemas.execution"
+POSITION_SCHEMA_MODULE_NAME = "src.schemas.position"
 WALLET_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
 DEFAULT_SIGNER = object()
 
@@ -77,11 +78,12 @@ def _make_position_record(
     order_size_usdc: Decimal = Decimal("30"),
 ):
     now = datetime.now(timezone.utc)
+    position_schema_module = importlib.import_module(POSITION_SCHEMA_MODULE_NAME)
     return schema_module.PositionRecord(
         id=position_id,
         condition_id=condition_id,
         token_id=token_id,
-        status=schema_module.PositionStatus.CLOSED,
+        status=position_schema_module.PositionStatus.CLOSED,
         side="BUY",
         entry_price=entry_price,
         order_size_usdc=order_size_usdc,

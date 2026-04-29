@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import structlog
-from src.agents.ingestion.ws_client import AsyncWebSocketClient
+from src.agents.ingestion.ws_client import CLOBWebSocketClient as AsyncWebSocketClient
 
 structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
 logger = structlog.get_logger()

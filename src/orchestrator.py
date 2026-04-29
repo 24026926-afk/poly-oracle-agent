@@ -53,9 +53,9 @@ from src.schemas.execution import (
     ExecutionResult,
     ExitOrderAction,
     PositionRecord,
-    PositionStatus,
 )
 from src.schemas.llm import MarketCategory
+from src.schemas.position import PositionStatus
 from src.schemas.risk import LifecycleReport, PortfolioSnapshot
 
 # Ensure .env is explicitly loaded if running from root
