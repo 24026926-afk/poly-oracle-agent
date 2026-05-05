@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-04-15
-**Version:** 0.12.0
-**Status:** Phase 12 — COMPLETE
-**Active WI:** None — all WI-39 through WI-42 sealed
+**Last Updated:** 2026-05-05
+**Version:** 0.13.0-draft
+**Status:** Phase 13 — WI-43 COMPLETE
+**Active WI:** WI-44 — Real-Data Backtest Validation
 
 ---
 
@@ -20,10 +20,21 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 678 |
-| Coverage | 94% (target ≥ 80%) |
+| Total tests | 741 |
+| Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
+
+Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
+- `docs/PRD-v13.0.md` created as the Phase 13 planning source.
+- WI-43 — Historical Polymarket Dataset Pipeline: COMPLETE. Built resolved-market historical data pipeline with lookahead-safe separation: `src/backtesting/schemas.py`, `src/backtesting/polymarket_history_client.py`, `src/backtesting/historical_dataset.py`, `scripts/build_historical_dataset.py`. Produces BacktestDataLoader-compatible JSON snapshots with `condition_id` and `market_end_date`, plus per-market outcomes files. CLI exits non-zero on source failures. 63 new tests (60 unit + 3 integration), 741 total, 93% coverage.
+- WI-44 — Real-Data Backtest Validation: run BacktestRunner against WI-43 data and emit typed live-readiness verdict.
+- WI-45 — Real Grok Sentiment Integration: replace mock-first sentiment with real xAI/Grok API path behind explicit config while preserving neutral fallback.
+- WI-46 — 24/7 Connectivity Hardening: improve WebSocket reconnect/heartbeat/market-closed handling and expose `/healthz` + `/readyz`.
+- WI-47 — Prometheus Metrics Export: expose low-cardinality `/metrics` counters and gauges for dry-run 24/7 operations.
+- WI-44 through WI-47 business-logic and implementation-prompt deliverables generated ahead of implementation per user request; WI-43 remains the active work item.
+- Phase-level kill criterion: if real-data backtest does not show defensible edge, `DRY_RUN=false` remains prohibited and Phase 14 must address strategy/model/risk redesign before live trading.
+- Per AGENTS.md PRD boundary, business-logic and implementation-prompt deliverables were not generated during `/prd`; they are created one at a time via `/wi-start`.
 
 Phase 12 sealed 2026-04-15 — Command Center Dashboard (WI-39 through WI-42):
 - `src/ui/__init__.py` and `src/ui/dashboard.py` created as the project's read-only operator UI.
