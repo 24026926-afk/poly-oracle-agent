@@ -1,9 +1,19 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-05
-**Version:** 0.13.0-draft
-**Status:** Phase 13 — WI-47 COMPLETE
-**Active WI:** none
+**Last Updated:** 2026-05-06
+**Version:** 0.13.0
+**Status:** Phase 13 COMPLETE — archived
+**Active WI:** None — awaiting Phase 14 PRD
+
+---
+
+## Phase 13 Archive
+
+- **PRD:** `docs/PRD-v13.0.md`
+- **Completion Report:** `04_Archive/poly-oracle-agent/Phase-13/PHASE-13-COMPLETE.md`
+- **Close Date:** 2026-05-06
+- **Final Tests:** 1041 | **Coverage:** 93%
+- **WIs Completed:** WI-43, WI-44, WI-45, WI-46, WI-47
 
 ---
 
