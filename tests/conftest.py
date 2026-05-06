@@ -134,6 +134,7 @@ def test_config() -> AppConfig:
         database_url="sqlite+aiosqlite://",
         log_level="DEBUG",
         dry_run=True,
+        enable_metrics_server=False,
     )
 
 

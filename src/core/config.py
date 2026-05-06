@@ -59,7 +59,7 @@ class AppConfig(BaseSettings):
         ..., description="API key for Anthropic Claude inference"
     )
     anthropic_model: str = Field(
-        default="claude-haiku-4-5-20251001",
+        default="claude-sonnet-4-20250514",
         description="Anthropic model identifier",
     )
     anthropic_max_tokens: int = Field(

@@ -14,6 +14,10 @@
 - **Close Date:** 2026-05-06
 - **Final Tests:** 1041 | **Coverage:** 93%
 - **WIs Completed:** WI-43, WI-44, WI-45, WI-46, WI-47
+- **Post-Phase 13 Configuration Updates (2026-05-06):**
+  - Grok live mode enabled: `GROK_LIVE_ENABLED=True` added to `.env.example`, `GROK_MOCKED=False`, `GROK_MODEL=grok-4-1-fast` set.
+  - Claude model updated: Default `anthropic_model` in `AppConfig` and `.env.example` set to `claude-sonnet-4-20250514`.
+
 
 ---
 
@@ -30,7 +34,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 983 |
+| Total tests | 1041 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |

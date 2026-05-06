@@ -200,10 +200,10 @@ class _FallbackDataAggregator:
     def build_context(self, snapshot: Any) -> dict[str, Any]:
         return {
             "condition_id": _snapshot_field(snapshot, "token_id"),
-            "best_bid": float(_decimal_field(snapshot, "best_bid")),
-            "best_ask": float(_decimal_field(snapshot, "best_ask")),
-            "midpoint": float(_decimal_field(snapshot, "midpoint")),
-            "spread": float(
+            "best_bid": _decimal_field(snapshot, "best_bid"),
+            "best_ask": _decimal_field(snapshot, "best_ask"),
+            "midpoint": _decimal_field(snapshot, "midpoint"),
+            "spread": (
                 _decimal_field(snapshot, "best_ask")
                 - _decimal_field(snapshot, "best_bid")
             ),
@@ -219,14 +219,14 @@ class _FallbackClaudeClient:
             "market_context": {
                 "condition_id": "0000000000",
                 "outcome_evaluated": "YES",
-                "best_bid": 0.5,
-                "best_ask": 0.5,
-                "midpoint": 0.5,
+                "best_bid": "0.5",
+                "best_ask": "0.5",
+                "midpoint": "0.5",
             },
-            "probabilistic_estimate": {"p_true": 0.5, "p_market": 0.5},
+            "probabilistic_estimate": {"p_true": "0.5", "p_market": "0.5"},
             "risk_assessment": {
-                "liquidity_risk_score": 0.5,
-                "resolution_risk_score": 0.5,
+                "liquidity_risk_score": "0.5",
+                "resolution_risk_score": "0.5",
                 "information_asymmetry_flag": False,
                 "risk_notes": (
                     "Fallback offline evaluator used for WI-33 when no Claude "
@@ -441,6 +441,7 @@ class BacktestRunner:
             confidence=confidence,
             gatekeeper_result=gatekeeper_result,
             reason=reason,
+            realized_pnl_usdc=trade_pnl,
         )
         return decision, trade_executed, trade_pnl
 
@@ -504,9 +505,10 @@ class BacktestRunner:
         try:
             result = route(validated, market_context, dry_run=True)
             return await _maybe_await(result)
-        except TypeError:
-            result = route(validated, market_context)
-            return await _maybe_await(result)
+        except TypeError as exc:
+            raise RuntimeError(
+                "Backtest execution router must accept explicit dry_run=True."
+            ) from exc
 
     @staticmethod
     def _gatekeeper_validate(raw_decision: Any) -> Any:
@@ -617,9 +619,9 @@ def _to_market_context(snapshot: Any) -> SimpleNamespace:
     return SimpleNamespace(
         condition_id=str(_snapshot_field(snapshot, "token_id")),
         yes_token_id=str(_snapshot_field(snapshot, "token_id")),
-        best_bid=float(_decimal_field(snapshot, "best_bid")),
-        best_ask=float(_decimal_field(snapshot, "best_ask")),
-        midpoint=float(_decimal_field(snapshot, "midpoint")),
+        best_bid=_decimal_field(snapshot, "best_bid"),
+        best_ask=_decimal_field(snapshot, "best_ask"),
+        midpoint=_decimal_field(snapshot, "midpoint"),
     )
 
 
