@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-05-05
 **Version:** 0.13.0-draft
-**Status:** Phase 13 — WI-46 COMPLETE
-**Active WI:** WI-47 — Prometheus Metrics Export
+**Status:** Phase 13 — WI-47 COMPLETE
+**Active WI:** none
 
 ---
 
@@ -20,7 +20,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 956 |
+| Total tests | 983 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -31,7 +31,7 @@ Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - WI-44 — Real-Data Backtest Validation: COMPLETE. Built validation layer on top of BacktestRunner: `LiveReadinessVerdict` enum (6 verdicts), `BacktestValidationReport` schema with realized EV calibration, confidence calibration buckets using PnL-based win detection (not gatekeeper_result), data-quality gating at >10% bad fraction, and `derive_verdict()` with deterministic ordering. Added `realized_pnl_usdc` field to `BacktestDecision` for correct win/loss tracking. CLI `scripts/run_real_data_backtest.py` constrained to `docs/backtests/` output, markdown report uses Decimal (no float). 80 new tests (64 unit + 16 integration), 819 total, 93% coverage.
 - WI-45 — Real Grok Sentiment Integration: COMPLETE. Replaced mock-first sentiment with live xAI/Grok API path behind `grok_live_enabled` config gate. Added `GrokLiveConfig`, `GrokRequestEnvelope`, `GrokResponseEnvelope`, `GrokFailureReason` (StrEnum) typed models. `GrokClient` enforces category gate (CRYPTO/POLITICS only), per-attempt budget capping (`remaining_budget` from total chain budget), `SAFETY_REFUSAL` detection (9 patterns), and `json.loads(parse_float=Decimal)` to prevent float at Pydantic boundary. `SentimentResponse._parse_decimal` rejects raw Python float. ClaudeClient audit trail propagates typed `GrokFailureReason` via `FALLBACK` status. 49 new tests (39 unit + 10 integration), 868 total, 93% coverage.
 - WI-46 — 24/7 Connectivity Hardening: COMPLETE. Hardened `CLOBWebSocketClient` with bounded exponential backoff (initial 1s, max 60s, ±25% jitter), typed `WebSocketHealthSnapshot` tracking 9 health fields (connection state, timestamps, reconnect/failure counts, error reason, asset count), explicit market-closed/inactive/expired detection via `MarketLifecycleState` + `MarketClosedSkipReason`, PONG timeout detection triggering reconnect. Added `HealthServer` using `asyncio` stdlib HTTP with `/healthz` (always 200) and `/readyz` (200/503 based on DB+WS state with configurable grace window). Wired health server lifecycle into `Orchestrator.start()`/`shutdown()`. New config: `ws_reconnect_*`, `ws_pong_timeout_seconds`, `ws_consecutive_failure_degraded_threshold`, `health_server_*`, `readiness_grace_window_seconds`. All health endpoints read-only — zero secrets, wallet, prompt, or token ID exposure. 88 new unit tests, 956 total, 93% coverage.
-- WI-47 — Prometheus Metrics Export: expose low-cardinality `/metrics` counters and gauges for dry-run 24/7 operations.
+- WI-47 — Prometheus Metrics Export: COMPLETE. Exposed `GET /metrics` in Prometheus text exposition format via lightweight asyncio stdlib HTTP server. `MetricsRegistry` with lock-protected counters/gauges: decisions per hour, BUY/HOLD/SKIP counts, execution results by `ExecutionAction`, evaluation/context/routing latency, WS reconnect/error counts, heartbeat age, active market count, backtest readiness verdict. All numeric values use `Decimal`. Low-cardinality label enforcement at Pydantic boundary — `condition_id`, `token_id`, `wallet_address`, `prompt_text`, `reasoning_text`, `exception_message`, `secret` keys rejected. `MetricsServer` on configurable host:port with 200/404/405/500 paths and graceful lifecycle in orchestrator. Background `_metrics_sync_loop` updates WS-derived gauges every 15s. Metrics collection is read-only — no trade authorization, no LLMEvaluationResponse bypass, no dry_run weakening, no DB writes. 85 new unit tests, 983 total, 93% coverage.
 - WI-44 through WI-47 business-logic and implementation-prompt deliverables generated ahead of implementation per user request.
 - Phase-level kill criterion: if real-data backtest does not show defensible edge, `DRY_RUN=false` remains prohibited and Phase 14 must address strategy/model/risk redesign before live trading.
 - Per AGENTS.md PRD boundary, business-logic and implementation-prompt deliverables were not generated during `/prd`; they are created one at a time via `/wi-start`.
