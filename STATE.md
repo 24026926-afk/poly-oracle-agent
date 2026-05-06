@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-06
-**Version:** 0.13.0
-**Status:** Phase 13 COMPLETE — archived
-**Active WI:** None — awaiting Phase 14 PRD
+**Version:** 0.14.0
+**Status:** Phase 14 READY FOR IMPLEMENTATION — DigitalOcean 24/7 paper-trading deployment
+**Active WI:** None — Phase 14 WI deliverables ready; awaiting `/wi-start WI-48`
 
 ---
 
@@ -39,6 +39,25 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
 
+Phase 14 planned 2026-05-06 — DigitalOcean 24/7 Paper-Trading Deployment:
+- `docs/PRD-v14.0.md` created as the Phase 14 planning source.
+- **Objective:** Deploy the agent to a DigitalOcean Droplet for stable 24/7 paper trading while preserving `DRY_RUN=true`, secret hygiene, SQLite audit persistence, and operator visibility.
+- **WIs ready for implementation:**
+  - WI-48 — DigitalOcean Droplet Deployment Hardening
+  - WI-49 — Secure Remote Operator Dashboard Access
+  - WI-50 — Telegram Operational Alert Bridge
+  - WI-51 — 24/7 Paper-Trading Soak Test and Runbook
+- **Scope guard:** `DRY_RUN=false`, PostgreSQL migration, public unauthenticated dashboard/metrics exposure, Kubernetes, managed Prometheus/Grafana, and strategy optimization remain out of scope.
+- Phase 14 business-logic and implementation-prompt deliverables generated on 2026-05-06 by explicit user request:
+  - `docs/deliverables/business_logic/business_logic_WI-48-digitalocean-droplet-deployment-hardening.md`
+  - `docs/deliverables/implementation_prompts/prompt_WI-48-digitalocean-droplet-deployment-hardening.md`
+  - `docs/deliverables/business_logic/business_logic_WI-49-secure-remote-operator-dashboard-access.md`
+  - `docs/deliverables/implementation_prompts/prompt_WI-49-secure-remote-operator-dashboard-access.md`
+  - `docs/deliverables/business_logic/business_logic_WI-50-telegram-operational-alert-bridge.md`
+  - `docs/deliverables/implementation_prompts/prompt_WI-50-telegram-operational-alert-bridge.md`
+  - `docs/deliverables/business_logic/business_logic_WI-51-24-7-paper-trading-soak-test-and-runbook.md`
+  - `docs/deliverables/implementation_prompts/prompt_WI-51-24-7-paper-trading-soak-test-and-runbook.md`
+
 Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - `docs/PRD-v13.0.md` created as the Phase 13 planning source.
 - WI-43 — Historical Polymarket Dataset Pipeline: COMPLETE. Built resolved-market historical data pipeline with lookahead-safe separation: `src/backtesting/schemas.py`, `src/backtesting/polymarket_history_client.py`, `src/backtesting/historical_dataset.py`, `scripts/build_historical_dataset.py`. Produces BacktestDataLoader-compatible JSON snapshots with `condition_id` and `market_end_date`, plus per-market outcomes files. CLI exits non-zero on source failures. 63 new tests (60 unit + 3 integration), 741 total, 93% coverage.
@@ -46,6 +65,11 @@ Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - WI-45 — Real Grok Sentiment Integration: COMPLETE. Replaced mock-first sentiment with live xAI/Grok API path behind `grok_live_enabled` config gate. Added `GrokLiveConfig`, `GrokRequestEnvelope`, `GrokResponseEnvelope`, `GrokFailureReason` (StrEnum) typed models. `GrokClient` enforces category gate (CRYPTO/POLITICS only), per-attempt budget capping (`remaining_budget` from total chain budget), `SAFETY_REFUSAL` detection (9 patterns), and `json.loads(parse_float=Decimal)` to prevent float at Pydantic boundary. `SentimentResponse._parse_decimal` rejects raw Python float. ClaudeClient audit trail propagates typed `GrokFailureReason` via `FALLBACK` status. 49 new tests (39 unit + 10 integration), 868 total, 93% coverage.
 - WI-46 — 24/7 Connectivity Hardening: COMPLETE. Hardened `CLOBWebSocketClient` with bounded exponential backoff (initial 1s, max 60s, ±25% jitter), typed `WebSocketHealthSnapshot` tracking 9 health fields (connection state, timestamps, reconnect/failure counts, error reason, asset count), explicit market-closed/inactive/expired detection via `MarketLifecycleState` + `MarketClosedSkipReason`, PONG timeout detection triggering reconnect. Added `HealthServer` using `asyncio` stdlib HTTP with `/healthz` (always 200) and `/readyz` (200/503 based on DB+WS state with configurable grace window). Wired health server lifecycle into `Orchestrator.start()`/`shutdown()`. New config: `ws_reconnect_*`, `ws_pong_timeout_seconds`, `ws_consecutive_failure_degraded_threshold`, `health_server_*`, `readiness_grace_window_seconds`. All health endpoints read-only — zero secrets, wallet, prompt, or token ID exposure. 88 new unit tests, 956 total, 93% coverage.
 - WI-47 — Prometheus Metrics Export: COMPLETE. Exposed `GET /metrics` in Prometheus text exposition format via lightweight asyncio stdlib HTTP server. `MetricsRegistry` with lock-protected counters/gauges: decisions per hour, BUY/HOLD/SKIP counts, execution results by `ExecutionAction`, evaluation/context/routing latency, WS reconnect/error counts, heartbeat age, active market count, backtest readiness verdict. All numeric values use `Decimal`. Low-cardinality label enforcement at Pydantic boundary — `condition_id`, `token_id`, `wallet_address`, `prompt_text`, `reasoning_text`, `exception_message`, `secret` keys rejected. `MetricsServer` on configurable host:port with 200/404/405/500 paths and graceful lifecycle in orchestrator. Background `_metrics_sync_loop` updates WS-derived gauges every 15s. Metrics collection is read-only — no trade authorization, no LLMEvaluationResponse bypass, no dry_run weakening, no DB writes. 85 new unit tests, 983 total, 93% coverage.
+- **Paper Trading Activation (2026-05-06):**
+  - Grok live mode activated (`GROK_LIVE_ENABLED=True`, `GROK_MOCKED=False`).
+  - Claude upgraded to `claude-sonnet-4-20250514`.
+  - System verified starting in `dry_run=True` with live Grok and Sonnet-4.
+  - HealthServer and MetricsServer active.
 - WI-44 through WI-47 business-logic and implementation-prompt deliverables generated ahead of implementation per user request.
 - Phase-level kill criterion: if real-data backtest does not show defensible edge, `DRY_RUN=false` remains prohibited and Phase 14 must address strategy/model/risk redesign before live trading.
 - Per AGENTS.md PRD boundary, business-logic and implementation-prompt deliverables were not generated during `/prd`; they are created one at a time via `/wi-start`.
