@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-06
-**Version:** 0.14.0
-**Status:** Phase 14 READY FOR IMPLEMENTATION — DigitalOcean 24/7 paper-trading deployment
-**Active WI:** None — Phase 14 WI deliverables ready; awaiting `/wi-start WI-48`
+**Version:** 0.14.1
+**Status:** Phase 14 IN PROGRESS — WI-48 complete, WI-49/WI-50/WI-51 pending
+**Active WI:** None — awaiting `/wi-start WI-49`
 
 ---
 
@@ -34,8 +34,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1041 |
-| Coverage | 93% (target ≥ 80%) |
+| Total tests | 1079 |
+| Coverage | 92% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
 
@@ -57,6 +57,16 @@ Phase 14 planned 2026-05-06 — DigitalOcean 24/7 Paper-Trading Deployment:
   - `docs/deliverables/implementation_prompts/prompt_WI-50-telegram-operational-alert-bridge.md`
   - `docs/deliverables/business_logic/business_logic_WI-51-24-7-paper-trading-soak-test-and-runbook.md`
   - `docs/deliverables/implementation_prompts/prompt_WI-51-24-7-paper-trading-soak-test-and-runbook.md`
+
+WI-48 — DigitalOcean Droplet Deployment Hardening: COMPLETE.
+- `docker-compose.yml`: real curl-`/healthz` healthcheck, loopback port publishing (8080, 8081), `HEALTH_SERVER_HOST=0.0.0.0` / `METRICS_SERVER_HOST=0.0.0.0` for port publishing reachability.
+- `Dockerfile`: curl installed, HEALTHCHECK uses `/healthz`, `--start-period=15s`.
+- `.env.example`: `DRY_RUN=true` (Phase 14 mandate), deployment comment added.
+- `scripts/ops/check_deployment.py`: stdlib-only deployment checker (no pip deps) — validates Docker/Compose, service status, `DRY_RUN=true` guard, `/healthz`, `/readyz` (rejects `not_ready`; degraded requires `--allow-degraded` + checks payload), `/metrics` (validates `text/plain` Content-Type + Prometheus text format + forbidden label scanning).
+- `src/schemas/ops.py`: `DeploymentFailureReason` (16-value StrEnum), `DeploymentCheckStatus`, `DeploymentProbeResult`, `DeploymentValidationReport`, `ComposeServiceStatus`, `HTTPProbeResult`, `DryRunGuardResult`, `MetricsInspectionResult` — all frozen Pydantic V2.
+- `docs/runbooks/digitalocean-droplet-deployment.md`: complete 12-section runbook (Droplet creation, hardening, Docker install, deploy, SQLite backup, service management, healthcheck config, observability endpoints, log rotation, update procedure, troubleshooting, security checklist).
+- `docs/system_architecture.md`: trailing whitespace stripped (git diff --check clean).
+- 38 new integration tests, 1079 total, 92% coverage. Branch: `feat/wi-48-digitalocean-droplet-deployment-hardening`, commit: `5edad0a`.
 
 Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - `docs/PRD-v13.0.md` created as the Phase 13 planning source.
