@@ -308,6 +308,44 @@ class AppConfig(BaseSettings):
         description="True = evaluate but never execute orders",
     )
 
+    # --- WI-46: WebSocket Reconnect & Health ---
+    ws_reconnect_initial_backoff_seconds: Decimal = Field(
+        default=Decimal("1.0"),
+        description="Initial backoff in seconds before first WS reconnect attempt",
+    )
+    ws_reconnect_max_backoff_seconds: Decimal = Field(
+        default=Decimal("60.0"),
+        description="Maximum backoff ceiling in seconds for WS reconnect",
+    )
+    ws_reconnect_jitter_pct: Decimal = Field(
+        default=Decimal("0.25"),
+        description="Jitter range as fraction of current backoff (±jitter_pct * backoff)",
+    )
+    ws_pong_timeout_seconds: Decimal = Field(
+        default=Decimal("30.0"),
+        description="Seconds without PONG before treating connection as lost",
+    )
+    ws_consecutive_failure_degraded_threshold: int = Field(
+        default=5,
+        description="Consecutive WS failures before health state becomes DEGRADED",
+    )
+    health_server_port: int = Field(
+        default=8080,
+        description="Port for the local health HTTP server",
+    )
+    health_server_host: str = Field(
+        default="127.0.0.1",
+        description="Bind address for the local health HTTP server",
+    )
+    readiness_grace_window_seconds: Decimal = Field(
+        default=Decimal("30.0"),
+        description="Seconds after WS disconnect where /readyz may still return ready if DB is healthy",
+    )
+    enable_health_server: bool = Field(
+        default=True,
+        description="Start the local health HTTP server (/healthz, /readyz)",
+    )
+
     # --- WI-32: Concurrent Market Tracking ---
     max_concurrent_markets: int = Field(
         default=5,
@@ -372,6 +410,11 @@ class AppConfig(BaseSettings):
         "max_category_exposure_pct",
         "min_matic_balance_wei",
         "min_usdc_balance_usdc",
+        "ws_reconnect_initial_backoff_seconds",
+        "ws_reconnect_max_backoff_seconds",
+        "ws_reconnect_jitter_pct",
+        "ws_pong_timeout_seconds",
+        "readiness_grace_window_seconds",
         mode="before",
     )
     @classmethod

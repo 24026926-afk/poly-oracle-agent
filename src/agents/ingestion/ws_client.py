@@ -6,13 +6,17 @@ CLOB WebSocket client for streaming live orderbook events from Polymarket.
 Connects to the CLOB WebSocket, validates incoming frames via
 ``MarketSnapshotSchema``, persists to the DB, and feeds an
 ``asyncio.Queue`` consumed by the Context Builder (Module 2).
+
+WI-46: Hardened with jittered exponential backoff, typed health snapshots,
+PONG timeout detection, and explicit market-closed handling.
 """
 
 import asyncio
 import json
+import random
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 import structlog
 import websockets
@@ -22,6 +26,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.core.config import AppConfig
 from src.db.models import MarketSnapshot
 from src.db.repositories.market_repo import MarketRepository
+from src.observability.health import (
+    MarketClosedSkipReason,
+    MarketLifecycleState,
+    WebSocketConnectionState,
+    WebSocketHealthSnapshot,
+    WebSocketReconnectConfig,
+)
 from src.schemas.market import MarketSnapshotSchema
 
 logger = structlog.get_logger(__name__)
@@ -54,36 +65,96 @@ class CLOBWebSocketClient:
         self._aggregator_map: dict[str, Any] = {}
         self._ws: websockets.ClientConnection | None = None
 
+        # WI-46: Reconnect config — defensive against mock configs in tests
+        try:
+            self._reconnect_cfg = WebSocketReconnectConfig(
+                initial_backoff_seconds=config.ws_reconnect_initial_backoff_seconds,
+                max_backoff_seconds=config.ws_reconnect_max_backoff_seconds,
+                jitter_pct=config.ws_reconnect_jitter_pct,
+                pong_timeout_seconds=config.ws_pong_timeout_seconds,
+                consecutive_failure_degraded_threshold=config.ws_consecutive_failure_degraded_threshold,
+            )
+        except Exception:
+            self._reconnect_cfg = WebSocketReconnectConfig()
+
+        # WI-46: Health snapshot
+        self._health = WebSocketHealthSnapshot()
+        self._pong_event: asyncio.Event = asyncio.Event()
+        self._pong_event.set()  # initially clear (no PONG pending)
+
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
 
     async def run(self) -> None:
-        """Connect, subscribe, and stream forever with backoff reconnect."""
-        backoff_s = 1.0
-        max_backoff_s = 60.0
+        """Connect, subscribe, and stream forever with jittered backoff."""
+        backoff_s = float(self._reconnect_cfg.initial_backoff_seconds)
+        max_backoff_s = float(self._reconnect_cfg.max_backoff_seconds)
+        jitter_pct = float(self._reconnect_cfg.jitter_pct)
+
+        self._health.reconnect_count = 0
+        self._health.consecutive_failure_count = 0
 
         while True:
             try:
+                self._health.connection_state = WebSocketConnectionState.CONNECTED
                 await self._stream()
                 # _stream only returns on clean shutdown
-                backoff_s = 1.0
+                self._health.last_connected_at_utc = datetime.now(timezone.utc)
+                backoff_s = float(self._reconnect_cfg.initial_backoff_seconds)
+                self._health.reconnect_count = 0
+                self._health.consecutive_failure_count = 0
             except websockets.ConnectionClosed as exc:
+                self._health.connection_state = WebSocketConnectionState.DISCONNECTED
+                self._health.consecutive_failure_count += 1
+                self._health.reconnect_count = self._health.consecutive_failure_count
+                self._health.total_reconnect_count += 1
+                self._health.last_error_reason = f"ConnectionClosed: code={exc.code} reason={exc.reason}"
+                self._health.last_connected_at_utc = None
                 logger.warning(
                     "ws_client.disconnected",
                     code=exc.code,
                     reason=exc.reason,
                     reconnect_in=backoff_s,
+                    backoff_s=backoff_s,
+                    consecutive_failures=self._health.consecutive_failure_count,
                 )
             except Exception as exc:
+                self._health.connection_state = WebSocketConnectionState.DISCONNECTED
+                self._health.consecutive_failure_count += 1
+                self._health.reconnect_count = self._health.consecutive_failure_count
+                self._health.total_reconnect_count += 1
+                self._health.last_error_reason = type(exc).__name__
+                self._health.last_connected_at_utc = None
                 logger.error(
                     "ws_client.connection_error",
                     error=str(exc),
+                    error_type=type(exc).__name__,
                     reconnect_in=backoff_s,
+                    backoff_s=backoff_s,
+                    consecutive_failures=self._health.consecutive_failure_count,
                 )
 
-            await asyncio.sleep(backoff_s)
+            # Degraded state when threshold exceeded
+            if (
+                self._health.consecutive_failure_count
+                >= self._reconnect_cfg.consecutive_failure_degraded_threshold
+            ):
+                self._health.connection_state = WebSocketConnectionState.DEGRADED
+
+            # Reconnect with jittered backoff
+            self._health.connection_state = WebSocketConnectionState.RECONNECTING
+
+            # Compute jitter: random factor in [1 - jitter_pct, 1 + jitter_pct]
+            jitter_factor = 1.0 + random.uniform(-jitter_pct, jitter_pct)
+            sleep_s = backoff_s * jitter_factor
+
+            await asyncio.sleep(sleep_s)
             backoff_s = min(backoff_s * 2, max_backoff_s)
+
+    def get_health_snapshot(self) -> WebSocketHealthSnapshot:
+        """Return a copy of the current WebSocket health state."""
+        return self._health.model_copy(deep=True)
 
     # ------------------------------------------------------------------
     # Internal
@@ -102,6 +173,7 @@ class CLOBWebSocketClient:
     def set_assets_ids(self, assets_ids: list[str]) -> None:
         """Update token IDs for subscription (e.g. after market rotation)."""
         self._assets_ids = assets_ids
+        self._health.active_subscribed_asset_count = len(assets_ids)
 
     def set_token_id_mapping(self, mapping: dict[str, str]) -> None:
         """Set the token_id → yes_token_id mapping for snapshot enrichment."""
@@ -141,6 +213,7 @@ class CLOBWebSocketClient:
         )
 
         await ws.send(subscription_msg)
+        self._health.active_subscribed_asset_count = len(assets_ids)
         logger.info(
             "market_tracking.subscribed_batch",
             asset_count=len(assets_ids),
@@ -150,6 +223,8 @@ class CLOBWebSocketClient:
     async def _stream(self) -> None:
         async with websockets.connect(self._url) as ws:
             self._ws = ws
+            self._health.connection_state = WebSocketConnectionState.CONNECTED
+            self._health.last_connected_at_utc = datetime.now(timezone.utc)
             logger.info("ws_client.connected", url=self._url)
 
             sub_msg = self._build_subscription_message()
@@ -183,18 +258,39 @@ class CLOBWebSocketClient:
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass
+                self._ws = None
 
     async def _heartbeat(self, ws: websockets.ClientConnection) -> None:
-        """Send a heartbeat ping every 10 seconds.
+        """Send a heartbeat ping every 10 seconds with PONG timeout detection.
 
         Polymarket CLOB expects the plain text string "PING" (not JSON).
         Server responds with "PONG" automatically.
+
+        WI-46: If no PONG received within pong_timeout_seconds, close the
+        connection to trigger reconnect.
         """
         while True:
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
             try:
+                self._health.last_heartbeat_sent_at_utc = datetime.now(timezone.utc)
+                self._pong_event.clear()
                 logger.debug("ws_client.outbound_message", message_type="ping")
                 await ws.send("PING")
+
+                # Wait for PONG within timeout
+                try:
+                    await asyncio.wait_for(
+                        self._pong_event.wait(),
+                        timeout=float(self._reconnect_cfg.pong_timeout_seconds),
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "ws_client.pong_timeout",
+                        timeout_seconds=str(
+                            self._reconnect_cfg.pong_timeout_seconds
+                        ),
+                    )
+                    return  # trigger reconnect
             except websockets.ConnectionClosed:
                 logger.warning("ws_client.heartbeat_connection_closed")
                 return
@@ -210,9 +306,13 @@ class CLOBWebSocketClient:
 
         WI-32: Routes incoming frames to per-market aggregators via asset_id
         before the standard persistence/enqueue path.
+
+        WI-46: Detects market-closed frames from metadata.
         """
         # Handle server PONG response (plain text, not JSON)
         if raw_msg.strip() == "PONG":
+            self._health.last_pong_received_at_utc = datetime.now(timezone.utc)
+            self._pong_event.set()
             logger.debug("ws_client.pong_received")
             return
 
@@ -232,6 +332,38 @@ class CLOBWebSocketClient:
             else:
                 logger.warning("ws_client.invalid_json", preview=raw_msg[:100])
             return
+
+        # WI-46: Market lifecycle detection
+        if isinstance(data, dict):
+            market_lifecycle = data.get("market_lifecycle") or data.get(
+                "lifecycle_state"
+            )
+            if market_lifecycle is not None:
+                lifecycle_str = str(market_lifecycle).upper()
+                try:
+                    state = MarketLifecycleState(lifecycle_str)
+                except ValueError:
+                    state = MarketLifecycleState.UNKNOWN
+
+                if state in (
+                    MarketLifecycleState.CLOSED,
+                    MarketLifecycleState.INACTIVE,
+                    MarketLifecycleState.EXPIRED,
+                ):
+                    condition_id = data.get("market") or data.get(
+                        "condition_id", "unknown"
+                    )
+                    reason = MarketClosedSkipReason(
+                        condition_id=condition_id,
+                        reason=state,
+                        detail=f"Market {state.value}: {raw_msg[:200]}",
+                    )
+                    logger.info(
+                        "ws_client.market_closed",
+                        condition_id=reason.condition_id,
+                        lifecycle_state=state.value,
+                    )
+                    return  # do not treat as transport error
 
         # WI-32: Route to per-market aggregator via asset_id before standard processing
         asset_id = data.get("asset_id") if isinstance(data, dict) else None

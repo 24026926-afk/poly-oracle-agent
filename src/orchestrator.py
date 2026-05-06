@@ -45,6 +45,8 @@ from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
 from src.core.config import AppConfig, get_config
+from src.observability.health import RuntimeHealthSnapshot
+from src.observability.health_server import HealthServer
 from src.db.models import Position
 from src.db.engine import AsyncSessionLocal, engine
 from src.db.repositories.position_repository import PositionRepository
@@ -210,6 +212,19 @@ class Orchestrator:
         self.broadcaster: OrderBroadcaster | None = None
         self.market_tracking_task: asyncio.Task[Any] | None = None
 
+        # WI-46: Health server (started in start(), stopped in shutdown())
+        self.health_server: HealthServer | None = None
+        if self.config.enable_health_server:
+            self.health_server = HealthServer(
+                host=self.config.health_server_host,
+                port=self.config.health_server_port,
+                get_ws_health=self._get_runtime_health,
+                check_db=self._check_db_reachable,
+                readiness_grace_window_seconds=float(
+                    self.config.readiness_grace_window_seconds
+                ),
+            )
+
     async def start(self) -> None:
         """Start all layers and run until cancelled."""
         logger.info("orchestrator.starting")
@@ -316,6 +331,10 @@ class Orchestrator:
                 self._market_tracking_loop(),
                 name="MarketTrackingTask",
             )
+
+        # WI-46: Start health server
+        if self.health_server is not None:
+            await self.health_server.start()
 
         try:
             await asyncio.gather(*self._tasks)
@@ -963,6 +982,10 @@ class Orchestrator:
             except asyncio.CancelledError:
                 pass
 
+        # WI-46: Stop health server
+        if self.health_server is not None:
+            await self.health_server.stop()
+
         for stoppable in (self.aggregator, self.claude_client):
             if stoppable is None:
                 continue
@@ -997,6 +1020,36 @@ class Orchestrator:
 
         await engine.dispose()
         logger.info("orchestrator.shutdown_complete")
+
+    # ------------------------------------------------------------------
+    # WI-46: Health check callbacks for HealthServer
+    # ------------------------------------------------------------------
+
+    async def _get_runtime_health(self) -> RuntimeHealthSnapshot:
+        """Return current runtime health snapshot for readiness checks."""
+        ws_health = (
+            self.ws_client.get_health_snapshot()
+            if self.ws_client is not None
+            else None
+        )
+        return RuntimeHealthSnapshot(
+            ws_health=ws_health,
+            db_reachable=await self._check_db_reachable(),
+            active_market_count=1 if self.active_condition_id else 0,
+            subscribed_asset_count=len(self.ws_client._assets_ids) if self.ws_client else 0,
+        )
+
+    @staticmethod
+    async def _check_db_reachable() -> bool:
+        """Check if the database is reachable."""
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    __import__("sqlalchemy").text("SELECT 1")
+                )
+            return True
+        except Exception:
+            return False
 
 
 async def main() -> None:
