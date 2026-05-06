@@ -19,7 +19,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
 
 COPY --from=builder /install /usr/local
 COPY --chown=appuser:appuser src /app/src
@@ -38,4 +41,5 @@ USER appuser
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python", "-m", "src.orchestrator"]
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python -c "import src.core.config; print('ok')"
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
+    CMD curl -sf http://localhost:8080/healthz || exit 1
