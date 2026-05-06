@@ -82,6 +82,9 @@ class _DryRunConfig:
         self.grok_base_url = "http://localhost"
         self.grok_model = "grok-test"
         self.grok_mocked = True
+        self.grok_live_enabled = False
+        self.grok_timeout_seconds = 2.0
+        self.grok_max_retries = 2
         self.clob_rest_url = "http://localhost"
 
 

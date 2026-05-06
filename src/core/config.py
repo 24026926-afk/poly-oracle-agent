@@ -286,6 +286,18 @@ class AppConfig(BaseSettings):
         default=True,
         description="Use deterministic mock sentiment responses (set False for live API)",
     )
+    grok_live_enabled: bool = Field(
+        default=False,
+        description="Explicit gate to allow live xAI/Grok API calls (requires grok_mocked=False + valid API key)",
+    )
+    grok_timeout_seconds: float = Field(
+        default=2.0,
+        description="Timeout in seconds for live Grok API requests (both httpx and asyncio)",
+    )
+    grok_max_retries: int = Field(
+        default=2,
+        description="Max retries on transient Grok API failures (5xx, connection errors) before fallback",
+    )
 
     # --- Operational ---
     log_level: str = Field(
