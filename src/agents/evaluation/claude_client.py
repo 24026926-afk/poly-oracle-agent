@@ -48,6 +48,17 @@ _CHAIN_BUDGET: float = (
 _CHAIN_BUDGET_DRY_RUN: float = 60.0  # relaxed budget for debugging / dry-run pipelines
 
 
+def _compute_grok_budget(config: Any) -> float:
+    """Compute total Grok budget safely — guards against MagicMock configs."""
+    try:
+        timeout = float(config.grok_timeout_seconds)
+        retries = int(config.grok_max_retries)
+        raw = timeout * (retries + 1)
+        return min(raw, _CHAIN_BUDGET * 0.7)
+    except (TypeError, ValueError):
+        return 4.0  # safe default
+
+
 class _DecimalSafeEncoder(json.JSONEncoder):
     """JSON encoder that round-trips Decimal values through float for JSON
     serialization.  The Decimal gate in ``ReflectionResponse`` guarantees
@@ -133,6 +144,10 @@ class ClaudeClient:
             base_url=self.config.grok_base_url,
             model=self.config.grok_model,
             mocked=self.config.grok_mocked,
+            live_enabled=self.config.grok_live_enabled,
+            timeout_seconds=self.config.grok_timeout_seconds,
+            max_retries=self.config.grok_max_retries,
+            total_budget_seconds=_compute_grok_budget(self.config),
         )
         self._running = False
         self.model = self.config.anthropic_model
@@ -236,12 +251,21 @@ class ClaudeClient:
                 reference_timestamp_utc=str(market_state.get("timestamp", "")),
                 tags=market_state.get("tags"),
             )
-            self._log_sentiment(
-                status="SUCCESS",
-                reason="RECEIVED",
-                sentiment=sentiment,
-                snapshot_id=snapshot_id,
-            )
+            if sentiment is NEUTRAL_SENTIMENT:
+                failure_reason = self._grok_client.last_failure_reason
+                self._log_sentiment(
+                    status="FALLBACK",
+                    reason=failure_reason.value if failure_reason else "NEUTRAL_RETURNED",
+                    sentiment=sentiment,
+                    snapshot_id=snapshot_id,
+                )
+            else:
+                self._log_sentiment(
+                    status="SUCCESS",
+                    reason="RECEIVED",
+                    sentiment=sentiment,
+                    snapshot_id=snapshot_id,
+                )
             return sentiment
 
         except asyncio.TimeoutError:

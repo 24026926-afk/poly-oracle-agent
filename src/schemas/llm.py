@@ -126,7 +126,59 @@ class SentimentResponse(BaseModel):
     @field_validator("sentiment_score", mode="before")
     @classmethod
     def _parse_decimal(cls, v: object) -> Decimal:
+        if isinstance(v, float):
+            raise ValueError(
+                f"Float financial values are forbidden at schema boundary; "
+                f"got float {v}. Use Decimal or str."
+            )
         return Decimal(str(v))
+
+    model_config = {"frozen": True}
+
+
+# ---------------------------------------------------------------------------
+# WI-45: Grok Live Sentiment typed models
+# ---------------------------------------------------------------------------
+
+class GrokFailureReason(str, Enum):  # noqa: H312 (intentional str mixin)
+    """Typed failure reasons for Grok sentiment fallback audit trail."""
+
+    TIMEOUT = "timeout"
+    HTTP_401 = "http_401"
+    HTTP_403 = "http_403"
+    HTTP_429 = "http_429"
+    HTTP_5XX = "http_5xx"
+    SCHEMA_ERROR = "schema_error"
+    MISSING_KEY = "missing_key"
+    LIVE_DISABLED = "live_disabled"
+    SAFETY_REFUSAL = "safety_refusal"
+    UNEXPECTED = "unexpected"
+
+
+class GrokLiveConfig(BaseModel):
+    """Live-mode configuration capsule for GrokClient."""
+
+    live_enabled: bool = False
+    timeout_seconds: float = Field(default=2.0, gt=0.0, le=30.0)
+    max_retries: int = Field(default=2, ge=0, le=5)
+
+    model_config = {"frozen": True}
+
+
+class GrokRequestEnvelope(BaseModel):
+    """Typed request capsule for a live Grok API call."""
+
+    headers: dict[str, str]
+    body: dict
+
+    model_config = {"frozen": True}
+
+
+class GrokResponseEnvelope(BaseModel):
+    """Typed response envelope from a Grok API call before sentiment parsing."""
+
+    raw_text: str
+    status_code: int
 
     model_config = {"frozen": True}
 
