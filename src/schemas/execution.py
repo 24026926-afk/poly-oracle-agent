@@ -274,8 +274,9 @@ class BacktestDecision(BaseModel):
     confidence: Decimal
     gatekeeper_result: str
     reason: str
+    realized_pnl_usdc: Decimal = Decimal("0")
 
-    @field_validator("position_size_usdc", "ev", "confidence", mode="before")
+    @field_validator("position_size_usdc", "ev", "confidence", "realized_pnl_usdc", mode="before")
     @classmethod
     def _reject_float_financials(cls, value: Any) -> Any:
         if isinstance(value, float):
