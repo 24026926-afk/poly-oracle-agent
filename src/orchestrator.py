@@ -47,6 +47,14 @@ from src.agents.ingestion.ws_client import CLOBWebSocketClient
 from src.core.config import AppConfig, get_config
 from src.observability.health import RuntimeHealthSnapshot
 from src.observability.health_server import HealthServer
+from src.observability.metrics import (
+    DecisionLabel,
+    DecisionMetricEvent,
+    ExecutionMetricEvent,
+    LatencyMetricEvent,
+    MetricsRegistry,
+)
+from src.observability.metrics_server import MetricsServer
 from src.db.models import Position
 from src.db.engine import AsyncSessionLocal, engine
 from src.db.repositories.position_repository import PositionRepository
@@ -225,6 +233,16 @@ class Orchestrator:
                 ),
             )
 
+        # WI-47: Metrics registry and server
+        self.metrics_registry: MetricsRegistry = MetricsRegistry()
+        self.metrics_server: MetricsServer | None = None
+        if self.config.enable_metrics_server:
+            self.metrics_server = MetricsServer(
+                registry=self.metrics_registry,
+                host=self.config.metrics_server_host,
+                port=self.config.metrics_server_port,
+            )
+
     async def start(self) -> None:
         """Start all layers and run until cancelled."""
         logger.info("orchestrator.starting")
@@ -335,6 +353,19 @@ class Orchestrator:
         # WI-46: Start health server
         if self.health_server is not None:
             await self.health_server.start()
+
+        # WI-47: Start metrics server and its sync loop together.
+        # Gated by enable_metrics_server so test orchestrations can opt out
+        # without inheriting a never-terminating background task in
+        # asyncio.gather(*self._tasks).
+        if self.metrics_server is not None:
+            await self.metrics_server.start()
+            self._tasks.append(
+                asyncio.create_task(
+                    self._metrics_sync_loop(),
+                    name="MetricsSyncTask",
+                )
+            )
 
         try:
             await asyncio.gather(*self._tasks)
@@ -547,6 +578,21 @@ class Orchestrator:
                             error=str(exc),
                         )
 
+                # WI-47: Record decision and execution metrics
+                try:
+                    decision = eval_resp.recommended_action
+                    if decision is not None:
+                        decision_str = str(decision.value if hasattr(decision, 'value') else decision).upper()
+                        if decision_str in ("BUY", "HOLD", "SKIP"):
+                            await self.metrics_registry.record_decision(
+                                DecisionMetricEvent(decision=DecisionLabel(decision_str))
+                            )
+                    await self.metrics_registry.record_execution(
+                        ExecutionMetricEvent(action=execution_result.action)
+                    )
+                except Exception:
+                    pass
+
                 if self.telegram_notifier is not None and execution_result.action in (
                     ExecutionAction.EXECUTED,
                     ExecutionAction.DRY_RUN,
@@ -631,6 +677,34 @@ class Orchestrator:
                     "orchestrator.discovery_loop_error",
                     error=str(exc),
                 )
+
+    async def _metrics_sync_loop(self) -> None:
+        """Periodically sync WS health metrics into the Prometheus registry."""
+        while True:
+            await asyncio.sleep(15)  # sync every 15 seconds
+            try:
+                if self.ws_client is None:
+                    continue
+                ws_health = self.ws_client.get_health_snapshot()
+                if ws_health is None:
+                    continue
+                from datetime import datetime, timezone
+
+                heartbeat_age = Decimal("0")
+                if ws_health.last_pong_received_at_utc is not None:
+                    delta = (
+                        datetime.now(timezone.utc)
+                        - ws_health.last_pong_received_at_utc
+                    )
+                    heartbeat_age = Decimal(str(round(delta.total_seconds(), 3)))
+                await self.metrics_registry.update_from_ws_health(
+                    reconnect_count=ws_health.total_reconnect_count,
+                    error_count=ws_health.consecutive_failure_count,
+                    heartbeat_age_seconds=heartbeat_age,
+                    active_asset_count=ws_health.active_subscribed_asset_count,
+                )
+            except Exception:
+                pass
 
     async def _exit_scan_loop(self) -> None:
         """Run periodic open-position exit scans independent of execution flow."""
@@ -985,6 +1059,10 @@ class Orchestrator:
         # WI-46: Stop health server
         if self.health_server is not None:
             await self.health_server.stop()
+
+        # WI-47: Stop metrics server
+        if self.metrics_server is not None:
+            await self.metrics_server.stop()
 
         for stoppable in (self.aggregator, self.claude_client):
             if stoppable is None:

@@ -346,6 +346,20 @@ class AppConfig(BaseSettings):
         description="Start the local health HTTP server (/healthz, /readyz)",
     )
 
+    # --- WI-47: Prometheus Metrics ---
+    metrics_server_port: int = Field(
+        default=8081,
+        description="Port for the local Prometheus /metrics HTTP server",
+    )
+    metrics_server_host: str = Field(
+        default="127.0.0.1",
+        description="Bind address for the local Prometheus /metrics HTTP server",
+    )
+    enable_metrics_server: bool = Field(
+        default=True,
+        description="Start the local Prometheus /metrics HTTP server",
+    )
+
     # --- WI-32: Concurrent Market Tracking ---
     max_concurrent_markets: int = Field(
         default=5,
