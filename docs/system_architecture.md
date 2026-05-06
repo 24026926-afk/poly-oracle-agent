@@ -1,165 +1,157 @@
 # System Architecture - Poly-Oracle-Agent
 
-**Document Version:** 4.0-draft  
-**Aligned With:** `STATE.md` (v0.4.0-draft, 2026-03-26) and `README.md`
+**Document Version:** 14.0
+**Status:** COMPLETED (Phase 13) / DEPLOYMENT READY (Phase 14)
+**Last Updated:** 2026-05-06
+**Aligned With:** `STATE.md` (v0.14.0)
 
-## 1. Current Phase Context
+## 1. Architectural Philosophy
 
-The project is in **Phase 4 Planning (Cognitive Architecture)**.
+`poly-oracle-agent` is designed as a **high-integrity, async-first autonomous trading system**. Its architecture prioritizes financial auditability, risk isolation, and deterministic validation over execution speed.
 
-Current runtime remains the proven 4-layer async pipeline from Phase 3 readiness work:
-- 92 tests passing
-- 90% coverage
-- repository-based persistence wiring in place
-- strict gatekeeper enforcement in `LLMEvaluationResponse`
+### Core Invariants
+1. **Decimal-Only Math:** No floating-point arithmetic is permitted for monetary, pricing, or risk values.
+2. **4-Layer Decoupling:** Ingestion, Context, Evaluation, and Execution are isolated via `asyncio.Queue` bridges.
+3. **Fail-Closed Safety:** Any missing data, crossed books, or budget exhaustion defaults to a conservative `HOLD` or `SKIP`.
+4. **Gatekeeper Authority:** Every trade MUST pass through the `LLMEvaluationResponse` Pydantic validator (the "Gatekeeper").
+5. **Repository-Only Persistence:** Direct DB session access is prohibited in agent logic; all I/O is routed through repository classes.
 
-Phase 4 introduces planning for cognitive extensions (WI-11/12/13), but these are additive and must not bypass existing risk and execution boundaries.
-
-## 2. Runtime Architecture (Current)
+## 2. High-Level Pipeline (The 4-Layer Model)
 
 ```mermaid
 graph TB
-    subgraph EXT["External Services"]
-        PM_WS["Polymarket CLOB WebSocket"]
-        PM_REST["Polymarket CLOB REST"]
-        GAMMA["Gamma API"]
-        ANTH["Anthropic API"]
-        POLY["Polygon RPC"]
-    end
-
-    subgraph CORE["poly-oracle-agent (single asyncio event loop)"]
+    subgraph L1["Layer 1 - Ingestion (Discovery & Streaming)"]
         direction TB
-
-        subgraph L1["Layer 1 - Ingestion"]
-            WS["CLOBWebSocketClient"]
-            REST["GammaRESTClient"]
-            DISC["MarketDiscoveryEngine"]
-            MQ["market_queue"]
-        end
-
-        subgraph L2["Layer 2 - Context"]
-            AGG["DataAggregator"]
-            PF["PromptFactory"]
-            PQ["prompt_queue"]
-        end
-
-        subgraph L3["Layer 3 - Evaluation"]
-            CLAUDE["ClaudeClient"]
-            GATE["LLMEvaluationResponse (Gatekeeper)"]
-            EQ["execution_queue"]
-        end
-
-        subgraph L4["Layer 4 - Execution"]
-            SIGN["TransactionSigner"]
-            NONCE["NonceManager"]
-            GAS["GasEstimator"]
-            BCAST["OrderBroadcaster"]
-            BPT["BankrollPortfolioTracker"]
-        end
-
-        subgraph DB["Persistence (SQLAlchemy Async + Repositories)"]
-            SNAP["market_snapshots"]
-            DEC["agent_decision_logs"]
-            TX["execution_txs"]
-        end
+        WS["CLOBWebSocketClient"]
+        REST["GammaRESTClient"]
+        MDE["MarketDiscoveryEngine"]
+        L1_SNAP["MarketSnapshots"]
     end
 
-    PM_WS --> WS
-    GAMMA --> REST
-    REST --> DISC
-    DISC --> AGG
+    subgraph L2["Layer 2 - Context (State & Logic)"]
+        direction TB
+        AGG["DataAggregator"]
+        PF["PromptFactory"]
+    end
 
-    WS --> MQ --> AGG --> PF --> PQ --> CLAUDE
-    ANTH <--> CLAUDE
-    CLAUDE --> GATE --> EQ
+    subgraph L3["Layer 3 - Evaluation (Cognitive)"]
+        direction TB
+        CLAUDE["ClaudeClient (w/ Reflection)"]
+        GROK["GrokClient (Sentiment)"]
+        GATE["LLMEvaluationResponse (Gatekeeper)"]
+    end
 
-    EQ --> SIGN --> NONCE --> GAS --> BCAST
-    BCAST --> PM_REST
-    BCAST <--> POLY
+    subgraph L4["Layer 4 - Execution (Routing & Settlement)"]
+        direction TB
+        ER["ExecutionRouter (Buy)"]
+        ESE["ExitStrategyEngine (Evaluate)"]
+        EOR["ExitOrderRouter (Sell)"]
+        PT["PositionTracker (Lifecycle)"]
+        PNL["PnLCalculator (Settlement)"]
+        SIGN["TransactionSigner"]
+        BCAST["OrderBroadcaster"]
+    end
 
-    WS -.-> SNAP
-    CLAUDE -.-> DEC
-    BCAST -.-> TX
-    BPT -.-> TX
+    subgraph RISK["Risk & Safety Gates"]
+        direction LR
+        EV["ExposureValidator"]
+        WB["WalletBalanceProvider"]
+        CB["CircuitBreaker"]
+        GE["GasEstimator"]
+    end
+
+    subgraph OBS["Observability & Telemetry"]
+        direction TB
+        HEALTH["HealthServer (/healthz, /readyz)"]
+        METRICS["MetricsServer (/metrics)"]
+        TELE["TelegramNotifier"]
+        DASH["Streamlit Dashboard"]
+    end
+
+    subgraph DB["Persistence (SQLAlchemy Async)"]
+        REPOS["Repositories: Market, Decision, Execution, Position"]
+    end
+
+    WS --> AGG
+    REST --> MDE --> AGG
+    AGG --> PF --> CLAUDE
+    GROK --> CLAUDE
+    CLAUDE --> GATE
+    GATE --> EV --> WB --> CB --> GE --> ER
+    ER --> SIGN --> BCAST
+    PT --> ESE --> EOR --> SIGN
+    EOR --> PNL
+
+    L1 -.-> DB
+    CLAUDE -.-> DB
+    BCAST -.-> DB
+    PT -.-> DB
+
+    DB -.-> OBS
+    RISK -.-> TELE
 ```
 
-## 3. Runtime Data Flow
+## 3. Layer Responsibilities
 
-1. `CLOBWebSocketClient` ingests and validates market frames.
-2. `GammaRESTClient` + `MarketDiscoveryEngine` discover eligible markets and keep selection fresh.
-3. `DataAggregator` tracks live state and emits context on time/volatility triggers.
-4. `PromptFactory` builds the evaluation prompt payload.
-5. `ClaudeClient` requests model output and validates it through `LLMEvaluationResponse`.
-6. Gatekeeper-approved decisions route to execution queue only.
-7. `TransactionSigner`, `NonceManager`, `GasEstimator`, and `OrderBroadcaster` handle order lifecycle.
-8. `dry_run` is enforced before any signed/broadcast side effects.
-9. Runtime persistence flows through repository classes only.
+### 3.1 Layer 1: Ingestion
+- **CLOBWebSocketClient:** Streams real-time L2 orderbook updates from Polymarket. Hardened with exponential backoff and heartbeat/PONG health tracking.
+- **GammaRESTClient:** Queries Polymarket's Gamma API for market metadata, resolution statuses, and volume data.
+- **MarketDiscoveryEngine:** Filters and selects eligible markets based on TTR (Time-to-Resolution), volume, and liquidity thresholds.
 
-## 4. Canonical Class Map
+### 3.2 Layer 2: Context
+- **DataAggregator:** Maintains in-memory state of tracked orderbooks. Emits `MarketSnapshot` updates on time-based or price-volatility triggers.
+- **PromptFactory:** Assembles high-fidelity LLM prompts by combining market data, technical indicators, and historical context.
 
-The following class names are the canonical runtime types and must remain unchanged:
+### 3.3 Layer 3: Evaluation
+- **ClaudeClient:** Orchestrates the primary trading logic via Anthropic's Claude. Includes a mandatory **Reflection Auditor** pass to detect bias or reasoning contradictions.
+- **GrokClient:** Fetches real-time sentiment signals from xAI/Grok (crypto/politics categories) to supplement evaluation.
+- **LLMEvaluationResponse (Gatekeeper):** A rigid Pydantic V2 schema that enforces the 5 mandatory safety filters (EV, Confidence, Spread, Exposure, TTR).
 
-| Module | Class |
+### 3.4 Layer 4: Execution
+- **ExecutionRouter:** Handles BUY routing, Kelly-fraction position sizing, and slippage protection.
+- **ExitStrategyEngine:** Periodically scans open positions for exit signals (Take Profit, Stop Loss, Trailing Stop, or Time Exit).
+- **ExitOrderRouter:** Routes SELL orders for actionable exits, ensuring fresh orderbook liquidity before submission.
+- **PnLCalculator:** Computes gross and net realized PnL (including gas/fees) and handles position settlement.
+- **PositionTracker:** Maintains the lifecycle of every trade from `OPEN` to `CLOSED` or `FAILED`.
+
+## 4. Risk & Safety Infrastructure
+
+- **Circuit Breaker:** An in-memory state machine that trips on `CRITICAL` drawdown alerts, blocking new BUY entries while allowing SELL exits.
+- **Exposure Validator:** Enforces portfolio-level and category-level exposure caps by querying `PositionRepository`.
+- **Wallet Balance Provider:** Verifies MATIC (gas) and USDC (capital) balances via Polygon RPC before evaluation.
+- **Transaction Signer:** Canonical EIP-712 signer with strict `dry_run` isolation.
+- **Order Broadcaster:** Submits signed orders to the Polymarket CLOB.
+
+## 5. Observability & Operations
+
+- **HealthServer:** Exposes `/healthz` (liveness) and `/readyz` (readiness based on WS/DB/RPC health).
+- **MetricsServer:** Exposes `/metrics` in Prometheus format with low-cardinality operational telemetry.
+- **TelegramNotifier:** Routes alerts (Circuit Breaker, Drawdown, Restarts) and trade summaries to the operator.
+- **Command Center:** A read-only Streamlit dashboard for real-time monitoring of PnL, decisions, and market state.
+
+## 6. Backtesting & Validation
+
+- **BacktestDataLoader:** Replays historical CLOB snapshots in strict chronological order.
+- **BacktestRunner:** Executes the full pipeline (Layers 2-4) in a hard-coded `dry_run=True` environment.
+- **Historical Pipeline:** Scripts for building lookahead-safe datasets from resolved market history.
+- **Validation Report:** Produces a `LiveReadinessVerdict` based on calibration, PnL, and drawdown metrics.
+
+## 7. Deployment Model
+
+- **Docker Compose:** Multi-service topology (orchestrator, dashboard, backtester).
+- **DigitalOcean:** Single-node Droplet deployment with non-root runtime, UFW hardening, and persistent volume mounting for SQLite.
+- **Persistence:** SQLite (`aiosqlite`) for audit logs and position tracking; Alembic for schema migrations.
+
+## 8. Source Tree Mapping
+
+| Path | Responsibility |
 |---|---|
-| `src/agents/ingestion/ws_client.py` | `CLOBWebSocketClient` |
-| `src/agents/ingestion/rest_client.py` | `GammaRESTClient` |
-| `src/agents/context/aggregator.py` | `DataAggregator` |
-| `src/agents/context/prompt_factory.py` | `PromptFactory` |
-| `src/agents/evaluation/claude_client.py` | `ClaudeClient` |
-| `src/agents/execution/broadcaster.py` | `OrderBroadcaster` |
-
-## 5. Persistence and Session Boundaries
-
-- Runtime agents do not perform ad hoc ORM writes/queries for trading domains.
-- Database access is routed through:
-  - `MarketRepository`
-  - `DecisionRepository`
-  - `ExecutionRepository`
-- Session lifecycle is async and scoped per operation/task.
-
-## 6. Phase 4 Planned Cognitive Overlay
-
-Planned work items:
-- `WI-11` Market Router
-- `WI-12` Chained Prompt Factory
-- `WI-13` Reflection Auditor
-
-Planned insertion points:
-1. **Routing** between aggregation output and prompt strategy selection.
-2. **Prompt chaining** as staged extraction -> quantitative reasoning.
-3. **Reflection** after draft reasoning and before gatekeeper validation.
-
-All three are constrained to preserve:
-- `LLMEvaluationResponse` as final pre-execution gate
-- existing Decimal financial integrity rules
-- fully async queue-based pipeline behavior
-
-## 7. Source Tree (Relevant Runtime Paths)
-
-```text
-src/
-├── agents/
-│   ├── ingestion/
-│   │   ├── ws_client.py
-│   │   ├── rest_client.py
-│   │   └── market_discovery.py
-│   ├── context/
-│   │   ├── aggregator.py
-│   │   └── prompt_factory.py
-│   ├── evaluation/
-│   │   └── claude_client.py
-│   └── execution/
-│       ├── signer.py
-│       ├── nonce_manager.py
-│       ├── gas_estimator.py
-│       ├── broadcaster.py
-│       └── bankroll_tracker.py
-├── schemas/
-│   ├── market.py
-│   ├── llm.py
-│   └── web3.py
-├── db/
-│   ├── models.py
-│   └── repositories/
-└── orchestrator.py
-```
+| `src/agents/ingestion/` | Layer 1 (WS, REST, Discovery) |
+| `src/agents/context/` | Layer 2 (Aggregator, Prompt Factory) |
+| `src/agents/evaluation/` | Layer 3 (Claude, Grok, Reflection) |
+| `src/agents/execution/` | Layer 4 (Router, Exit, PnL, Signer, Broadcaster) |
+| `src/db/repositories/` | Data Access Layer (Repository Pattern) |
+| `src/observability/` | Health, Metrics, Alerts |
+| `src/ui/` | Streamlit Dashboard |
+| `src/schemas/` | Typed Contracts (Market, LLM, Risk, Execution, Position) |
+| `src/orchestrator.py` | Main Event Loop & Lifecycle Management |
