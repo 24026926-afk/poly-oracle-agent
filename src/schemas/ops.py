@@ -8,6 +8,7 @@ deployment validation with mandatory dry-run enforcement.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
@@ -247,3 +248,238 @@ class DashboardAccessValidationReport(BaseModel):
     tunnel_spec: Optional[DashboardTunnelSpec] = Field(default=None, description="SSH tunnel config if applicable")
     overall_pass: bool = Field(..., description="True only if all checks pass")
     summary: str = Field(default="", description="Human-readable summary of the validation outcome")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WI-50 — Telegram Operational Alert Bridge
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Secret detection helpers ───────────────────────────────────────────────
+
+# Patterns that indicate secret-like or high-cardinality content in alert
+# reason or message fields. Must reject these at the Pydantic boundary.
+_FORBIDDEN_PAYLOAD_PATTERNS: list[tuple[str, str]] = [
+    # Private key hex (64 hex chars)
+    ("private_key_hex", re.compile(r"\b[0-9a-fA-F]{64}\b")),
+    # Private key with 0x prefix
+    ("private_key_0x", re.compile(r"0x[0-9a-fA-F]{64}\b")),
+    # Telegram bot token pattern (digits:alphanumeric)
+    ("telegram_token", re.compile(r"\b\d{8,10}:[a-zA-Z0-9_-]{35,}\b")),
+    # Condition ID (hex, typically 66 chars with 0x prefix)
+    ("condition_id", re.compile(r"0x[0-9a-fA-F]{64}\b")),
+    # Token/asset ID (digits, typically large)
+    ("token_id", re.compile(r"\b\d{10,}\b")),
+]
+
+# Substrings that are banned from alert reason/message fields
+_FORBIDDEN_SUBSTRINGS: list[str] = [
+    "api_key",
+    "api key",
+    "secret",
+    "private key",
+    "private_key",
+    "prompt_text",
+    "reasoning",
+    "wallet key",
+    "passphrase",
+]
+
+
+def _scan_forbidden_payload(text: str) -> list[str]:
+    """Scan text for secret-like patterns. Returns list of violation descriptions."""
+    violations: list[str] = []
+    for label, pattern in _FORBIDDEN_PAYLOAD_PATTERNS:
+        if pattern.search(text):
+            violations.append(f"forbidden_pattern:{label}")
+    for substr in _FORBIDDEN_SUBSTRINGS:
+        if substr.lower() in text.lower():
+            violations.append(f"forbidden_substring:{substr}")
+    return violations
+
+
+# ── Enums ──────────────────────────────────────────────────────────────────
+
+
+class OperationalAlertType(str, Enum):
+    """Bounded set of operational alert types for the alert bridge."""
+
+    PROCESS_STARTED = "process_started"
+    READINESS_DEGRADED = "readiness_degraded"
+    WEBSOCKET_STALE = "websocket_stale"
+    CIRCUIT_BREAKER_OPENED = "circuit_breaker_opened"
+    CIRCUIT_BREAKER_CLOSED = "circuit_breaker_closed"
+
+
+class OperationalAlertSeverity(str, Enum):
+    """Severity levels for operational alerts."""
+
+    CRITICAL = "CRITICAL"
+    WARNING = "WARNING"
+    INFO = "INFO"
+
+
+class OperationalAlertStatus(str, Enum):
+    """Dispatch status for an operational alert."""
+
+    DISPATCHED = "DISPATCHED"
+    SUPPRESSED_COOLDOWN = "SUPPRESSED_COOLDOWN"
+    SUPPRESSED_DISABLED = "SUPPRESSED_DISABLED"
+    FAILED = "FAILED"
+
+
+# ── Alert Schemas ──────────────────────────────────────────────────────────
+
+
+class OperationalAlert(BaseModel):
+    """A single typed operational alert payload.
+
+    Payloads are secret-free and low-cardinality by construction.
+    """
+
+    model_config = {"frozen": True}
+
+    alert_type: OperationalAlertType
+    severity: OperationalAlertSeverity
+    service_name: str = Field(default="poly-oracle-agent", min_length=1, max_length=64)
+    first_seen_at_utc: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="UTC timestamp when the condition was first observed",
+    )
+    duration_seconds: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="How long the condition has persisted, in seconds",
+    )
+    reason_code: str = Field(
+        default="",
+        max_length=128,
+        description="Bounded, secret-free reason code (e.g. readiness_degraded, ws_pong_stale)",
+    )
+    message: str = Field(
+        default="",
+        max_length=512,
+        description="Human-readable alert message; must be secret-free",
+    )
+
+    @field_validator("reason_code")
+    @classmethod
+    def _reject_forbidden_in_reason(cls, value: str) -> str:
+        violations = _scan_forbidden_payload(value)
+        if violations:
+            raise ValueError(f"reason_code contains forbidden content: {violations}")
+        return value
+
+    @field_validator("message")
+    @classmethod
+    def _reject_forbidden_in_message(cls, value: str) -> str:
+        violations = _scan_forbidden_payload(value)
+        if violations:
+            raise ValueError(f"message contains forbidden content: {violations}")
+        return value
+
+
+class OperationalAlertState(BaseModel):
+    """Tracks the lifecycle of an operational alert for dedupe cooldown."""
+
+    alert_type: OperationalAlertType
+    first_seen_at_utc: Optional[datetime] = Field(
+        default=None,
+        description="When the alertable condition was first detected",
+    )
+    last_evaluated_at_utc: Optional[datetime] = Field(
+        default=None,
+        description="When the alert condition was last evaluated",
+    )
+    last_dispatched_at_utc: Optional[datetime] = Field(
+        default=None,
+        description="When the alert was last dispatched (sent to Telegram)",
+    )
+    is_active: bool = Field(
+        default=False,
+        description="True when the alertable condition is currently observed",
+    )
+
+    def is_within_cooldown(self, cooldown_seconds: float, now: Optional[datetime] = None) -> bool:
+        """Return True if the last dispatch was within the cooldown window."""
+        if self.last_dispatched_at_utc is None:
+            return False
+        now = now or datetime.now(timezone.utc)
+        elapsed = (now - self.last_dispatched_at_utc).total_seconds()
+        return elapsed < cooldown_seconds
+
+
+class OperationalAlertConfig(BaseModel):
+    """Configuration for operational alert thresholds and cooldowns."""
+
+    model_config = {"frozen": True}
+
+    enable_operational_alerts: bool = Field(
+        default=False,
+        description="Master enable for operational alert bridge",
+    )
+    enable_startup_alert: bool = Field(
+        default=False,
+        description="Send process_started alert on orchestrator startup",
+    )
+    readiness_degraded_threshold_seconds: float = Field(
+        default=300.0,  # 5 minutes
+        ge=0,
+        description="Seconds of sustained degraded readiness before alerting",
+    )
+    websocket_stale_threshold_seconds: float = Field(
+        default=300.0,  # 5 minutes
+        ge=0,
+        description="Seconds of sustained WebSocket stale/disconnected before alerting",
+    )
+    alert_cooldown_seconds: float = Field(
+        default=600.0,  # 10 minutes
+        ge=0,
+        description="Minimum seconds between duplicate alerts of the same type",
+    )
+
+
+class OperationalAlertEvaluation(BaseModel):
+    """Read-only result of evaluating alert conditions.
+
+    No mutation methods — the evaluation is a pure decision record.
+    """
+
+    model_config = {"frozen": True}
+
+    alert_type: OperationalAlertType
+    should_dispatch: bool = Field(
+        default=False,
+        description="True if an alert should be sent",
+    )
+    suppressed_reason: Optional[str] = Field(
+        default=None,
+        description="Why dispatch was suppressed (cooldown, disabled, below threshold)",
+    )
+    alert: Optional[OperationalAlert] = Field(
+        default=None,
+        description="The alert payload if should_dispatch is True",
+    )
+
+
+class OperationalAlertDispatchResult(BaseModel):
+    """Outcome of dispatching (or suppressing) an operational alert."""
+
+    model_config = {"frozen": True}
+
+    alert_type: OperationalAlertType
+    status: OperationalAlertStatus
+    alert: Optional[OperationalAlert] = None
+    error_detail: Optional[str] = Field(
+        default=None,
+        description="Error detail if dispatch failed; must be secret-free",
+    )
+
+    @field_validator("error_detail")
+    @classmethod
+    def _reject_secrets_in_error(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_forbidden_payload(value)
+        if violations:
+            raise ValueError(f"error_detail contains forbidden content: {violations}")
+        return value
