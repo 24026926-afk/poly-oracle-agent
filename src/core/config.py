@@ -228,6 +228,27 @@ class AppConfig(BaseSettings):
         default=False,
         description="Force circuit breaker to CLOSED state on next evaluate_alerts() call (one-shot override)",
     )
+    # --- Operational Alert Bridge (WI-50) ---
+    enable_operational_alerts: bool = Field(
+        default=False,
+        description="Master enable for the operational alert bridge (Telegram operational alerts)",
+    )
+    enable_startup_alert: bool = Field(
+        default=False,
+        description="Send a process_started alert on orchestrator startup",
+    )
+    operational_readiness_degraded_threshold_sec: Decimal = Field(
+        default=Decimal("300"),
+        description="Seconds of sustained degraded readiness before an operational alert fires (default: 5 min)",
+    )
+    operational_websocket_stale_threshold_sec: Decimal = Field(
+        default=Decimal("300"),
+        description="Seconds of sustained WebSocket stale/disconnected before an operational alert fires (default: 5 min)",
+    )
+    operational_alert_cooldown_sec: Decimal = Field(
+        default=Decimal("600"),
+        description="Minimum seconds between duplicate operational alerts of the same type (default: 10 min)",
+    )
     exit_min_bid_tolerance: Decimal = Field(
         default=Decimal("0.01"),
         description=(

@@ -40,6 +40,8 @@ from src.agents.execution.polymarket_client import PolymarketClient
 from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
 from src.agents.execution.telegram_notifier import TelegramNotifier
+from src.observability.operational_alerts import OperationalAlertBridge
+from src.schemas.ops import OperationalAlertConfig
 from src.agents.execution.wallet_balance_provider import WalletBalanceProvider
 from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
@@ -198,6 +200,30 @@ class Orchestrator:
             self.circuit_breaker = CircuitBreaker(config=self.config)
         else:
             logger.info("circuit_breaker.disabled")
+
+        # WI-50: Operational alert bridge
+        self.operational_alert_bridge: OperationalAlertBridge | None = None
+        self._op_alert_config = OperationalAlertConfig(
+            enable_operational_alerts=self.config.enable_operational_alerts,
+            enable_startup_alert=self.config.enable_startup_alert,
+            readiness_degraded_threshold_seconds=float(
+                self.config.operational_readiness_degraded_threshold_sec
+            ),
+            websocket_stale_threshold_seconds=float(
+                self.config.operational_websocket_stale_threshold_sec
+            ),
+            alert_cooldown_seconds=float(
+                self.config.operational_alert_cooldown_sec
+            ),
+        )
+        if self._op_alert_config.enable_operational_alerts:
+            self.operational_alert_bridge = OperationalAlertBridge(
+                config=self._op_alert_config,
+                notifier=self.telegram_notifier,
+            )
+            logger.info("operational_alerts.enabled")
+        else:
+            logger.info("operational_alerts.disabled")
 
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
@@ -366,6 +392,19 @@ class Orchestrator:
                     name="MetricsSyncTask",
                 )
             )
+
+        # WI-50: Start operational alert evaluation loop
+        if self.operational_alert_bridge is not None:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._operational_alert_loop(),
+                    name="OperationalAlertTask",
+                )
+            )
+
+        # WI-50: Send startup alert (one-shot, does not block)
+        if self.operational_alert_bridge is not None:
+            await self.operational_alert_bridge.dispatch_startup_alert()
 
         try:
             await asyncio.gather(*self._tasks)
@@ -705,6 +744,66 @@ class Orchestrator:
                 )
             except Exception:
                 pass
+
+    async def _operational_alert_loop(self) -> None:
+        """Periodically evaluate and dispatch operational alerts (WI-50).
+
+        Non-blocking: alert dispatch is fire-and-forget and must not
+        block ingestion, context, evaluation, execution, health, or metrics.
+        """
+        bridge = self.operational_alert_bridge
+        if bridge is None:
+            return
+
+        while True:
+            await asyncio.sleep(60)  # Evaluate every 60 seconds
+            try:
+                # Gather current state
+                readiness_ready = False
+                if self.health_server is not None:
+                    health = await self._get_runtime_health()
+                    readiness_ready = (
+                        health.db_reachable
+                        and health.ws_health is not None
+                        and health.ws_health.connection_state.value == "CONNECTED"
+                    )
+
+                ws_health = (
+                    self.ws_client.get_health_snapshot()
+                    if self.ws_client is not None
+                    else None
+                )
+                ws_connected = (
+                    ws_health is not None
+                    and ws_health.connection_state.value == "CONNECTED"
+                )
+                ws_pong_stale = False
+                if ws_health is not None and ws_health.last_pong_received_at_utc is not None:
+                    from datetime import datetime, timezone as tz
+
+                    pong_age = (
+                        datetime.now(tz.utc) - ws_health.last_pong_received_at_utc
+                    ).total_seconds()
+                    ws_pong_stale = pong_age > float(
+                        self.config.ws_pong_timeout_seconds
+                    )
+
+                circuit_breaker_state = (
+                    self.circuit_breaker.state
+                    if self.circuit_breaker is not None
+                    else None
+                )
+
+                await bridge.evaluate_and_dispatch_all(
+                    readiness_ready=readiness_ready,
+                    ws_connected=ws_connected,
+                    ws_pong_stale=ws_pong_stale,
+                    circuit_breaker_state=circuit_breaker_state,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("operational_alerts.evaluate_error")
 
     async def _exit_scan_loop(self) -> None:
         """Run periodic open-position exit scans independent of execution flow."""
