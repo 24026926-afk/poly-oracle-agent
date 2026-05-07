@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-07
-**Version:** 0.14.2
-**Status:** Phase 14 IN PROGRESS — WI-48/WI-49 complete, WI-50/WI-51 pending
-**Active WI:** None — awaiting `/wi-start WI-50`
+**Version:** 0.14.3
+**Status:** Phase 14 IN PROGRESS — WI-48/WI-49/WI-50 complete, WI-51 pending
+**Active WI:** None — awaiting `/wi-start WI-51`
 
 ---
 
@@ -34,7 +34,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1171 |
+| Total tests | 1271 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -75,6 +75,15 @@ WI-49 — Secure Remote Operator Dashboard Access: COMPLETE.
 - `.env.example`: `DASHBOARD_DB_PATH` commented entry.
 - `docs/runbooks/streamlit-ssh-tunnel.md`: complete runbook with SSH tunnel command, verification, shutdown, and reverse proxy appendix.
 - 91 new tests (76 unit + 15 integration), 1171 total, 93% coverage. Branch: `feat/wi-49-secure-remote-operator-dashboard-access`, merge commit on `develop`.
+
+WI-50 — Telegram Operational Alert Bridge: COMPLETE.
+- 7 new typed schemas in `src/schemas/ops.py`: `OperationalAlertType` (5-value StrEnum), `OperationalAlertSeverity`, `OperationalAlertStatus`, `OperationalAlert`, `OperationalAlertState`, `OperationalAlertEvaluation`, `OperationalAlertDispatchResult`, `OperationalAlertConfig` — all frozen Pydantic V2 with secret-detection validators.
+- `src/observability/operational_alerts.py`: `OperationalAlertBridge` with per-type state tracking, sustained threshold evaluation (default 5 min), configurable cooldown dedupe (default 10 min), and non-blocking Telegram dispatch via existing `TelegramNotifier`. Evaluates readiness degraded, WebSocket stale (disconnected or PONG stale), and circuit breaker open/closed transitions using typed boolean state (not log parsing).
+- `src/core/config.py`: 5 new config fields (`enable_operational_alerts`, `enable_startup_alert`, `operational_readiness_degraded_threshold_sec`, `operational_websocket_stale_threshold_sec`, `operational_alert_cooldown_sec`) — all Decimal-typed.
+- `src/orchestrator.py`: `OperationalAlertBridge` initialized after Telegram notifier, `_operational_alert_loop` as background task (60s interval), startup alert dispatched in `start()`.
+- `docs/runbooks/telegram-operational-alerts.md`: complete 5-section runbook covering configuration, verification, troubleshooting, and operational notes.
+- Secret-free payload enforcement: `_scan_forbidden_payload()` rejects private keys, API keys, Telegram tokens, condition IDs, token IDs, and secret-like substrings at Pydantic boundary.
+- 100 new tests (82 unit + 18 integration), 1271 total, 93% coverage. Branch: `feat/wi-50-telegram-operational-alert-bridge`, merge commit on `develop`.
 
 Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - `docs/PRD-v13.0.md` created as the Phase 13 planning source.
