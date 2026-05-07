@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-06
-**Version:** 0.14.1
-**Status:** Phase 14 IN PROGRESS — WI-48 complete, WI-49/WI-50/WI-51 pending
-**Active WI:** None — awaiting `/wi-start WI-49`
+**Last Updated:** 2026-05-07
+**Version:** 0.14.2
+**Status:** Phase 14 IN PROGRESS — WI-48/WI-49 complete, WI-50/WI-51 pending
+**Active WI:** None — awaiting `/wi-start WI-50`
 
 ---
 
@@ -34,8 +34,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1079 |
-| Coverage | 92% (target ≥ 80%) |
+| Total tests | 1171 |
+| Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
 
@@ -67,6 +67,14 @@ WI-48 — DigitalOcean Droplet Deployment Hardening: COMPLETE.
 - `docs/runbooks/digitalocean-droplet-deployment.md`: complete 12-section runbook (Droplet creation, hardening, Docker install, deploy, SQLite backup, service management, healthcheck config, observability endpoints, log rotation, update procedure, troubleshooting, security checklist).
 - `docs/system_architecture.md`: trailing whitespace stripped (git diff --check clean).
 - 38 new integration tests, 1079 total, 92% coverage. Branch: `feat/wi-48-digitalocean-droplet-deployment-hardening`, commit: `5edad0a`.
+
+WI-49 — Secure Remote Operator Dashboard Access: COMPLETE.
+- 7 new Pydantic schemas in `src/schemas/ops.py`: `DashboardAccessMode` (StrEnum), `DashboardRuntimeConfig`, `DashboardDatabaseTarget`, `DashboardTunnelSpec`, `DashboardReadOnlyCheck`, `DashboardExposureCheck`, `DashboardAccessValidationReport` — all frozen V2.
+- `src/ui/dashboard.py`: `DASHBOARD_DB_PATH` env var support with read-only SQLite URI mode (`file:<path>?mode=ro`), `_resolve_db_uri()` helper. Removed `reasoning_log`/`reasoning` from both SQL queries (`fetch_decision_log`) and both table renderers (`render_audit_table`, `render_decision_table`).
+- `docker-compose.yml`: profile-gated `dashboard` service (`--profile dashboard`), mounts `poly_oracle_data:/data`, `DASHBOARD_DB_PATH=/data/poly_oracle.db`, Streamlit binds `0.0.0.0` inside container with host publish restricted to `127.0.0.1:8501`.
+- `.env.example`: `DASHBOARD_DB_PATH` commented entry.
+- `docs/runbooks/streamlit-ssh-tunnel.md`: complete runbook with SSH tunnel command, verification, shutdown, and reverse proxy appendix.
+- 91 new tests (76 unit + 15 integration), 1171 total, 93% coverage. Branch: `feat/wi-49-secure-remote-operator-dashboard-access`, merge commit on `develop`.
 
 Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - `docs/PRD-v13.0.md` created as the Phase 13 planning source.
