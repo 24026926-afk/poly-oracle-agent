@@ -37,6 +37,23 @@ services:
     profiles:
       - backtester
 
+  dashboard:
+    build:
+      context: .
+    image: poly-oracle-agent:latest
+    command: streamlit run src/ui/dashboard.py --server.address=0.0.0.0 --server.port=8501
+    env_file:
+      - .env
+    environment:
+      DASHBOARD_DB_PATH: /data/poly_oracle.db
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - poly_oracle_data:/data
+    profiles:
+      - dashboard
+    restart: unless-stopped
+
 volumes:
   poly_oracle_data:
     driver: local

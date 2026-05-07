@@ -122,8 +122,17 @@ def test_mock_mode_makes_no_http_calls():
 
 # ── Config validation (AC #2, #3, #7) ──────────────────────────────────────
 
-def test_grok_live_enabled_defaults_false():
-    cfg = AppConfig()
+def test_grok_live_enabled_defaults_false(monkeypatch):
+    """Schema default is False; env_file + environ overload must not mask this gate."""
+    monkeypatch.delenv("GROK_LIVE_ENABLED", raising=False)
+    monkeypatch.delenv("GROK_MOCKED", raising=False)
+    cfg = AppConfig(
+        _env_file=None,
+        anthropic_api_key="sk-test",
+        polygon_rpc_url="https://test",
+        wallet_address="0x" + "0" * 40,
+        wallet_private_key="0x" + "1" * 64,
+    )
     assert cfg.grok_live_enabled is False
 
 
@@ -577,7 +586,15 @@ def test_sentiment_score_preserves_decimal_precision():
     assert result.sentiment_score == Decimal("0.333")
 
 
-def test_grok_mocked_defaults_true():
+def test_grok_mocked_defaults_true(monkeypatch):
     """Existing grok_mocked config field defaults to True."""
-    cfg = AppConfig()
+    monkeypatch.delenv("GROK_LIVE_ENABLED", raising=False)
+    monkeypatch.delenv("GROK_MOCKED", raising=False)
+    cfg = AppConfig(
+        _env_file=None,
+        anthropic_api_key="sk-test",
+        polygon_rpc_url="https://test",
+        wallet_address="0x" + "0" * 40,
+        wallet_private_key="0x" + "1" * 64,
+    )
     assert cfg.grok_mocked is True

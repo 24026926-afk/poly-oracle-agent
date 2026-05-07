@@ -1,6 +1,7 @@
 """Poly-Oracle Command Center dashboard (read-only)."""
 
 import math
+import os
 import sqlite3
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -19,7 +20,24 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DB_PATH = Path(__file__).resolve().parents[2] / "poly_oracle.db"
+_LOCAL_DEFAULT_DB = Path(__file__).resolve().parents[2] / "poly_oracle.db"
+_DEPLOYED_DEFAULT_DB = Path("/data/poly_oracle.db")
+
+_DASHBOARD_DB_PATH_ENV = os.environ.get("DASHBOARD_DB_PATH")
+if _DASHBOARD_DB_PATH_ENV:
+    DB_PATH = Path(_DASHBOARD_DB_PATH_ENV)
+else:
+    DB_PATH = _LOCAL_DEFAULT_DB
+
+
+def _resolve_db_uri() -> str:
+    """Build a read-only SQLite URI for the dashboard database.
+
+    Uses SQLite URI mode with ``mode=ro`` so writes are rejected at the
+    connection level and the file is never created if it does not exist.
+    """
+    db_abs = DB_PATH.resolve()
+    return f"file:{db_abs}?mode=ro"
 
 SURFACE_BASE = "#0D0D0D"
 SURFACE_PANEL = "#111111"
@@ -683,7 +701,16 @@ def inject_terminal_theme() -> int:
 
 
 def get_connection() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    """Open a read-only SQLite connection via URI mode.
+
+    The URI ``file:<path>?mode=ro`` is used so that any write attempt
+    raises ``sqlite3.OperationalError`` at the database level.  The
+    connection uses ``check_same_thread=False`` so Streamlit's cached
+    functions can share it across threads, but the read-only guard is
+    enforced by SQLite itself.
+    """
+    uri = _resolve_db_uri()
+    return sqlite3.connect(uri, uri=True, check_same_thread=False)
 
 
 def to_decimal(value: object) -> Decimal:
@@ -861,7 +888,6 @@ def fetch_decision_log() -> pd.DataFrame:
                         market_id,
                         action,
                         confidence,
-                        reasoning,
                         kelly_fraction
                     FROM decisions
                     ORDER BY created_at DESC
@@ -878,8 +904,7 @@ def fetch_decision_log() -> pd.DataFrame:
                         COALESCE(s.condition_id, d.snapshot_id) AS market_id,
                         d.recommended_action AS action,
                         d.confidence_score AS confidence,
-                        d.expected_value AS expected_value,
-                        d.reasoning_log AS reasoning
+                        d.expected_value AS expected_value
                     FROM agent_decision_logs d
                     LEFT JOIN market_snapshots s
                         ON s.id = d.snapshot_id
@@ -1367,8 +1392,6 @@ def render_audit_table(df: pd.DataFrame) -> None:
             <td style="padding:10px 12px;color:#e8a020">{escape_cell(row.get("confidence", ""))}</td>
             <td style="padding:10px 12px">{escape_cell(row.get("ev", ""))}</td>
             <td style="padding:10px 12px">{escape_cell(row.get("kelly", ""))}</td>
-            <td style="padding:10px 12px;color:#666;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                {escape_cell(row.get("reasoning", ""))}</td>
         </tr>"""
 
     html = f"""
@@ -1383,7 +1406,6 @@ def render_audit_table(df: pd.DataFrame) -> None:
                         <th style="padding:8px 12px;text-align:left;font-weight:400">Confidence</th>
                         <th style="padding:8px 12px;text-align:left;font-weight:400">EV</th>
                         <th style="padding:8px 12px;text-align:left;font-weight:400">Kelly</th>
-                        <th style="padding:8px 12px;text-align:left;font-weight:400">Reasoning</th>
                     </tr>
                 </thead>
                 <tbody>{rows}</tbody>
@@ -1455,7 +1477,7 @@ def render_decision_table() -> None:
                 <div class="section-head">
                     <div>
                         <h2 class="section-title">Decision audit log</h2>
-                        <p class="section-caption">Latest gatekeeper output with confidence, EV, Kelly, and reasoning context.</p>
+                        <p class="section-caption">Latest gatekeeper output with confidence, EV, and Kelly sizing.</p>
                     </div>
                     <div class="section-meta">custom html table / action state tags / hover feedback</div>
                 </div>
@@ -1474,7 +1496,6 @@ def render_decision_table() -> None:
 
     normalized_df = decisions_df.rename(
         columns={
-            "reasoning_log": "reasoning",
             "confidence_score": "confidence",
             "recommended_action": "action",
             "evaluated_at": "created_at",
@@ -1515,7 +1536,6 @@ def render_decision_table() -> None:
             "confidence_pct",
             "expected_value_pct",
             "kelly_pct",
-            "reasoning",
         ]
     ].rename(
         columns={
@@ -1525,7 +1545,6 @@ def render_decision_table() -> None:
             "confidence_pct": "confidence",
             "expected_value_pct": "ev",
             "kelly_pct": "kelly",
-            "reasoning": "reasoning",
         }
     )
     display_df["confidence"] = display_df["confidence"].map(lambda value: f"{value:.2f}%")
