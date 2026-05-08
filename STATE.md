@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-05-07
 **Version:** 0.14.4
-**Status:** Phase 14 COMPLETE — WI-48/WI-49/WI-50/WI-51 complete
-**Active WI:** None
+**Status:** Phase 14 COMPLETE — archived
+**Active WI:** None — awaiting Phase 15 PRD
 
 ---
 
