@@ -1,6 +1,6 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-08
 **Version:** 0.14.4
 **Status:** Phase 14 COMPLETE — archived
 **Active WI:** None — awaiting Phase 15 PRD
@@ -34,7 +34,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1341 |
+| Total tests | 1349 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -84,6 +84,14 @@ WI-50 — Telegram Operational Alert Bridge: COMPLETE.
 - `docs/runbooks/telegram-operational-alerts.md`: complete 5-section runbook covering configuration, verification, troubleshooting, and operational notes.
 - Secret-free payload enforcement: `_scan_forbidden_payload()` rejects private keys, API keys, Telegram tokens, condition IDs, token IDs, and secret-like substrings at Pydantic boundary.
 - 100 new tests (82 unit + 18 integration), 1271 total, 93% coverage. Branch: `feat/wi-50-telegram-operational-alert-bridge`, merge commit on `develop`.
+
+WI-51 — 24/7 Paper-Trading Soak Test and Runbook: COMPLETE.
+- `scripts/ops/collect_soak_evidence.py`: audit-grade soak evidence collector with mandatory runtime `dry_run=true` confirmation from `/readyz`, bounded Docker restart-count inspection, health/readiness validation, read-only SQLite persistence checks, post-recovery verification, project-root-constrained report output, and terminal `SoakEvidenceReport` validation.
+- `src/schemas/soak.py`: bounded Pydantic V2 soak schemas/enums for verdicts, probe statuses, failure reasons, readiness statuses, recovery methods, service status, health, database, recovery, and full evidence reports; `live_trading_authorized` is `Literal[False]`.
+- `src/observability/health.py` and `src/observability/health_server.py`: readiness now exposes uppercase typed statuses and runtime dry-run state without leaking secrets or token context.
+- `src/orchestrator.py`: health server receives runtime `dry_run` from `AppConfig`, preserving the dry-run audit trail through `/readyz`.
+- `docs/runbooks/paper-trading-soak-test.md`: operator flow records soak start and DB baseline under `/data`, requires baseline-size input, documents recovery evidence commands, and aligns readiness expectations to `READY`.
+- 78 WI-specific tests, 1349 total, 93% coverage. Branch: `feat/wi-51-24-7-paper-trading-soak-test-and-runbook`, final commit: `517f0f2`.
 
 Phase 13 planned 2026-05-05 — Real-Data Validation & 24/7 Readiness:
 - `docs/PRD-v13.0.md` created as the Phase 13 planning source.
