@@ -257,6 +257,7 @@ class Orchestrator:
                 readiness_grace_window_seconds=float(
                     self.config.readiness_grace_window_seconds
                 ),
+                dry_run=self.config.dry_run,
             )
 
         # WI-47: Metrics registry and server

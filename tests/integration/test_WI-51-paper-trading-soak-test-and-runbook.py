@@ -202,8 +202,7 @@ class TestReportGeneration:
     def test_collect_soak_evidence_creates_output_directory_if_missing(self, collector):
         """_write_report creates docs/operations/ if it does not exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Redirect output to tmpdir by patching _OUTPUT_DIR
-            with patch.object(collector, "_OUTPUT_DIR", tmpdir + "/docs/operations"):
+            with patch.object(collector, "_PROJECT_ROOT", Path(tmpdir)):
                 out = Path(tmpdir) / "docs" / "operations"
                 assert not out.exists()
                 collector._write_report({
@@ -260,7 +259,7 @@ class TestDryRunGate:
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "read_text", return_value="DRY_RUN=true\n"):
                 with patch.object(collector, "_http_get") as mock_get:
-                    mock_get.return_value = (200, '{"status":"ready","dry_run":true}', {})
+                    mock_get.return_value = (200, '{"status":"READY","dry_run":true}', {})
                     ok, probe = collector._probe_dry_run("127.0.0.1")
                     assert ok is True
                     assert "runtime /readyz" in probe["detail"]
@@ -270,12 +269,23 @@ class TestDryRunGate:
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "read_text", return_value="DRY_RUN=true\n"):
                 with patch.object(collector, "_http_get") as mock_get:
-                    mock_get.return_value = (200, '{"status":"ready","dry_run":false}', {})
+                    mock_get.return_value = (200, '{"status":"READY","dry_run":false}', {})
                     ok, probe = collector._probe_dry_run("127.0.0.1")
                     assert ok is False
                     assert probe["status"] == "fail"
                     assert probe["failure_reason"] == "dry_run_false"
                     assert "Runtime /readyz reports dry_run=false" in probe["detail"]
+
+    def test_dry_run_fails_when_runtime_readyz_missing_dry_run(self, collector):
+        """Runtime /readyz must explicitly confirm dry_run=true."""
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "read_text", return_value="DRY_RUN=true\n"):
+                with patch.object(collector, "_http_get") as mock_get:
+                    mock_get.return_value = (200, '{"status":"READY"}', {})
+                    ok, probe = collector._probe_dry_run("127.0.0.1")
+                    assert ok is False
+                    assert probe["status"] == "fail"
+                    assert probe["failure_reason"] == "runtime_dry_run_unconfirmed"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -312,7 +322,7 @@ class TestHealthEvidence:
         with patch.object(collector, "_http_get") as mock_get:
             mock_get.side_effect = [
                 (200, "OK", {"content-type": "text/plain"}),
-                (200, '{"status":"ready"}', {"content-type": "application/json"}),
+                (200, '{"status":"READY"}', {"content-type": "application/json"}),
             ]
             evidence = collector._probe_health("127.0.0.1")
             assert evidence["healthz_reachable"] is True
@@ -322,23 +332,34 @@ class TestHealthEvidence:
         with patch.object(collector, "_http_get") as mock_get:
             mock_get.side_effect = [
                 (200, "OK", {}),
-                (200, '{"status":"ready"}', {}),
+                (200, '{"status":"READY"}', {}),
             ]
             evidence = collector._probe_health("127.0.0.1")
             assert evidence["readyz_reachable"] is True
-            assert evidence["readyz_status"] == "ready"
+            assert evidence["readyz_status"] == "READY"
 
     def test_soak_evidence_captures_degraded_readiness_reason(self, collector):
         with patch.object(collector, "_http_get") as mock_get:
             mock_get.side_effect = [
                 (200, "OK", {}),
-                (200, '{"status":"degraded","checks":{"database":"ok","websocket":"stale"}}', {}),
+                (200, '{"status":"DEGRADED","checks":{"database":"ok","websocket":"stale"}}', {}),
             ]
             evidence = collector._probe_health("127.0.0.1")
-            assert evidence["readyz_status"] == "degraded"
+            assert evidence["readyz_status"] == "DEGRADED"
             assert evidence["health_probe"]["status"] == "fail"
             assert evidence["health_probe"]["failure_reason"] == "readyz_degraded"
             assert "websocket" in evidence["degraded_reason"]
+
+    def test_soak_evidence_fails_on_uppercase_not_ready(self, collector):
+        with patch.object(collector, "_http_get") as mock_get:
+            mock_get.side_effect = [
+                (200, "OK", {}),
+                (503, '{"status":"NOT_READY","checks":{"database":"unreachable"}}', {}),
+            ]
+            evidence = collector._probe_health("127.0.0.1")
+            assert evidence["readyz_status"] == "NOT_READY"
+            assert evidence["health_probe"]["status"] == "fail"
+            assert evidence["health_probe"]["failure_reason"] == "readyz_not_ready"
 
     def test_soak_evidence_fails_when_health_endpoint_unreachable(self, collector):
         with patch.object(collector, "_http_get") as mock_get:
@@ -487,6 +508,36 @@ class TestDatabaseEvidence:
                         evidence = collector._probe_database("/fake/db.db", soak_start, baseline_size=0)
                         assert evidence["recent_snapshot_count"] == 77
 
+    def test_soak_evidence_counts_sqlalchemy_sqlite_datetime_strings(self, collector):
+        """SQLite DateTime values with a space separator count as recent."""
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "soak.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE agent_decision_logs (evaluated_at TEXT)")
+            conn.execute("CREATE TABLE market_snapshots (captured_at TEXT)")
+            conn.execute(
+                "INSERT INTO agent_decision_logs VALUES (?)",
+                ("2026-05-07 12:00:00.000000",),
+            )
+            conn.execute(
+                "INSERT INTO market_snapshots VALUES (?)",
+                ("2026-05-07 12:05:00.000000",),
+            )
+            conn.commit()
+            conn.close()
+
+            evidence = collector._probe_database(
+                str(db_path),
+                datetime(2026, 5, 7, 0, 0, tzinfo=timezone.utc),
+                baseline_size=0,
+            )
+
+            assert evidence["recent_decision_count"] == 1
+            assert evidence["recent_snapshot_count"] == 1
+            assert evidence["db_probe"]["status"] == "pass"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Service status evidence tests
@@ -497,24 +548,39 @@ class TestComposeService:
     """Tests for Compose service status probing."""
 
     def test_soak_evidence_includes_compose_service_status(self, collector):
-        svc_json = json.dumps([{"State": "running", "Status": "Up 2 hours"}])
+        svc_json = json.dumps([
+            {
+                "State": "running",
+                "Status": "Up 2 hours",
+                "Name": "poly-oracle-agent-orchestrator-1",
+            }
+        ])
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=svc_json, stderr="",
-            )
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=svc_json, stderr=""),
+                MagicMock(returncode=0, stdout="0\n", stderr=""),
+            ]
             svc_info, probe = collector._probe_compose_service()
             assert svc_info is not None
             assert svc_info["running"] is True
             assert svc_info["service_name"] == "orchestrator"
 
     def test_soak_evidence_includes_restart_count(self, collector):
-        svc_json = json.dumps([{"State": "running", "Status": "Up 2 hours"}])
+        svc_json = json.dumps([
+            {
+                "State": "running",
+                "Status": "Up 2 hours",
+                "Name": "poly-oracle-agent-orchestrator-1",
+            }
+        ])
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=svc_json, stderr="",
-            )
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=svc_json, stderr=""),
+                MagicMock(returncode=0, stdout="2\n", stderr=""),
+            ]
             svc_info, probe = collector._probe_compose_service()
-            assert svc_info["restart_count"] == 0
+            assert svc_info["restart_count"] == 2
+            assert svc_info["restart_count_source"] == "docker_inspect"
 
     def test_soak_evidence_includes_restart_evidence_when_nonzero(self, collector):
         svc_json = json.dumps([{"State": "restarting", "Status": "Restarting (3) 10 seconds ago"}])
@@ -560,10 +626,24 @@ class TestRecoveryEvidence:
         """When recovery was tested with valid method, probe status is PASS."""
         evidence = collector._probe_recovery(
             recovery_tested=True, recovery_method="docker compose restart",
+            health_evidence={"health_probe": {"status": "pass"}},
+            service_info={"running": True},
+            db_evidence={"db_file_exists": True},
         )
         assert evidence["recovery_tested"] is True
         assert evidence["service_recovered"] is True
         assert evidence["recovery_probe"]["status"] == "pass"
+
+    def test_recovery_fails_without_post_recovery_health(self, collector):
+        evidence = collector._probe_recovery(
+            recovery_tested=True, recovery_method="docker compose restart",
+            health_evidence={"health_probe": {"status": "fail"}},
+            service_info={"running": True},
+            db_evidence={"db_file_exists": True},
+        )
+        assert evidence["service_recovered"] is False
+        assert evidence["recovery_probe"]["status"] == "fail"
+        assert evidence["recovery_probe"]["failure_reason"] == "recovery_not_verified"
 
     def test_recovery_fails_on_unknown_method(self, collector):
         """Unknown recovery method → FAIL."""
@@ -699,13 +779,21 @@ class TestReportValidation:
     def test_validate_report_rejects_invalid_verdict(self, collector):
         report = self._valid_report()
         report["verdict"] = "maybe"
-        with pytest.raises(ValueError, match="Invalid verdict"):
+        with pytest.raises(ValueError, match="SoakEvidenceReport validation failed"):
             collector._validate_report(report)
 
     def test_validate_report_rejects_invalid_probe_status(self, collector):
         report = self._valid_report()
         report["probes"] = [{"probe_name": "x", "status": "invalid_status"}]
-        with pytest.raises(ValueError, match="invalid status"):
+        with pytest.raises(ValueError, match="SoakEvidenceReport validation failed"):
+            collector._validate_report(report)
+
+    def test_validate_report_rejects_unbounded_failure_reason(self, collector):
+        report = self._valid_report()
+        report["probes"] = [
+            {"probe_name": "x", "status": "fail", "failure_reason": "free_text"}
+        ]
+        with pytest.raises(ValueError, match="SoakEvidenceReport validation failed"):
             collector._validate_report(report)
 
 
@@ -824,6 +912,10 @@ class TestRunbook:
     def test_runbook_states_soak_does_not_authorize_live(self):
         assert "does NOT authorize" in self.content or "does not authorize" in self.content
 
+    def test_runbook_records_db_baseline_at_soak_start(self):
+        assert "BEFORE starting the soak" in self.content
+        assert "/data/phase14_soak_db_baseline_size.txt" in self.content
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Output path constraints
@@ -834,10 +926,11 @@ class TestOutputPathConstraints:
     """Tests for output path behavior."""
 
     def test_collect_soak_evidence_only_writes_to_docs_operations(self, collector):
-        """_write_report always writes to _OUTPUT_DIR (docs/operations/)."""
+        """_write_report writes to project-root docs/operations/."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            ops_dir = tmpdir + "/docs/operations"
-            with patch.object(collector, "_OUTPUT_DIR", ops_dir):
+            project_root = Path(tmpdir)
+            ops_dir = project_root / "docs" / "operations"
+            with patch.object(collector, "_PROJECT_ROOT", project_root):
                 report = {
                     "report_id": "x",
                     "target_host": "localhost",
@@ -849,9 +942,25 @@ class TestOutputPathConstraints:
                     "exit_code": 0,
                 }
                 collector._write_report(report)
-                assert Path(ops_dir).exists()
-                assert (Path(ops_dir) / "phase14-soak-report.md").exists()
-                assert (Path(ops_dir) / "phase14-soak-report.json").exists()
+                assert ops_dir.exists()
+                assert (ops_dir / "phase14-soak-report.md").exists()
+                assert (ops_dir / "phase14-soak-report.json").exists()
+
+    def test_collect_soak_evidence_rejects_output_outside_project(self, collector):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(collector, "_PROJECT_ROOT", Path(tmpdir)):
+                with patch.object(collector, "_OUTPUT_DIR", Path("../outside")):
+                    with pytest.raises(ValueError, match="docs/operations"):
+                        collector._write_report({
+                            "report_id": "x",
+                            "target_host": "localhost",
+                            "verdict": "pass",
+                            "duration_hours": 24.0,
+                            "verdict_reason": "test",
+                            "probes": [],
+                            "live_trading_authorized": False,
+                            "exit_code": 0,
+                        })
 
     def test_collect_soak_evidence_report_makes_target_host_explicit(self, collector):
         """Report includes the target_host field."""

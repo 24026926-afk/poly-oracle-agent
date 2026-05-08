@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-collect_soak_evidence.py — Paper-trading soak-test evidence collector (stdlib-only).
+collect_soak_evidence.py — Paper-trading soak-test evidence collector.
 
 Collects health, readiness, metrics, service status, database persistence,
 Telegram status, and restart/recovery evidence from the deployed dry-run
@@ -12,11 +12,11 @@ Usage:
         --soak-start "2026-05-04T00:00:00Z" \\
         [--target-host localhost] \\
         [--db-path /data/poly_oracle.db] \\
-        [--db-baseline-size 0] \\
+        --db-baseline-size <bytes-at-soak-start> \\
         [--telegram-enabled] \\
         [--recovery-tested "docker compose restart"]
 
-Requirements: Python 3.12+. Zero third-party dependencies.
+Requirements: Python 3.12+ with project dependencies installed.
 """
 
 from __future__ import annotations
@@ -34,13 +34,21 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+_PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from pydantic import ValidationError  # noqa: E402
+
+from src.schemas.soak import SoakEvidenceReport  # noqa: E402
+
 # ── Constants ──────────────────────────────────────────────────────────────
 
 _HTTP_TIMEOUT_SEC: float = 5.0
 _SUBPROCESS_TIMEOUT_SEC: float = 15.0
 _SQLITE_TIMEOUT_SEC: float = 5.0
 _MIN_SOAK_HOURS: float = 24.0
-_OUTPUT_DIR: str = "docs/operations"
+_OUTPUT_DIR: Path = Path("docs/operations")
 
 # Status strings (stdlib enums)
 _PASS = "pass"
@@ -191,12 +199,9 @@ def _probe_dry_run(target_host: str) -> tuple[bool, dict[str, Any]]:
                 else:
                     reasons.append("DRY_RUN is not true in .env")
 
-    # Check 2: Runtime dry-run from /readyz
-    # If /readyz is reachable and explicitly reports dry_run=false, fail.
-    # If /readyz is reachable and reports dry_run=true, bolster confirmation.
-    # If /readyz is unreachable, fall back to .env only.
+    # Check 2: Runtime dry-run from /readyz. Static .env proof is not enough
+    # for an audit-grade soak because the running process can diverge.
     runtime_dry_run_ok = False
-    runtime_dry_run_explicit_false = False
     try:
         _, body, _ = _http_get(f"http://{target_host}:8080/readyz")
         data = json.loads(body)
@@ -204,19 +209,11 @@ def _probe_dry_run(target_host: str) -> tuple[bool, dict[str, Any]]:
         if dry_run_value is True:
             runtime_dry_run_ok = True
         elif dry_run_value is False:
-            runtime_dry_run_explicit_false = True
             reasons.append("Runtime /readyz reports dry_run=false")
-        # dry_run key not in readyz — not a fail if .env confirms
+        else:
+            reasons.append("Runtime /readyz does not confirm dry_run=true")
     except (urllib.error.URLError, json.JSONDecodeError, OSError):
-        pass
-
-    # Runtime explicitly reports dry_run=false → fail regardless of .env
-    if runtime_dry_run_explicit_false:
-        return False, _make_probe(
-            "dry_run_guard", _FAIL,
-            detail="Runtime /readyz reports dry_run=false — soak invalid",
-            failure_reason="dry_run_false",
-        )
+        reasons.append("Runtime /readyz unavailable or malformed")
 
     if not env_dry_run_ok:
         return False, _make_probe(
@@ -225,10 +222,23 @@ def _probe_dry_run(target_host: str) -> tuple[bool, dict[str, Any]]:
             failure_reason="dry_run_false" if "not true" in str(reasons) else "dry_run_missing",
         )
 
-    detail = "DRY_RUN=true confirmed in .env"
-    if runtime_dry_run_ok:
-        detail += " and runtime /readyz"
-    return True, _make_probe("dry_run_guard", _PASS, detail=detail)
+    if not runtime_dry_run_ok:
+        runtime_reason = (
+            "dry_run_false"
+            if any("dry_run=false" in reason for reason in reasons)
+            else "runtime_dry_run_unconfirmed"
+        )
+        return False, _make_probe(
+            "dry_run_guard", _FAIL,
+            detail="; ".join(reasons) if reasons else "Runtime dry_run not confirmed",
+            failure_reason=runtime_reason,
+        )
+
+    return True, _make_probe(
+        "dry_run_guard",
+        _PASS,
+        detail="DRY_RUN=true confirmed in .env and runtime /readyz",
+    )
 
 
 # ── Probe: Soak Duration ───────────────────────────────────────────────────
@@ -251,6 +261,27 @@ def _probe_duration(soak_start: datetime) -> tuple[float, dict[str, Any]]:
 
 
 # ── Probe: Compose Service Status ──────────────────────────────────────────
+
+
+def _inspect_restart_count(container_ref: str) -> tuple[int | None, str | None]:
+    """Return Docker restart count for a concrete container id/name."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.RestartCount}}", container_ref],
+            capture_output=True,
+            timeout=_SUBPROCESS_TIMEOUT_SEC,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None, "restart_count_unavailable"
+
+    if result.returncode != 0:
+        return None, "restart_count_unavailable"
+
+    raw_count = result.stdout.strip()
+    if not raw_count.isdigit():
+        return None, "restart_count_unavailable"
+    return int(raw_count), None
 
 
 def _probe_compose_service() -> tuple[dict[str, Any] | None, dict[str, Any]]:
@@ -299,12 +330,28 @@ def _probe_compose_service() -> tuple[dict[str, Any] | None, dict[str, Any]]:
         status_str = svc.get("Status", "")
         running = state.lower() == "running"
         service_info["running"] = running
-        restart_count = 0
+        restart_count: int | None = None
+        container_ref = svc.get("ID") or svc.get("Name")
+        if container_ref:
+            service_info["container_ref"] = container_ref
+            restart_count, restart_failure = _inspect_restart_count(str(container_ref))
+            if restart_count is None and restart_failure:
+                service_info["restart_count_source"] = restart_failure
         if "restarting" in status_str.lower():
             rm = re.search(r"Restarting\s*\((\d+)\)", status_str, re.IGNORECASE)
             if rm:
                 restart_count = int(rm.group(1))
+                service_info["restart_count_source"] = "compose_status"
+        if restart_count is None:
+            service_info["restart_count"] = 0
+            return service_info, _make_probe(
+                "compose_service",
+                _FAIL,
+                detail="Could not collect Docker restart count",
+                failure_reason="restart_count_unavailable",
+            )
         service_info["restart_count"] = restart_count
+        service_info.setdefault("restart_count_source", "docker_inspect")
         if not running and restart_count == 0:
             service_info["exit_code"] = svc.get("ExitCode")
 
@@ -344,14 +391,15 @@ def _probe_health(target_host: str) -> dict[str, Any]:
         evidence["readyz_status_code"] = status
         try:
             data = json.loads(body)
-            evidence["readyz_status"] = data.get("status", "unknown")
-            if evidence["readyz_status"] == "degraded":
+            raw_status = data.get("status", "UNKNOWN")
+            evidence["readyz_status"] = str(raw_status).upper()
+            if evidence["readyz_status"] == "DEGRADED":
                 checks = data.get("checks", {})
                 evidence["degraded_reason"] = _redact_text(
                     json.dumps(checks) if checks else "no checks detail"
                 )
         except json.JSONDecodeError:
-            evidence["readyz_status"] = "malformed"
+            evidence["readyz_status"] = "MALFORMED"
     except urllib.error.URLError:
         evidence["readyz_reachable"] = False
 
@@ -360,22 +408,26 @@ def _probe_health(target_host: str) -> dict[str, Any]:
         probe_status = _FAIL
         detail = "Health endpoint unreachable"
         failure_reason = "healthz_unreachable"
-    elif evidence["readyz_status"] == "not_ready":
+    elif evidence["readyz_status"] == "NOT_READY":
         probe_status = _FAIL
-        detail = "Readiness is not_ready"
+        detail = "Readiness is NOT_READY"
         failure_reason = "readyz_not_ready"
-    elif evidence["readyz_status"] == "degraded":
+    elif evidence["readyz_status"] == "DEGRADED":
         detail = f"Readiness degraded: {evidence.get('degraded_reason', '')}"
         probe_status = _FAIL
         failure_reason = "readyz_degraded"
-    elif evidence["readyz_status"] == "malformed" or not evidence["readyz_reachable"]:
+    elif evidence["readyz_status"] == "MALFORMED" or not evidence["readyz_reachable"]:
         probe_status = _FAIL
         detail = "Readiness endpoint unreachable or malformed"
         failure_reason = "readyz_unreachable"
-    else:
+    elif evidence["readyz_status"] == "READY" and evidence["readyz_status_code"] == 200:
         probe_status = _PASS
         detail = "Health and readiness OK"
         failure_reason = None
+    else:
+        probe_status = _FAIL
+        detail = f"Readiness returned unknown status: {evidence['readyz_status']}"
+        failure_reason = "readyz_unknown_status"
 
     evidence["health_probe"] = _make_probe(
         "health", probe_status,
@@ -481,9 +533,10 @@ def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) 
     evidence["db_growth_bytes"] = max(0, current_size - baseline_size)
     evidence["db_grew"] = evidence["db_growth_bytes"] > 0
 
-    # Read-only: query decisions and snapshots from the soak period.
-    # Use the soak_start to filter rows created during the soak.
-    soak_start_iso = soak_start.strftime("%Y-%m-%dT%H:%M:%S")
+    # Read-only: query decisions and snapshots from the soak period. SQLAlchemy
+    # SQLite DateTime values are stored with a space separator, so compare via
+    # SQLite datetime() rather than raw lexicographic ISO strings.
+    soak_start_sqlite = soak_start.strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=_SQLITE_TIMEOUT_SEC)
         conn.row_factory = sqlite3.Row
@@ -492,21 +545,23 @@ def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) 
         # Count decisions created during soak period
         try:
             cur.execute(
-                "SELECT COUNT(*) as cnt FROM agent_decision_logs WHERE evaluated_at >= ?",
-                (soak_start_iso,),
+                "SELECT COUNT(*) as cnt FROM agent_decision_logs "
+                "WHERE datetime(evaluated_at) >= datetime(?)",
+                (soak_start_sqlite,),
             )
             row = cur.fetchone()
             if row:
                 evidence["recent_decision_count"] = row["cnt"]
         except sqlite3.OperationalError:
-            # Table may not exist yet or created_at column missing
+            # Table may not exist yet in a partially initialized deployment.
             pass
 
         # Count snapshots created during soak period
         try:
             cur.execute(
-                "SELECT COUNT(*) as cnt FROM market_snapshots WHERE captured_at >= ?",
-                (soak_start_iso,),
+                "SELECT COUNT(*) as cnt FROM market_snapshots "
+                "WHERE datetime(captured_at) >= datetime(?)",
+                (soak_start_sqlite,),
             )
             row = cur.fetchone()
             if row:
@@ -601,10 +656,18 @@ def _probe_telegram(telegram_enabled: bool) -> dict[str, Any]:
 # ── Probe: Recovery Evidence ───────────────────────────────────────────────
 
 
-def _probe_recovery(recovery_tested: bool, recovery_method: str | None) -> dict[str, Any]:
+def _probe_recovery(
+    recovery_tested: bool,
+    recovery_method: str | None,
+    *,
+    health_evidence: dict[str, Any] | None = None,
+    service_info: dict[str, Any] | None = None,
+    db_evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Record host/container restart recovery evidence.
 
-    When recovery was tested, the probe status is PASS (operator attested).
+    When recovery was tested, the probe status passes only if post-recovery
+    health, service, and DB evidence show the runtime came back.
     When not tested, status is INCOMPLETE.
 
     Allowed recovery methods: 'docker compose restart', 'host reboot'.
@@ -635,13 +698,40 @@ def _probe_recovery(recovery_tested: bool, recovery_method: str | None) -> dict[
             ),
         }
 
+    health_ok = (
+        health_evidence is not None
+        and health_evidence.get("health_probe", {}).get("status") == _PASS
+    )
+    service_ok = service_info is not None and service_info.get("running") is True
+    db_ok = db_evidence is not None and db_evidence.get("db_file_exists") is True
+
+    if not (health_ok and service_ok and db_ok):
+        missing = []
+        if not health_ok:
+            missing.append("health/readiness not healthy")
+        if not service_ok:
+            missing.append("compose service not running")
+        if not db_ok:
+            missing.append("sqlite persistence not present")
+        return {
+            "recovery_tested": True,
+            "recovery_method": recovery_method,
+            "service_recovered": False,
+            "recovery_probe": _make_probe(
+                "recovery",
+                _FAIL,
+                detail="Recovery not verified: " + "; ".join(missing),
+                failure_reason="recovery_not_verified",
+            ),
+        }
+
     return {
         "recovery_tested": True,
         "recovery_method": recovery_method,
-        "service_recovered": True,  # Operator attested
+        "service_recovered": True,
         "recovery_probe": _make_probe(
             "recovery", _PASS,
-            detail=f"Recovery tested: {recovery_method}",
+            detail=f"Recovery verified after {recovery_method}",
         ),
     }
 
@@ -665,20 +755,10 @@ def _validate_report(report: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise ValueError(f"Report missing required fields: {missing}")
 
-    if report.get("live_trading_authorized") is not False:
-        raise ValueError("live_trading_authorized must be False")
-
-    verdict = report.get("verdict")
-    if verdict not in (_VERDICT_PASS, _VERDICT_FAIL, _VERDICT_INCOMPLETE):
-        raise ValueError(f"Invalid verdict: {verdict}")
-
-    for probe in report.get("probes", []):
-        if "probe_name" not in probe:
-            raise ValueError(f"Probe missing probe_name: {probe}")
-        if probe.get("status") not in (_PASS, _FAIL, _SKIPPED, _INCOMPLETE, _NOT_APPLICABLE):
-            raise ValueError(
-                f"Probe '{probe.get('probe_name')}' has invalid status: {probe.get('status')}"
-            )
+    try:
+        SoakEvidenceReport.model_validate(report)
+    except ValidationError as exc:
+        raise ValueError(f"SoakEvidenceReport validation failed: {exc}") from exc
 
     return report
 
@@ -931,7 +1011,11 @@ def main() -> None:
 
     # 8. Recovery
     recovery_evidence = _probe_recovery(
-        args.recovery_tested is not None, args.recovery_tested
+        args.recovery_tested is not None,
+        args.recovery_tested,
+        health_evidence=health_evidence,
+        service_info=service_info,
+        db_evidence=db_evidence,
     )
     probes.append(recovery_evidence["recovery_probe"])
 
@@ -971,9 +1055,18 @@ def main() -> None:
     sys.exit(exit_code)
 
 
+def _resolve_output_dir() -> Path:
+    """Return the project-root docs/operations directory and nothing else."""
+    output_dir = (_PROJECT_ROOT / _OUTPUT_DIR).resolve()
+    expected = (_PROJECT_ROOT / "docs" / "operations").resolve()
+    if output_dir != expected:
+        raise ValueError("output directory must be project docs/operations")
+    return output_dir
+
+
 def _write_report(report: dict[str, Any]) -> None:
-    """Write markdown and JSON reports to docs/operations/ (hardcoded)."""
-    output_dir = Path(_OUTPUT_DIR)
+    """Write markdown and JSON reports to project docs/operations/."""
+    output_dir = _resolve_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     md_path = output_dir / "phase14-soak-report.md"

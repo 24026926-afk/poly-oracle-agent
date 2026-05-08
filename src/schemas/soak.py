@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,50 @@ class SoakProbeStatus(str, Enum):
     NOT_APPLICABLE = "not_applicable"
 
 
+class SoakFailureReason(str, Enum):
+    """Bounded reason codes for failed or incomplete soak probes."""
+
+    DRY_RUN_FALSE = "dry_run_false"
+    DRY_RUN_MISSING = "dry_run_missing"
+    RUNTIME_DRY_RUN_UNCONFIRMED = "runtime_dry_run_unconfirmed"
+    DURATION_TOO_SHORT = "duration_too_short"
+    TIMEOUT = "timeout"
+    SERVICE_NOT_RUNNING = "service_not_running"
+    RESTART_COUNT_UNAVAILABLE = "restart_count_unavailable"
+    PARSE_ERROR = "parse_error"
+    HEALTHZ_UNREACHABLE = "healthz_unreachable"
+    READYZ_NOT_READY = "readyz_not_ready"
+    READYZ_DEGRADED = "readyz_degraded"
+    READYZ_UNREACHABLE = "readyz_unreachable"
+    READYZ_UNKNOWN_STATUS = "readyz_unknown_status"
+    METRICS_UNREACHABLE = "metrics_unreachable"
+    METRICS_INVALID = "metrics_invalid"
+    SQLITE_MISSING = "sqlite_missing"
+    SQLITE_LOCKED = "sqlite_locked"
+    SQLITE_ERROR = "sqlite_error"
+    NO_PERSISTENCE_ACTIVITY = "no_persistence_activity"
+    NO_AGENT_ACTIVITY = "no_agent_activity"
+    INVALID_RECOVERY_METHOD = "invalid_recovery_method"
+    RECOVERY_NOT_VERIFIED = "recovery_not_verified"
+
+
+class SoakReadinessStatus(str, Enum):
+    """Runtime /readyz status values represented in soak evidence."""
+
+    READY = "READY"
+    DEGRADED = "DEGRADED"
+    NOT_READY = "NOT_READY"
+    MALFORMED = "MALFORMED"
+    UNKNOWN = "UNKNOWN"
+
+
+class SoakRecoveryMethod(str, Enum):
+    """Allowed recovery methods for soak evidence."""
+
+    DOCKER_COMPOSE_RESTART = "docker compose restart"
+    HOST_REBOOT = "host reboot"
+
+
 # ── Probe Results ──────────────────────────────────────────────────────────
 
 
@@ -47,7 +91,10 @@ class SoakProbeResult(BaseModel):
     probe_name: str = Field(..., min_length=1, description="Logical name of the probe")
     status: SoakProbeStatus
     detail: str = Field(default="", description="Human-readable detail")
-    failure_reason: Optional[str] = Field(default=None, description="Bounded reason code on failure")
+    failure_reason: Optional[SoakFailureReason] = Field(
+        default=None,
+        description="Bounded reason code on failure",
+    )
 
 
 class SoakServiceStatus(BaseModel):
@@ -70,7 +117,10 @@ class SoakHealthEvidence(BaseModel):
     healthz_status_code: Optional[int] = Field(default=None)
     readyz_reachable: bool = Field(default=False)
     readyz_status_code: Optional[int] = Field(default=None)
-    readyz_status: Optional[str] = Field(default=None, description="ready | degraded | not_ready")
+    readyz_status: Optional[SoakReadinessStatus] = Field(
+        default=None,
+        description="READY | DEGRADED | NOT_READY",
+    )
     degraded_reason: Optional[str] = Field(default=None, description="Why readiness is degraded, if applicable")
     health_probe: SoakProbeResult = Field(..., description="Aggregated health probe result")
 
@@ -108,7 +158,10 @@ class SoakRecoveryEvidence(BaseModel):
     model_config = {"frozen": True}
 
     recovery_tested: bool = Field(default=False, description="True if reboot/restart recovery was tested")
-    recovery_method: Optional[str] = Field(default=None, description="docker compose restart | host reboot")
+    recovery_method: Optional[SoakRecoveryMethod] = Field(
+        default=None,
+        description="docker compose restart | host reboot",
+    )
     service_recovered: Optional[bool] = Field(default=None, description="True if service came back healthy after restart")
     recovery_probe: SoakProbeResult = Field(..., description="Aggregated recovery probe result")
 
@@ -146,10 +199,10 @@ class SoakEvidenceReport(BaseModel):
     database_evidence: Optional[SoakDatabaseEvidence] = Field(default=None)
     recovery_evidence: Optional[SoakRecoveryEvidence] = Field(default=None)
     telegram_enabled: Optional[bool] = Field(default=None)
-    telegram_status: Optional[str] = Field(default=None)
+    telegram_status: Optional[SoakProbeStatus] = Field(default=None)
     probes: list[SoakProbeResult] = Field(default_factory=list)
     exit_code: int = Field(default=0, description="Recommended process exit code (0=pass, non-zero=fail)")
-    live_trading_authorized: bool = Field(
+    live_trading_authorized: Literal[False] = Field(
         default=False,
         description="ALWAYS False — soak evidence cannot authorize live trading",
     )

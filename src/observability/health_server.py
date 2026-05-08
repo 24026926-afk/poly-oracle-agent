@@ -48,12 +48,14 @@ class HealthServer:
         | None = None,
         check_db: Callable[[], Awaitable[bool]] | None = None,
         readiness_grace_window_seconds: float = 30.0,
+        dry_run: bool = True,
     ) -> None:
         self._host = host
         self._port = port
         self._get_ws_health = get_ws_health
         self._check_db = check_db
         self._grace_window_s = readiness_grace_window_seconds
+        self._dry_run = dry_run
         self._server: Optional[asyncio.AbstractServer] = None
         self._started_at_utc = datetime.now(timezone.utc)
 
@@ -218,6 +220,7 @@ class HealthServer:
         response = HealthEndpointResponse(
             status=status.value,
             checks=checks,
+            dry_run=self._dry_run,
         )
 
         body = response.model_dump_json().encode("utf-8")

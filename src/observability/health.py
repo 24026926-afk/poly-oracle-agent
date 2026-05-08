@@ -110,6 +110,10 @@ class HealthEndpointResponse(BaseModel):
     status: str
     timestamp_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     checks: dict[str, str] = Field(default_factory=dict)
+    dry_run: bool | None = Field(
+        default=None,
+        description="Runtime dry-run mode; exposed only where operationally relevant.",
+    )
 
     @field_validator("timestamp_utc")
     @classmethod

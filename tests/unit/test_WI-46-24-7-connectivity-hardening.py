@@ -633,6 +633,31 @@ class TestHealthServerReadiness:
         assert result["status_code"] == "200"
 
     @pytest.mark.asyncio
+    async def test_readyz_includes_runtime_dry_run_state(self, unused_tcp_port) -> None:
+        srv = HealthServer(
+            host="127.0.0.1",
+            port=unused_tcp_port,
+            dry_run=False,
+        )
+        await srv.start()
+        try:
+            reader, writer = await asyncio.open_connection(
+                host="127.0.0.1", port=srv._port
+            )
+            writer.write(b"GET /readyz HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            await writer.drain()
+
+            response = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+
+            decoded = response.decode("utf-8")
+            body_start = decoded.index("{")
+            body = json.loads(decoded[body_start:])
+            assert body["dry_run"] is False
+        finally:
+            await srv.stop()
+
+    @pytest.mark.asyncio
     async def test_readyz_returns_503_when_db_unreachable(self, unused_tcp_port) -> None:
         async def check_db() -> bool:
             return False

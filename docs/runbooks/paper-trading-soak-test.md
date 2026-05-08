@@ -28,16 +28,25 @@
 
 2. Record the soak start time (ISO 8601 UTC):
    ```bash
-   date -u +"%Y-%m-%dT%H:%M:%SZ" > /tmp/soak_start.txt
-   cat /tmp/soak_start.txt
+   date -u +"%Y-%m-%dT%H:%M:%SZ" > /data/phase14_soak_start.txt
+   cat /data/phase14_soak_start.txt
    ```
 
-3. Start the orchestrator if not already running:
+3. Record baseline DB size BEFORE starting the soak:
+   ```bash
+   BASELINE=$(stat -f%z /data/poly_oracle.db 2>/dev/null \
+     || stat -c%s /data/poly_oracle.db 2>/dev/null \
+     || echo 0)
+   printf "%s\n" "$BASELINE" > /data/phase14_soak_db_baseline_size.txt
+   cat /data/phase14_soak_db_baseline_size.txt
+   ```
+
+4. Start the orchestrator if not already running:
    ```bash
    docker compose up -d orchestrator
    ```
 
-4. Verify the service is healthy:
+5. Verify the service is healthy:
    ```bash
    curl -sf http://127.0.0.1:8080/healthz && echo "OK"
    ```
@@ -78,13 +87,10 @@
 From the project root (on the Droplet or from an operator laptop with access to the endpoints and SQLite file):
 
 ```bash
-# Record baseline DB size BEFORE starting evidence collection
-BASELINE=$(stat -f%z /data/poly_oracle.db 2>/dev/null || stat -c%s /data/poly_oracle.db 2>/dev/null || echo 0)
-
 python3 scripts/ops/collect_soak_evidence.py \
-  --soak-start "$(cat /tmp/soak_start.txt)" \
+  --soak-start "$(cat /data/phase14_soak_start.txt)" \
   --db-path /data/poly_oracle.db \
-  --db-baseline-size "$BASELINE" \
+  --db-baseline-size "$(cat /data/phase14_soak_db_baseline_size.txt)" \
   [--telegram-enabled] \
   [--recovery-tested "docker compose restart"]
 ```
@@ -146,7 +152,9 @@ curl -s http://127.0.0.1:8080/readyz | python3 -m json.tool
 
 # 5. Run evidence collector with recovery flag
 python3 scripts/ops/collect_soak_evidence.py \
-  --soak-start "$(cat /tmp/soak_start.txt)" \
+  --soak-start "$(cat /data/phase14_soak_start.txt)" \
+  --db-path /data/poly_oracle.db \
+  --db-baseline-size "$(cat /data/phase14_soak_db_baseline_size.txt)" \
   --recovery-tested "docker compose restart"
 ```
 
@@ -168,7 +176,9 @@ ls -la /data/poly_oracle.db
 
 # 5. Run evidence collector with recovery flag
 python3 scripts/ops/collect_soak_evidence.py \
-  --soak-start "$(cat /tmp/soak_start.txt)" \
+  --soak-start "$(cat /data/phase14_soak_start.txt)" \
+  --db-path /data/poly_oracle.db \
+  --db-baseline-size "$(cat /data/phase14_soak_db_baseline_size.txt)" \
   --recovery-tested "host reboot"
 ```
 
@@ -182,7 +192,7 @@ python3 scripts/ops/collect_soak_evidence.py \
 |---|---|---|
 | **Dry Run** | `dry_run_guard` | `DRY_RUN=true` in `.env` |
 | **Duration** | `soak_duration` | ≥ 24 hours elapsed since soak start |
-| **Health** | `health` | `/healthz` returns 200, `/readyz` status is `ready` |
+| **Health** | `health` | `/healthz` returns 200, `/readyz` status is `READY` |
 | **Metrics** | `metrics` | `/metrics` returns 200 with valid Prometheus text format |
 | **Database** | `database` | SQLite file exists, has grown, contains decisions or snapshots |
 
