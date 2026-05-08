@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-07
-**Version:** 0.14.3
-**Status:** Phase 14 IN PROGRESS — WI-48/WI-49/WI-50 complete, WI-51 pending
-**Active WI:** None — awaiting `/wi-start WI-51`
+**Version:** 0.14.4
+**Status:** Phase 14 COMPLETE — WI-48/WI-49/WI-50/WI-51 complete
+**Active WI:** None
 
 ---
 
@@ -34,7 +34,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1271 |
+| Total tests | 1341 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
@@ -819,3 +819,9 @@ WI-33 completion 2026-04-15 (Backtesting Framework):
 | `docs/PRD-v4.0.md` | Phase 4 scope and acceptance criteria |
 | `docs/archive/ARCHIVE_PHASES_1_TO_3.md` | Historical invariants and completed WI index |
 | `AGENTS.md` | Agent rules, class name reference, hard constraints |
+
+WI-51 — 24/7 Paper-Trading Soak Test and Runbook: COMPLETE.
+- `src/schemas/soak.py`: 9 typed Pydantic V2 soak evidence schemas (`SoakVerdict`, `SoakProbeStatus`, `SoakProbeResult`, `SoakServiceStatus`, `SoakHealthEvidence`, `SoakMetricsEvidence`, `SoakDatabaseEvidence`, `SoakRecoveryEvidence`, `SoakEvidenceReport`) — all frozen, `live_trading_authorized` always False.
+- `scripts/ops/collect_soak_evidence.py`: stdlib-only soak evidence collector (8 probes) producing secret-free markdown and JSON reports under `docs/operations/` (hardcoded). Probes: dry-run guard (`.env` + runtime `/readyz`), soak duration (≥24h), Compose service status, health/readiness, metrics (Prometheus format), database persistence (growth delta via `--db-baseline-size`, soak-period decision/snapshot counts via `evaluated_at`), Telegram status, recovery testing (validated methods: `docker compose restart`/`host reboot`). `_validate_report()` validates shape; `_redact_dict()` handles strings in lists.
+- `docs/runbooks/paper-trading-soak-test.md`: complete 10-section runbook covering setup, duration requirements, evidence collection, recovery testing, pass/fail criteria, 6 recovery paths, and safety statements.
+- 70 new integration tests, 1341 total, 93% coverage. Branch: `feat/wi-51-24-7-paper-trading-soak-test-and-runbook`, merge commit on `develop`.
