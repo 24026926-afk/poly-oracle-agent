@@ -161,6 +161,7 @@ async def test_orchestrator_start_registers_six_named_tasks_with_exit_scan(
         "ExecutionTask",
         "DiscoveryTask",
         "ExitScanTask",
+        "MarketTrackingTask",
     ]
 
 

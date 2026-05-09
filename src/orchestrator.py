@@ -91,7 +91,8 @@ class Orchestrator:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.active_condition_id: str | None = None
-        self._active_condition_ids: list[str] = []
+        self.active_markets: list[MarketMetadata] = []
+        self._condition_by_token: dict[str, str] = {}
         self._running = False
 
         # Queue wiring per architecture sequence:
@@ -308,15 +309,29 @@ class Orchestrator:
                 "orchestrator.no_eligible_markets_at_startup",
             )
             return
-        await self._activate_markets(eligible)
 
-        primary_condition_id = self._active_condition_ids[0]
+        # Create aggregator BEFORE activation so per-market registration runs.
+        primary_cid = eligible[0].condition_id
         self.aggregator = DataAggregator(
             input_queue=self.market_queue,
             output_queue=self.prompt_queue,
-            condition_id=primary_condition_id,
+            condition_id=primary_cid,
         )
-        self._set_aggregator_market_context(eligible[0])
+        # WI-32: DataAggregator reference for concurrent tracking
+        self._data_aggregator = self.aggregator
+
+        # Activate up to max_concurrent_markets eligible markets
+        max_active = min(len(eligible), self.config.max_concurrent_markets)
+        markets_to_activate = eligible[:max_active]
+        await self._activate_markets(markets_to_activate)
+
+        logger.info(
+            "activation_summary",
+            discovered=len(eligible),
+            eligible=len(eligible),
+            activated=len(self.active_markets),
+            active_condition_ids=[m.condition_id for m in self.active_markets],
+        )
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator
 
@@ -399,40 +414,118 @@ class Orchestrator:
         self.aggregator._market_question = market.question
         self.aggregator._yes_token_id = market.token_ids[0] if market.token_ids else None
 
-    async def _activate_market(self, market: MarketMetadata) -> None:
-        """Activate a discovered Gamma market for WS, aggregation, and routing."""
-        self.active_condition_id = market.condition_id
-        token_ids = list(market.token_ids)
-        token_id_mapping: dict[str, str] = {}
+    async def _activate_markets(self, markets: list[MarketMetadata]) -> None:
+        """Activate multiple discovered Gamma markets for WS, aggregation, and routing.
 
-        # token_ids[0] is the YES outcome token by Polymarket convention.
-        yes_token = token_ids[0] if token_ids else None
-        if yes_token:
-            for token_id in token_ids:
-                token_id_mapping[token_id] = yes_token
-            token_id_mapping[market.condition_id] = yes_token
+        Accumulates all token IDs into a single subscription and builds a
+        unified token→condition_id routing map so incoming WebSocket frames
+        are routed to the correct market snapshot.
 
-        self.ws_client.set_assets_ids(token_ids)
-        self.ws_client.set_token_id_mapping(token_id_mapping)
+        WI-32 fixes:
+        - Deduplicates markets by condition_id to avoid duplicate registration.
+        - Deduplicates token IDs to avoid duplicate subscription payloads.
+        - Fails closed on token collisions across markets.
+        - Uses explicit ws_client.set_condition_by_token() setter.
+        - Registers each market's metadata in the aggregator for per-market emit.
+        """
+        if not markets:
+            logger.warning("orchestrator.activate_markets_empty")
+            return
+
+        # WI-32: Deduplicate markets by condition_id (first occurrence wins)
+        seen_cids: set[str] = set()
+        deduped: list[MarketMetadata] = []
+        for market in markets:
+            if market.condition_id not in seen_cids:
+                seen_cids.add(market.condition_id)
+                deduped.append(market)
+        if len(deduped) < len(markets):
+            logger.warning(
+                "orchestrator.activate_markets_deduped",
+                input_count=len(markets),
+                unique_count=len(deduped),
+            )
+
+        all_token_ids_set: set[str] = set()
+        condition_by_token: dict[str, str] = {}
+        yes_token_by_token: dict[str, str] = {}
+
+        for market in deduped:
+            token_ids = list(market.token_ids)
+
+            # WI-32: Detect token collisions across markets — fail closed.
+            colliding = all_token_ids_set.intersection(token_ids)
+            if colliding:
+                logger.error(
+                    "orchestrator.activate_markets_token_collision",
+                    colliding_tokens=sorted(colliding),
+                    market_condition_id=market.condition_id,
+                )
+                # Skip this market to avoid ambiguous routing.
+                continue
+
+            all_token_ids_set.update(token_ids)
+
+            # token_ids[0] is the YES outcome token by Polymarket convention.
+            yes_token = token_ids[0] if token_ids else None
+            if yes_token:
+                for token_id in token_ids:
+                    condition_by_token[token_id] = market.condition_id
+                    yes_token_by_token[token_id] = yes_token
+                condition_by_token[market.condition_id] = market.condition_id
+                yes_token_by_token[market.condition_id] = yes_token
+
+        all_token_ids = sorted(all_token_ids_set)
+
+        self.active_markets = list(deduped)
+        self.active_condition_id = deduped[0].condition_id  # primary
+        self._condition_by_token = condition_by_token
+
+        self.ws_client.set_assets_ids(all_token_ids)
+        self.ws_client.set_token_id_mapping(yes_token_by_token)
+        self.ws_client.set_condition_by_token(condition_by_token)
 
         if self.aggregator is not None:
-            self.aggregator.condition_id = market.condition_id
+            self.aggregator.condition_id = self.active_condition_id
+            self.aggregator.condition_by_token = condition_by_token
+            # Clear stale per-market state before registering new markets
+            self.aggregator.clear_markets()
+            for market in deduped:
+                yes_tok = market.token_ids[0] if market.token_ids else None
+                self.aggregator.register_market(
+                    condition_id=market.condition_id,
+                    question=market.question,
+                    category=market.category,
+                    tags=list(market.tags),
+                    yes_token_id=yes_tok,
+                )
+            # Reset primary market emit state
             self.aggregator.best_bid = 0.0
             self.aggregator.best_ask = 0.0
             self.aggregator._last_emit_time = 0.0
             self.aggregator._last_emitted_midpoint = None
-            self._set_aggregator_market_context(market)
 
         if getattr(self.ws_client, "_ws", None) is not None:
-            await self.ws_client.subscribe_batch(token_ids)
+            await self.ws_client.subscribe_batch(all_token_ids)
 
         logger.info(
-            "orchestrator.market_activated",
-            condition_id=self.active_condition_id,
-            category=market.category,
-            token_count=len(token_ids),
-            mapping_count=len(token_id_mapping),
+            "ws_subscribe_summary",
+            activated_markets=len(self.active_markets),
+            token_count=len(all_token_ids),
+            unique_conditions=len(set(condition_by_token.values())),
         )
+
+        for market in deduped:
+            logger.info(
+                "orchestrator.market_activated",
+                condition_id=market.condition_id,
+                category=market.category,
+                token_count=len(market.token_ids),
+            )
+
+    async def _activate_market(self, market: MarketMetadata) -> None:
+        """Activate a single discovered Gamma market (legacy, wraps _activate_markets)."""
+        await self._activate_markets([market])
 
     def _select_rotation_candidate(
         self,
@@ -753,11 +846,36 @@ class Orchestrator:
                     )
                     await self._activate_market(next_market)
                     self._consecutive_spread_failures = 0
-                elif not eligible:
+                elif eligible:
+                    # Refresh the full set of active markets on each discovery cycle
+                    max_active = min(len(eligible), self.config.max_concurrent_markets)
+                    markets_to_activate = eligible[:max_active]
+                    await self._activate_markets(markets_to_activate)
+                    logger.info(
+                        "activation_summary",
+                        discovered=len(eligible),
+                        eligible=len(eligible),
+                        activated=len(self.active_markets),
+                        active_condition_ids=[m.condition_id for m in self.active_markets],
+                    )
+                else:
+                    # WI-32: No eligible markets — deactivate all stale markets.
                     logger.warning(
                         "orchestrator.no_eligible_markets_on_refresh",
-                        keeping=self.active_condition_id,
+                        deactivating=len(self.active_markets),
+                        was_condition_ids=[
+                            m.condition_id for m in self.active_markets
+                        ],
                     )
+                    self.active_markets = []
+                    self.active_condition_id = None
+                    self._condition_by_token = {}
+                    self.ws_client.set_assets_ids([])
+                    self.ws_client.set_token_id_mapping({})
+                    self.ws_client.set_condition_by_token({})
+                    if self.aggregator is not None:
+                        self.aggregator.clear_markets()
+                        self.aggregator.condition_by_token = {}
             except Exception as exc:
                 logger.error(
                     "orchestrator.discovery_loop_error",
@@ -1120,22 +1238,41 @@ class Orchestrator:
         pass
 
     async def _market_tracking_loop(self) -> None:
-        """Concurrent multi-market tracking via asyncio.gather (WI-32).
+        """Concurrent multi-market tracking (WI-32).
 
-        Sleep-first, fail-open pattern: sleeps at top of loop, catches
-        exceptions and continues on next interval.
+        WI-32 fix: delegates to _activate_markets instead of using a separate
+        aggregator.track_market() path.  This ensures both discovery loops
+        converge on the same activation, subscription, and per-market state
+        registration logic — no duplicate subscriptions or stale state.
         """
         while self._running:
             await asyncio.sleep(float(self.config.market_tracking_interval_sec))
             try:
-                # Discover markets
                 if self.discovery_engine is None:
                     logger.debug("market_tracking.discovery_not_ready")
                     continue
 
                 snapshots = await self.discovery_engine.discover()
                 if not snapshots:
-                    logger.debug("market_tracking.no_markets_discovered")
+                    # WI-32: No eligible markets — deactivate all stale markets
+                    # (same clear path as _discovery_loop).
+                    if self.active_markets:
+                        logger.warning(
+                            "market_tracking.no_markets_deactivating",
+                            was_count=len(self.active_markets),
+                            was_condition_ids=[
+                                m.condition_id for m in self.active_markets
+                            ],
+                        )
+                        self.active_markets = []
+                        self.active_condition_id = None
+                        self._condition_by_token = {}
+                        self.ws_client.set_assets_ids([])
+                        self.ws_client.set_token_id_mapping({})
+                        self.ws_client.set_condition_by_token({})
+                        if self.aggregator is not None:
+                            self.aggregator.clear_markets()
+                            self.aggregator.condition_by_token = {}
                     continue
 
                 # Truncate to max_concurrent_markets
@@ -1147,41 +1284,13 @@ class Orchestrator:
                     )
                     snapshots = snapshots[: self.config.max_concurrent_markets]
 
-                # Group token IDs per market
-                token_ids_list = [
-                    self._extract_token_ids(snapshot) for snapshot in snapshots
-                ]
-
-                # Filter out markets with no token IDs
-                token_ids_list = [tids for tids in token_ids_list if tids]
-                if not token_ids_list:
-                    logger.debug("market_tracking.no_token_ids_after_filter")
-                    continue
-
-                # Fan-out via asyncio.gather
-                logger.info("market_tracking.fan_out", market_count=len(token_ids_list))
-                tasks = [
-                    self._data_aggregator.track_market(token_ids)
-                    for token_ids in token_ids_list
-                ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Process results
-                success_count = 0
-                error_count = 0
-                for result in results:
-                    if isinstance(result, Exception):
-                        logger.error("market_tracking.gather_error", error=str(result))
-                        error_count += 1
-                    else:
-                        self._process_market_contexts(result)
-                        success_count += 1
+                # Delegate to the same activation path as _discovery_loop
+                await self._activate_markets(snapshots)
 
                 logger.info(
                     "market_tracking.completed",
-                    success=success_count,
-                    errors=error_count,
-                    total=len(token_ids_list),
+                    activated=len(self.active_markets),
+                    active_condition_ids=[m.condition_id for m in self.active_markets],
                 )
             except Exception as exc:
                 logger.error("market_tracking_loop.error", error=str(exc))
@@ -1259,7 +1368,7 @@ class Orchestrator:
         return RuntimeHealthSnapshot(
             ws_health=ws_health,
             db_reachable=await self._check_db_reachable(),
-            active_market_count=1 if self.active_condition_id else 0,
+            active_market_count=len(self.active_markets) if self.active_markets else (1 if self.active_condition_id else 0),
             subscribed_asset_count=len(self.ws_client._assets_ids) if self.ws_client else 0,
         )
 

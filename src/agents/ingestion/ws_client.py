@@ -41,49 +41,6 @@ _VALID_EVENTS = {"book", "price_change", "last_trade_price"}
 _HEARTBEAT_INTERVAL_S = 10
 
 
-def _event_type(data: dict[str, Any]) -> str:
-    return str(data.get("event_type") or data.get("event") or "")
-
-
-def _first_price_change(data: dict[str, Any]) -> dict[str, Any] | None:
-    price_changes = data.get("price_changes", [])
-    if not isinstance(price_changes, list):
-        return None
-
-    preferred: dict[str, Any] | None = None
-    for change in price_changes:
-        if not isinstance(change, dict):
-            continue
-        if preferred is None:
-            preferred = change
-        if change.get("best_bid") is not None and change.get("best_ask") is not None:
-            return change
-    return preferred
-
-
-def _normalise_event_frame(data: dict[str, Any]) -> dict[str, Any]:
-    """Lift nested price_change fields into the frame used by routing."""
-    normalised = dict(data)
-    event_type = _event_type(normalised)
-    if event_type:
-        normalised["event_type"] = event_type
-
-    if event_type != "price_change":
-        return normalised
-
-    first_change = _first_price_change(normalised)
-    if first_change is None:
-        return normalised
-
-    for key in ("asset_id", "market", "condition_id", "best_bid", "best_ask"):
-        if (
-            normalised.get(key) in (None, "")
-            and first_change.get(key) not in (None, "")
-        ):
-            normalised[key] = first_change[key]
-    return normalised
-
-
 class CLOBWebSocketClient:
     """Streams live CLOB orderbook events and enqueues MarketSnapshots."""
 
@@ -104,7 +61,7 @@ class CLOBWebSocketClient:
         self._market_repo_factory = market_repo_factory
         self._assets_ids: list[str] = assets_ids or []
         self._token_id_mapping: dict[str, str] = token_id_to_yes_token_id or {}
-        self._condition_mapping: dict[str, str] = {}
+        self._condition_by_token: dict[str, str] = {}
         self._subscription_sent_at: float = 0.0
         self._aggregator_map: dict[str, Any] = {}
         self._ws: websockets.ClientConnection | None = None
@@ -223,9 +180,13 @@ class CLOBWebSocketClient:
         """Set the token_id → yes_token_id mapping for snapshot enrichment."""
         self._token_id_mapping = mapping
 
-    def set_condition_mapping(self, mapping: dict[str, str]) -> None:
-        """Set the token_id/condition_id → condition_id lookup for routing."""
-        self._condition_mapping = mapping
+    def set_condition_by_token(self, mapping: dict[str, str]) -> None:
+        """Set the token_id → condition_id routing map for diagnostics.
+
+        This is the authoritative setter — do not mutate _condition_by_token
+        directly from outside the class.
+        """
+        self._condition_by_token = mapping
 
     def register_aggregator(self, asset_id: str, aggregator: Any) -> None:
         """Register a DataAggregator for frame routing."""
@@ -413,6 +374,30 @@ class CLOBWebSocketClient:
                     )
                     return  # do not treat as transport error
 
+        # WI-32: Route to per-market aggregator via asset_id before standard processing
+        asset_id = data.get("asset_id") if isinstance(data, dict) else None
+        if asset_id and asset_id in self._aggregator_map:
+            aggregator = self._aggregator_map[asset_id]
+            aggregator.process_frame(data)
+            aggregator.frame_count += 1
+            aggregator.last_seen_utc = datetime.now(timezone.utc)
+            return  # Routed — skip standard persistence path
+
+        if asset_id is not None and asset_id not in self._aggregator_map:
+            logger.warning(
+                "ws.frame_unrouted",
+                asset_id=asset_id,
+                frame_type=data.get("event_type", "unknown")
+                if isinstance(data, dict)
+                else "unknown",
+            )
+        elif isinstance(data, dict) and "asset_id" not in data:
+            logger.warning(
+                "ws.frame_unrouted",
+                asset_id=None,
+                frame_type=data.get("event_type", "unknown"),
+            )
+
         # The CLOB WS may send list-wrapped messages (batches or ack frames).
         # Normalise to a list of dicts and process each individually.
         if isinstance(data, list):
@@ -423,36 +408,7 @@ class CLOBWebSocketClient:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            frame = _normalise_event_frame(item)
-            event_type = _event_type(frame)
-            asset_id = frame.get("asset_id")
-
-            # WI-32: Route to per-market aggregator via asset_id before the
-            # standard persistence/enqueue path.  Price-change frames often
-            # carry asset_id inside price_changes[], so routing must happen
-            # after normalisation.
-            if asset_id and asset_id in self._aggregator_map:
-                aggregator = self._aggregator_map[asset_id]
-                aggregator.process_frame(frame)
-                aggregator.frame_count += 1
-                aggregator.last_seen_utc = datetime.now(timezone.utc)
-                continue
-
-            if self._aggregator_map and event_type in _VALID_EVENTS:
-                if asset_id is not None and asset_id not in self._aggregator_map:
-                    logger.warning(
-                        "ws.frame_unrouted",
-                        asset_id=asset_id,
-                        frame_type=event_type,
-                    )
-                elif "asset_id" not in frame:
-                    logger.warning(
-                        "ws.frame_unrouted",
-                        asset_id=None,
-                        frame_type=event_type,
-                    )
-
-            await self._process_event(frame, raw_msg)
+            await self._process_event(item, raw_msg)
 
     async def _process_event(self, data: dict, raw_msg: str) -> None:
         """Process a single event dict from the WS stream.
@@ -461,28 +417,58 @@ class CLOBWebSocketClient:
         - last_trade_price: midpoint from last_trade_price
         - price_change: midpoint from best_bid/best_ask
         - book: midpoint from bids[0]/asks[0] lists
+
+        WI-32 fix: frames from stale (deactivated) tokens are dropped.
         """
-        data = _normalise_event_frame(data)
-        event_type = _event_type(data)
+        event_type = data.get("event_type") or data.get("event", "")
         if event_type not in _VALID_EVENTS:
             return
 
         condition_id = data.get("market", data.get("condition_id", ""))
         asset_id = data.get("asset_id", "")
 
-        # Resolve condition_id from asset_id when the frame lacks a direct
-        # market/condition_id field (common in price_change frames).
-        if not condition_id and asset_id:
-            if asset_id in self._condition_mapping:
-                condition_id = self._condition_mapping[asset_id]
-        if not condition_id and asset_id:
-            if asset_id in self._token_id_mapping:
-                condition_id = self._token_id_mapping[asset_id]
+        # WI-32: Drop frames from tokens not in any active market.
+        # When _condition_by_token is populated, both condition_id and
+        # asset_id must reference active markets.  A frame with a stale
+        # asset_id but no condition_id must also be rejected.
+        if self._condition_by_token:
+            active_conditions = set(self._condition_by_token.values())
+            active_tokens = set(self._condition_by_token.keys())
+            # condition_id must be active (if present)
+            if condition_id and condition_id not in active_conditions:
+                logger.debug(
+                    "ws_client.drop_stale_token",
+                    asset_id=asset_id,
+                    condition_id=condition_id,
+                    event_type=event_type,
+                    reason="stale_condition_id",
+                )
+                return
+            # asset_id must be active (if present) — catches stale tokens
+            # even when condition_id is missing from the frame
+            if asset_id and asset_id not in active_tokens:
+                logger.debug(
+                    "ws_client.drop_stale_token",
+                    asset_id=asset_id,
+                    condition_id=condition_id,
+                    event_type=event_type,
+                    reason="stale_asset_id",
+                )
+                return
+        elif asset_id and asset_id not in self._token_id_mapping:
+            logger.debug(
+                "ws_client.drop_unknown_token",
+                asset_id=asset_id,
+                event_type=event_type,
+            )
+            return
 
-        # Resolve yes_token_id from the token_id mapping set by market discovery.
+        # Resolve yes_token_id from the token_id mapping set by MarketDiscoveryEngine.
+        # no_token_id is populated later from Gamma market metadata (clobTokenIds[1]).
         yes_token_id: str | None = None
         no_token_id: str | None = None
 
+        known_token = asset_id in self._token_id_mapping if asset_id else False
         if asset_id and asset_id in self._token_id_mapping:
             yes_token_id = self._token_id_mapping[asset_id]
         elif condition_id and condition_id in self._token_id_mapping:
@@ -492,7 +478,7 @@ class CLOBWebSocketClient:
             "snapshot_route_debug",
             token_id=asset_id,
             condition_id=condition_id,
-            known_token=asset_id in self._condition_mapping,
+            known_token=known_token,
         )
 
         # Extract best_bid/best_ask based on frame type
@@ -543,16 +529,8 @@ class CLOBWebSocketClient:
             if best_ask == 0.0:
                 best_ask = data.get("best_ask", 0.0)
 
-        # Guard: do not emit snapshot for last_trade_price-only frames (no full
-        # orderbook), nor for price_change/book frames with no spread data.
-        # Preserves last known midpoint downstream.
-        if event_type == "last_trade_price":
-            logger.debug(
-                "ws_client.skip_last_trade",
-                condition_id=condition_id,
-                price=data.get("price", 0.0),
-            )
-            return
+        # Guard: do not emit snapshot with midpoint=0 for frames that
+        # should carry spread data.  Preserves last known midpoint downstream.
         if event_type in ("price_change", "book") and (best_bid <= 0 or best_ask <= 0):
             logger.debug(
                 "ws_client.skip_no_spread",
@@ -560,6 +538,18 @@ class CLOBWebSocketClient:
                 condition_id=condition_id,
                 best_bid=best_bid,
                 best_ask=best_ask,
+            )
+            return
+
+        # last_trade_price frames lack a full orderbook — do not treat as
+        # complete market snapshots for evaluation.  They are useful for
+        # price tracking but should not produce midpoint=0.0 or malformed EV inputs.
+        if event_type == "last_trade_price" and best_bid <= 0 and best_ask <= 0:
+            logger.debug(
+                "ws_client.skip_last_trade_no_book",
+                event_type=event_type,
+                condition_id=condition_id,
+                last_trade_price=last_trade_price,
             )
             return
 
