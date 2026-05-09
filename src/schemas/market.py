@@ -7,8 +7,10 @@ and Gamma REST API responses.
 
 import json
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.schemas.llm import MarketCategory
 
 
 def _utc_now() -> datetime:
@@ -94,6 +96,8 @@ class MarketMetadata(BaseModel):
 
     condition_id: str = Field(..., alias="conditionId", min_length=1)
     question: str = Field(default="")
+    category: Optional[str] = Field(default=None, alias="category")
+    tags: list[str] = Field(default_factory=list, alias="tags")
     token_ids: List[str] = Field(default_factory=list, alias="clobTokenIds")
     end_date_iso: Optional[str] = Field(default=None, alias="endDateIso")
     active: bool = Field(default=True)
@@ -107,5 +111,56 @@ class MarketMetadata(BaseModel):
         if isinstance(v, str):
             return json.loads(v)
         return v
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, v: object) -> str | None:
+        """Normalize Gamma category strings to canonical MarketCategory values."""
+        if v is None:
+            return None
+        if isinstance(v, MarketCategory):
+            return v.value
+        if isinstance(v, dict):
+            v = v.get("label") or v.get("name") or v.get("slug")
+        if not isinstance(v, str):
+            return None
+
+        normalized = v.strip().upper().replace("-", "_").replace(" ", "_")
+        if not normalized:
+            return None
+        try:
+            return MarketCategory(normalized).value
+        except ValueError:
+            try:
+                return MarketCategory[normalized].value
+            except KeyError:
+                return None
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _normalize_tags(cls, v: object) -> list[str]:
+        """Gamma may return tags as strings, dicts, or JSON-encoded arrays."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+            except json.JSONDecodeError:
+                return [v]
+            return cls._normalize_tags(parsed)
+        if not isinstance(v, list):
+            return []
+
+        tags: list[str] = []
+        for item in v:
+            raw: Any = item
+            if isinstance(item, dict):
+                raw = item.get("label") or item.get("name") or item.get("slug")
+            if raw is None:
+                continue
+            tag = str(raw).strip()
+            if tag:
+                tags.append(tag)
+        return tags
 
     model_config = {"frozen": True, "populate_by_name": True, "extra": "ignore"}

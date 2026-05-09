@@ -9,7 +9,7 @@ patch.object on the real instance to inject timeouts / errors.
 
 Asserts:
   - CRYPTO / POLITICS trigger GrokClient.analyze_sentiment (mock mode)
-  - SPORTS / GENERAL bypass Grok entirely
+  - SPORTS / CULTURE bypass Grok entirely
   - Grok timeout -> neutral fallback, pipeline continues
   - Malformed Grok JSON -> neutral fallback, pipeline continues
   - PromptFactory injects sentiment block into evaluation prompt
@@ -106,14 +106,15 @@ def _sports_market_item() -> dict:
     }
 
 
-def _general_market_item() -> dict:
-    """Market item that routes to GENERAL (no domain keywords)."""
+def _culture_market_item() -> dict:
+    """Market item that routes to CULTURE."""
     return {
         "snapshot_id": "snap-general-001",
         "yes_token_id": "tok-yes-004",
         "state": {
             "condition_id": "0xdddd4444eeee5555ffff6666aaaa7777bbbb8888",
             "title": "Will the new product launch succeed?",
+            "category": "Culture",
             "tags": [],
             "best_bid": 0.50,
             "best_ask": 0.51,
@@ -239,17 +240,17 @@ async def test_sports_skips_grok_sentiment(
 
 
 # ---------------------------------------------------------------------------
-# Test 4: GENERAL skips Grok (real GrokClient, never called)
+# Test 4: CULTURE skips Grok (real GrokClient, never called)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_general_skips_grok_sentiment(
+async def test_culture_skips_grok_sentiment(
     test_config,
     mock_anthropic_buy_json,
     mock_polymarket,
 ):
-    """GENERAL market MUST NOT call GrokClient — prompt contains neutral fallback."""
+    """CULTURE market MUST NOT call GrokClient — prompt contains neutral fallback."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
@@ -257,7 +258,7 @@ async def test_general_skips_grok_sentiment(
         "analyze_sentiment",
         wraps=client._grok_client.analyze_sentiment,
     ) as spy:
-        await client._process_evaluation(_general_market_item())
+        await client._process_evaluation(_culture_market_item())
         spy.assert_not_called()
 
     call_args = client.client.messages.create.call_args_list[0]

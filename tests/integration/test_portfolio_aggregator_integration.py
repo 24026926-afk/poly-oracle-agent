@@ -22,6 +22,7 @@ from src.agents.execution.polymarket_client import MarketSnapshot
 from src.db.models import Position
 from src.db.repositories.position_repository import PositionRepository
 from src.orchestrator import Orchestrator
+from src.schemas.market import MarketMetadata
 
 
 AGGREGATOR_MODULE_NAME = "src.agents.execution.portfolio_aggregator"
@@ -90,6 +91,19 @@ def _make_snapshot(*, token_id: str, midpoint: Decimal) -> MarketSnapshot:
     )
 
 
+def _make_market(condition_id: str) -> MarketMetadata:
+    return MarketMetadata.model_validate(
+        {
+            "conditionId": condition_id,
+            "question": "Will BTC trade above $100k?",
+            "category": "Crypto",
+            "tags": ["btc", "crypto"],
+            "clobTokenIds": ["yes-token", "no-token"],
+            "endDateIso": "2026-12-31T00:00:00+00:00",
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_orchestrator_start_registers_portfolio_aggregator_task_when_enabled(
     monkeypatch, test_config
@@ -119,7 +133,9 @@ async def test_orchestrator_start_registers_portfolio_aggregator_task_when_enabl
     fake_gamma_client = MagicMock()
     fake_gamma_client.get_active_markets = AsyncMock(return_value=[])
     fake_discovery_engine = MagicMock()
-    fake_discovery_engine.discover = AsyncMock(return_value=["condition-start-001"])
+    fake_discovery_engine.discover = AsyncMock(
+        return_value=[_make_market("condition-start-001")]
+    )
     fake_broadcaster = MagicMock()
     fake_aggregator = MagicMock()
     fake_aggregator.start = AsyncMock(return_value=None)
@@ -198,7 +214,9 @@ async def test_orchestrator_start_does_not_register_portfolio_task_when_disabled
     fake_gamma_client = MagicMock()
     fake_gamma_client.get_active_markets = AsyncMock(return_value=[])
     fake_discovery_engine = MagicMock()
-    fake_discovery_engine.discover = AsyncMock(return_value=["condition-start-001"])
+    fake_discovery_engine.discover = AsyncMock(
+        return_value=[_make_market("condition-start-001")]
+    )
     fake_broadcaster = MagicMock()
     fake_aggregator = MagicMock()
     fake_aggregator.start = AsyncMock(return_value=None)

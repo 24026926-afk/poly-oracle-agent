@@ -67,6 +67,7 @@ from src.schemas.execution import (
     PositionRecord,
 )
 from src.schemas.llm import MarketCategory
+from src.schemas.market import MarketMetadata
 from src.schemas.position import PositionStatus
 from src.schemas.risk import LifecycleReport, PortfolioSnapshot
 
@@ -305,43 +306,14 @@ class Orchestrator:
                 "orchestrator.no_eligible_markets_at_startup",
             )
             return
-        self.active_condition_id = eligible[0]
-        logger.info(
-            "orchestrator.market_selected",
-            condition_id=self.active_condition_id,
-        )
-
-        # Resolve token IDs for the selected market so WS can subscribe
-        active_markets = await self.gamma_client.get_active_markets()
-        token_ids: list[str] = []
-        token_id_mapping: dict[str, str] = {}
-        for m in active_markets:
-            if m.condition_id == self.active_condition_id:
-                token_ids = m.token_ids
-                # token_ids[0] is the YES outcome token by Polymarket convention.
-                # Map ALL token IDs (YES and NO) to the YES token so that
-                # any incoming frame resolves to the correct yes_token_id.
-                yes_token = token_ids[0] if token_ids else None
-                if yes_token:
-                    for token_id in token_ids:
-                        token_id_mapping[token_id] = yes_token
-                    # Also key by condition_id for book frames that lack asset_id
-                    token_id_mapping[self.active_condition_id] = yes_token
-                break
-        self.ws_client.set_assets_ids(token_ids)
-        self.ws_client.set_token_id_mapping(token_id_mapping)
-        logger.info(
-            "orchestrator.ws_assets_configured",
-            condition_id=self.active_condition_id,
-            token_count=len(token_ids),
-            mapping_count=len(token_id_mapping),
-        )
+        await self._activate_market(eligible[0])
 
         self.aggregator = DataAggregator(
             input_queue=self.market_queue,
             output_queue=self.prompt_queue,
-            condition_id=self.active_condition_id,
+            condition_id=self.active_condition_id or eligible[0].condition_id,
         )
+        self._set_aggregator_market_context(eligible[0])
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator
 
@@ -415,6 +387,50 @@ class Orchestrator:
         finally:
             await self.shutdown()
 
+    def _set_aggregator_market_context(self, market: MarketMetadata) -> None:
+        """Propagate Gamma market metadata into emitted evaluation state."""
+        if self.aggregator is None:
+            return
+        self.aggregator._market_category = market.category
+        self.aggregator._market_tags = list(market.tags)
+        self.aggregator._market_question = market.question
+        self.aggregator._yes_token_id = market.token_ids[0] if market.token_ids else None
+
+    async def _activate_market(self, market: MarketMetadata) -> None:
+        """Activate a discovered Gamma market for WS, aggregation, and routing."""
+        self.active_condition_id = market.condition_id
+        token_ids = list(market.token_ids)
+        token_id_mapping: dict[str, str] = {}
+
+        # token_ids[0] is the YES outcome token by Polymarket convention.
+        yes_token = token_ids[0] if token_ids else None
+        if yes_token:
+            for token_id in token_ids:
+                token_id_mapping[token_id] = yes_token
+            token_id_mapping[market.condition_id] = yes_token
+
+        self.ws_client.set_assets_ids(token_ids)
+        self.ws_client.set_token_id_mapping(token_id_mapping)
+
+        if self.aggregator is not None:
+            self.aggregator.condition_id = market.condition_id
+            self.aggregator.best_bid = 0.0
+            self.aggregator.best_ask = 0.0
+            self.aggregator._last_emit_time = 0.0
+            self.aggregator._last_emitted_midpoint = None
+            self._set_aggregator_market_context(market)
+
+        if getattr(self.ws_client, "_ws", None) is not None:
+            await self.ws_client.subscribe_batch(token_ids)
+
+        logger.info(
+            "orchestrator.market_activated",
+            condition_id=self.active_condition_id,
+            category=market.category,
+            token_count=len(token_ids),
+            mapping_count=len(token_id_mapping),
+        )
+
     async def _execution_consumer_loop(self) -> None:
         """Consume approved decisions and broadcast signed orders."""
         while True:
@@ -447,14 +463,14 @@ class Orchestrator:
                     proposed_size_raw = item.get("proposed_size_usdc", Decimal("0"))
                     proposed_size_usdc = Decimal(str(proposed_size_raw))
 
-                    category_raw = item.get("category", MarketCategory.GENERAL)
+                    category_raw = item.get("category", MarketCategory.CULTURE)
                     if isinstance(category_raw, MarketCategory):
                         category = category_raw
                     else:
                         try:
                             category = MarketCategory(str(category_raw))
                         except Exception:
-                            category = MarketCategory.GENERAL
+                            category = MarketCategory.CULTURE
 
                     bankroll_usdc = Decimal(
                         str(getattr(self.config, "initial_bankroll_usdc", Decimal("0")))
@@ -695,18 +711,13 @@ class Orchestrator:
                 if self.discovery_engine is None:
                     continue
                 eligible = await self.discovery_engine.discover()
-                if eligible and eligible[0] != self.active_condition_id:
+                if eligible and eligible[0].condition_id != self.active_condition_id:
                     logger.info(
                         "orchestrator.market_rotation",
                         old_condition_id=self.active_condition_id,
-                        new_condition_id=eligible[0],
+                        new_condition_id=eligible[0].condition_id,
                     )
-                    self.active_condition_id = eligible[0]
-                    if self.aggregator is not None:
-                        self.aggregator.condition_id = eligible[0]
-                        self.aggregator.best_bid = 0.0
-                        self.aggregator.best_ask = 0.0
-                        self.aggregator._last_emitted_midpoint = None
+                    await self._activate_market(eligible[0])
                 elif not eligible:
                     logger.warning(
                         "orchestrator.no_eligible_markets_on_refresh",

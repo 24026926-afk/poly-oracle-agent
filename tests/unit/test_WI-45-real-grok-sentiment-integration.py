@@ -543,7 +543,7 @@ def test_sentiment_cannot_bypass_gatekeeper():
 
 
 def test_live_sentiment_only_for_eligible_categories():
-    """CRYPTO and POLITICS are eligible; SPORTS/GENERAL gated in GrokClient."""
+    """CRYPTO and POLITICS are eligible; SPORTS/CULTURE gated in GrokClient."""
     resp = _make_mock_response(sentiment_score=0.5)
     mock_client = _make_mock_async_client(resp)
     client = _make_live_client(http_client=mock_client)

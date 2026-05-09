@@ -208,17 +208,17 @@ async def test_market_discovery_feeds_pipeline(
     # 2 of 3 markets are eligible (third has expired end_date)
     assert len(eligible) == 2
     # No hardcoded condition_id — all come from Gamma
-    assert eligible[0] == "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555"
-    assert eligible[1] == "0xbbbb2222cccc3333dddd4444eeee5555ffff6666"
+    assert eligible[0].condition_id == "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555"
+    assert eligible[1].condition_id == "0xbbbb2222cccc3333dddd4444eeee5555ffff6666"
 
     # Aggregator uses the first discovered market
     prompt_queue: asyncio.Queue = asyncio.Queue()
     aggregator = DataAggregator(
         input_queue=asyncio.Queue(),
         output_queue=prompt_queue,
-        condition_id=eligible[0],
+        condition_id=eligible[0].condition_id,
     )
-    assert aggregator.condition_id == eligible[0]
+    assert aggregator.condition_id == eligible[0].condition_id
 
 
 @pytest.mark.asyncio

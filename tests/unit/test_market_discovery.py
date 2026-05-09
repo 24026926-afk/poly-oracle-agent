@@ -128,7 +128,7 @@ async def test_discover_returns_eligible_markets():
 
     result = await engine.discover()
 
-    assert result == ["m1", "m2", "m3"]
+    assert [market.condition_id for market in result] == ["m1", "m2", "m3"]
 
 
 @pytest.mark.asyncio
@@ -142,7 +142,7 @@ async def test_discover_excludes_empty_token_ids():
 
     result = await engine.discover()
 
-    assert result == ["good"]
+    assert [market.condition_id for market in result] == ["good"]
 
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_discover_excludes_ttr_below_minimum():
 
     result = await engine.discover()
 
-    assert result == ["later"]
+    assert [market.condition_id for market in result] == ["later"]
 
 
 @pytest.mark.asyncio
@@ -226,7 +226,7 @@ async def test_discover_includes_below_exposure_limit():
 
     result = await engine.discover()
 
-    assert result == ["ok"]
+    assert [market.condition_id for market in result] == ["ok"]
 
 
 @pytest.mark.asyncio

@@ -142,8 +142,8 @@ async def test_category_sports_gated_in_grok_client():
 
 
 @pytest.mark.asyncio
-async def test_category_general_gated_in_grok_client():
-    """GENERAL category → GrokClient returns NEUTRAL_SENTIMENT directly."""
+async def test_category_culture_gated_in_grok_client():
+    """CULTURE category → GrokClient returns NEUTRAL_SENTIMENT directly."""
     mock_http = MagicMock(spec=httpx.AsyncClient)
     mock_http.post = AsyncMock()
     mock_http.aclose = AsyncMock()
@@ -152,9 +152,9 @@ async def test_category_general_gated_in_grok_client():
     client._http_client = mock_http
 
     result = await client.analyze_sentiment(
-        condition_id="cond_general_001",
+        condition_id="cond_culture_001",
         market_title="Will it rain tomorrow?",
-        market_category=MarketCategory.GENERAL,
+        market_category=MarketCategory.CULTURE,
         reference_timestamp_utc="2026-05-05T12:00:00Z",
     )
 

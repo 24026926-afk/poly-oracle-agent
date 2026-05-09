@@ -48,9 +48,16 @@ async def test_route_crypto_by_title():
 
 
 @pytest.mark.asyncio
-async def test_route_politics_by_title():
+async def test_route_elections_by_title():
     client = _make_client()
     item = {"title": "Will the election result in a runoff?"}
+    assert await client._route_market(item) == MarketCategory.ELECTIONS
+
+
+@pytest.mark.asyncio
+async def test_route_politics_by_title():
+    client = _make_client()
+    item = {"title": "Will the senate pass the bill?"}
     assert await client._route_market(item) == MarketCategory.POLITICS
 
 
@@ -62,10 +69,24 @@ async def test_route_sports_by_title():
 
 
 @pytest.mark.asyncio
-async def test_route_general_fallback():
+async def test_route_weather_by_title():
     client = _make_client()
     item = {"title": "Will it rain tomorrow?", "condition_id": "0x123abc"}
-    assert await client._route_market(item) == MarketCategory.GENERAL
+    assert await client._route_market(item) == MarketCategory.WEATHER
+
+
+@pytest.mark.asyncio
+async def test_route_uses_gamma_category_before_keywords():
+    client = _make_client()
+    item = {"category": "Finance", "title": "crypto election token vote"}
+    assert await client._route_market(item) == MarketCategory.FINANCE
+
+
+@pytest.mark.asyncio
+async def test_route_unmapped_fallback_uses_real_category():
+    client = _make_client()
+    item = {"title": "Will the new product launch succeed?", "condition_id": "0x123abc"}
+    assert await client._route_market(item) == MarketCategory.CULTURE
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,7 @@ _SAMPLE_MARKET_STATE = {
 }
 
 
-def test_build_prompt_default_is_general():
+def test_build_prompt_default_uses_generic_fallback():
     prompt = PromptFactory.build_evaluation_prompt(_SAMPLE_MARKET_STATE)
     assert "Quantitative Developer" in prompt
 

@@ -12,7 +12,7 @@ import pytest
 
 from src.agents.ingestion.rest_client import GammaRESTClient
 from src.agents.ingestion.ws_client import CLOBWebSocketClient
-from src.schemas.market import MarketSnapshotSchema
+from src.schemas.market import MarketMetadata, MarketSnapshotSchema
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +205,38 @@ async def test_gamma_404_returns_none():
     result = await client.get_market_by_condition_id("nonexistent")
 
     assert result is None
+
+
+def test_market_metadata_normalizes_gamma_category_and_tags():
+    market = MarketMetadata.model_validate(
+        {
+            "conditionId": "cond-category",
+            "question": "Will BTC exceed $100k?",
+            "category": "Crypto",
+            "tags": [{"label": "btc"}, {"slug": "crypto"}],
+            "clobTokenIds": ["yes-token", "no-token"],
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.category == "CRYPTO"
+    assert market.tags == ["btc", "crypto"]
+
+
+def test_market_metadata_allows_missing_category():
+    market = MarketMetadata.model_validate(
+        {
+            "conditionId": "cond-missing-category",
+            "question": "Will it rain?",
+            "clobTokenIds": ["yes-token", "no-token"],
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.category is None
+    assert market.tags == []
 
 
 # ---------------------------------------------------------------------------

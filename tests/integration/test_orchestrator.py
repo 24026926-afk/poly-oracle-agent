@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.orchestrator import Orchestrator
+from src.schemas.market import MarketMetadata
 
 
 # ---------------------------------------------------------------------------
@@ -139,13 +140,23 @@ async def test_orchestrator_market_discovery_sets_condition_id(
     """active_condition_id must come from discovery, not a hardcoded value."""
     patches = _patch_heavy_deps()
     expected_cid = "0xdiscovered_market_condition_id_001"
+    discovered_market = MarketMetadata.model_validate(
+        {
+            "conditionId": expected_cid,
+            "question": "Will BTC exceed $100k?",
+            "category": "Crypto",
+            "tags": ["btc", "crypto"],
+            "clobTokenIds": ["yes-token", "no-token"],
+            "endDateIso": "2026-12-31T00:00:00+00:00",
+        }
+    )
 
     with patch.multiple("src.orchestrator", **patches):
         orch = Orchestrator(test_config)
 
     # Inject a mock discovery engine
     orch.discovery_engine = AsyncMock()
-    orch.discovery_engine.discover = AsyncMock(return_value=[expected_cid])
+    orch.discovery_engine.discover = AsyncMock(return_value=[discovered_market])
     orch.nonce_manager.initialize = AsyncMock()
 
     # Stub HTTP clients
@@ -158,7 +169,7 @@ async def test_orchestrator_market_discovery_sets_condition_id(
         await orch.nonce_manager.initialize()
         eligible = await orch.discovery_engine.discover()
         if eligible:
-            orch.active_condition_id = eligible[0]
+            await orch._activate_market(eligible[0])
 
     await run_start_briefly()
 

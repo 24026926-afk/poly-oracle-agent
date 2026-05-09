@@ -241,6 +241,27 @@ async def test_aggregator_forwards_yes_token_id_to_output():
 
 
 @pytest.mark.asyncio
+async def test_aggregator_emits_market_metadata_to_state():
+    """Gamma category, tags, and question must reach Claude routing state."""
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    agg = DataAggregator(input_queue=in_q, output_queue=out_q, condition_id="0xcond123")
+    agg._market_category = "CRYPTO"
+    agg._market_tags = ["btc", "crypto"]
+    agg._market_question = "Will BTC exceed $100k?"
+
+    snap = _make_snapshot(best_bid=0.45, best_ask=0.55, yes_token_id="tok-yes-001")
+    await agg._process_message(snap)
+
+    payload = out_q.get_nowait()
+    state = payload["state"]
+    assert state["category"] == "CRYPTO"
+    assert state["tags"] == ["btc", "crypto"]
+    assert state["question"] == "Will BTC exceed $100k?"
+    assert state["title"] == "Will BTC exceed $100k?"
+
+
+@pytest.mark.asyncio
 async def test_aggregator_retains_yes_token_id_across_messages():
     """Once set, yes_token_id should persist across subsequent emissions
     (even if a later snapshot doesn't include it)."""

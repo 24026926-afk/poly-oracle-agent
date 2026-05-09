@@ -23,10 +23,6 @@ from src.schemas.llm import (
 )
 
 _PERSONA_MAP: Dict[MarketCategory, str] = {
-    MarketCategory.CRYPTO: (
-        "You are a senior on-chain analyst and crypto derivatives trader with deep expertise "
-        "in blockchain fundamentals, tokenomics, and macro crypto market cycles."
-    ),
     MarketCategory.POLITICS: (
         "You are a political risk analyst with expertise in electoral forecasting, "
         "geopolitical event modelling, and prediction market calibration."
@@ -35,10 +31,55 @@ _PERSONA_MAP: Dict[MarketCategory, str] = {
         "You are a quantitative sports analyst specialising in statistical modelling, "
         "real-time line movement analysis, and injury-impact assessment."
     ),
-    MarketCategory.GENERAL: (
-        "You are an elite Staff Quantitative Developer at a top proprietary trading firm."
+    MarketCategory.CRYPTO: (
+        "You are a senior on-chain analyst and crypto derivatives trader with deep expertise "
+        "in blockchain fundamentals, tokenomics, and macro crypto market cycles."
+    ),
+    MarketCategory.ESPORTS: (
+        "You are a quantitative esports markets analyst with expertise in team form, "
+        "patch dynamics, roster changes, and tournament incentives."
+    ),
+    MarketCategory.IRAN: (
+        "You are a geopolitical risk analyst specializing in Iran-related policy, "
+        "regional security, sanctions, and diplomatic event forecasting."
+    ),
+    MarketCategory.FINANCE: (
+        "You are a macro and financial markets analyst with expertise in rates, "
+        "equities, commodities, credit, and prediction-market pricing."
+    ),
+    MarketCategory.GEOPOLITICS: (
+        "You are a geopolitical forecasting analyst with expertise in state behavior, "
+        "conflict risk, diplomacy, and international institutions."
+    ),
+    MarketCategory.TECH: (
+        "You are a technology sector analyst with expertise in product launches, "
+        "platform policy, AI, semiconductors, and adoption curves."
+    ),
+    MarketCategory.CULTURE: (
+        "You are a culture and media markets analyst with expertise in public attention, "
+        "entertainment dynamics, and prediction-market calibration."
+    ),
+    MarketCategory.ECONOMY: (
+        "You are an economic data analyst with expertise in inflation, labor markets, "
+        "growth indicators, central banks, and macro forecasting."
+    ),
+    MarketCategory.WEATHER: (
+        "You are a weather and climate risk analyst with expertise in forecast uncertainty, "
+        "event thresholds, and regional meteorological data."
+    ),
+    MarketCategory.MENTIONS: (
+        "You are a public-attention analyst with expertise in media monitoring, "
+        "mention-volume dynamics, and event-driven information markets."
+    ),
+    MarketCategory.ELECTIONS: (
+        "You are an elections forecaster with expertise in polling, turnout, "
+        "district fundamentals, and prediction-market calibration."
     ),
 }
+
+_DEFAULT_PERSONA = (
+    "You are an elite Staff Quantitative Developer at a top proprietary trading firm."
+)
 
 
 class PromptFactory:
@@ -68,7 +109,7 @@ class PromptFactory:
     @staticmethod
     def build_evaluation_prompt(
         market_state: Dict[str, Any],
-        category: MarketCategory = MarketCategory.GENERAL,
+        category: MarketCategory | None = None,
         sentiment: SentimentResponse | None = None,
     ) -> str:
         """
@@ -84,7 +125,7 @@ class PromptFactory:
             The complete formatted prompt string to send to the LLM.
         """
         json_schema = LLMEvaluationResponse.model_json_schema()
-        persona = _PERSONA_MAP[category]
+        persona = _PERSONA_MAP.get(category, _DEFAULT_PERSONA)
         sentiment_block = PromptFactory._build_sentiment_block(sentiment)
 
         prompt = f"""{persona}

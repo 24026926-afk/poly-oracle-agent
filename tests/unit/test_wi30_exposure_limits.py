@@ -97,13 +97,13 @@ async def test_exposure_validator_allows_entry_at_exact_global_limit_boundary():
     )
 
     open_positions = [
-        SimpleNamespace(order_size_usdc=Decimal("10"), category="GENERAL"),
-        SimpleNamespace(order_size_usdc=Decimal("15"), category="GENERAL"),
+        SimpleNamespace(order_size_usdc=Decimal("10"), category="CULTURE"),
+        SimpleNamespace(order_size_usdc=Decimal("15"), category="CULTURE"),
     ]
     passed, summary = validator.validate_entry(
         bankroll_usdc=Decimal("1000"),
         proposed_size_usdc=Decimal("5"),
-        category=MarketCategory.GENERAL,
+        category=MarketCategory.CULTURE,
         open_positions=open_positions,
     )
 

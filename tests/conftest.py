@@ -167,6 +167,8 @@ def mock_gamma_markets() -> list[MarketMetadata]:
             {
                 "conditionId": "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555",
                 "question": "Will ETH exceed $5000 by June?",
+                "category": "Crypto",
+                "tags": ["eth", "crypto"],
                 "clobTokenIds": ["tok-a1", "tok-a2"],
                 "endDateIso": _future_iso(72),
                 "active": True,
@@ -177,6 +179,8 @@ def mock_gamma_markets() -> list[MarketMetadata]:
             {
                 "conditionId": "0xbbbb2222cccc3333dddd4444eeee5555ffff6666",
                 "question": "Will BTC exceed $100k by July?",
+                "category": "Crypto",
+                "tags": ["btc", "crypto"],
                 "clobTokenIds": ["tok-b1", "tok-b2"],
                 "endDateIso": _future_iso(120),
                 "active": True,
@@ -187,6 +191,8 @@ def mock_gamma_markets() -> list[MarketMetadata]:
             {
                 "conditionId": "0xcccc3333dddd4444eeee5555ffff6666aaaa7777",
                 "question": "Will SOL exceed $500 by April?",
+                "category": "Crypto",
+                "tags": ["sol", "crypto"],
                 "clobTokenIds": ["tok-c1", "tok-c2"],
                 "endDateIso": _future_iso(-2),  # expired
                 "active": True,

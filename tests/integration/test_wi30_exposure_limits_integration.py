@@ -142,7 +142,7 @@ async def test_exposure_validator_uses_sqlite_open_positions_sum_for_limit_check
         passed, summary = validator.validate_entry(
             bankroll_usdc=Decimal("1000"),
             proposed_size_usdc=Decimal("5"),
-            category=MarketCategory.GENERAL,
+            category=MarketCategory.CULTURE,
             open_positions=open_positions,
         )
 

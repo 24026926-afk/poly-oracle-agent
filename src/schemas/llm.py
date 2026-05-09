@@ -70,10 +70,19 @@ class GatekeeperFilter(str, Enum):
 
 
 class MarketCategory(str, Enum):
-    CRYPTO = "CRYPTO"
     POLITICS = "POLITICS"
     SPORTS = "SPORTS"
-    GENERAL = "GENERAL"
+    CRYPTO = "CRYPTO"
+    ESPORTS = "ESPORTS"
+    IRAN = "IRAN"
+    FINANCE = "FINANCE"
+    GEOPOLITICS = "GEOPOLITICS"
+    TECH = "TECH"
+    CULTURE = "CULTURE"
+    ECONOMY = "ECONOMY"
+    WEATHER = "WEATHER"
+    MENTIONS = "MENTIONS"
+    ELECTIONS = "ELECTIONS"
 
 
 class ReflectionVerdict(str, Enum):

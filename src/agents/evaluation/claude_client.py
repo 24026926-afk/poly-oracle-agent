@@ -72,20 +72,8 @@ class _DecimalSafeEncoder(json.JSONEncoder):
 
 
 _ROUTING_TABLE: Dict[MarketCategory, list[str]] = {
-    MarketCategory.CRYPTO: [
-        "btc",
-        "bitcoin",
-        "eth",
-        "ethereum",
-        "crypto",
-        "token",
-        "defi",
-        "blockchain",
-        "sol",
-        "solana",
-    ],
     MarketCategory.POLITICS: [
-        "election",
+        "politics",
         "president",
         "senate",
         "congress",
@@ -97,6 +85,7 @@ _ROUTING_TABLE: Dict[MarketCategory, list[str]] = {
         "minister",
     ],
     MarketCategory.SPORTS: [
+        "sports",
         "nfl",
         "nba",
         "mlb",
@@ -111,7 +100,143 @@ _ROUTING_TABLE: Dict[MarketCategory, list[str]] = {
         "game",
         "tournament",
     ],
+    MarketCategory.CRYPTO: [
+        "btc",
+        "bitcoin",
+        "eth",
+        "ethereum",
+        "crypto",
+        "token",
+        "defi",
+        "blockchain",
+        "sol",
+        "solana",
+    ],
+    MarketCategory.ESPORTS: [
+        "esports",
+        "esport",
+        "league of legends",
+        "lol",
+        "dota",
+        "counter-strike",
+        "cs2",
+        "valorant",
+    ],
+    MarketCategory.IRAN: [
+        "iran",
+        "tehran",
+        "ayatollah",
+        "irgc",
+        "nuclear deal",
+        "sanctions",
+    ],
+    MarketCategory.FINANCE: [
+        "finance",
+        "stock",
+        "stocks",
+        "equity",
+        "fed",
+        "rates",
+        "bond",
+        "treasury",
+        "oil",
+        "gold",
+    ],
+    MarketCategory.GEOPOLITICS: [
+        "geopolitics",
+        "war",
+        "ceasefire",
+        "sanctions",
+        "nato",
+        "united nations",
+        "conflict",
+        "diplomacy",
+    ],
+    MarketCategory.TECH: [
+        "tech",
+        "technology",
+        "ai",
+        "artificial intelligence",
+        "apple",
+        "google",
+        "microsoft",
+        "tesla",
+        "chip",
+        "semiconductor",
+    ],
+    MarketCategory.CULTURE: [
+        "culture",
+        "movie",
+        "music",
+        "album",
+        "celebrity",
+        "oscars",
+        "grammys",
+        "product launch",
+    ],
+    MarketCategory.ECONOMY: [
+        "economy",
+        "inflation",
+        "cpi",
+        "jobs report",
+        "unemployment",
+        "gdp",
+        "recession",
+    ],
+    MarketCategory.WEATHER: [
+        "weather",
+        "rain",
+        "snow",
+        "hurricane",
+        "temperature",
+        "storm",
+        "tornado",
+    ],
+    MarketCategory.MENTIONS: [
+        "mentions",
+        "mention",
+        "tweet",
+        "tweets",
+        "trend",
+        "trending",
+    ],
+    MarketCategory.ELECTIONS: [
+        "election",
+        "elections",
+        "primary",
+        "ballot",
+        "poll",
+        "polling",
+        "electoral",
+    ],
 }
+
+
+def _coerce_market_category(raw: object) -> MarketCategory | None:
+    """Map raw Gamma/internal category values to MarketCategory."""
+    if raw is None:
+        return None
+    if isinstance(raw, MarketCategory):
+        return raw
+    if not isinstance(raw, str):
+        return None
+
+    normalized = raw.strip().upper().replace("-", "_").replace(" ", "_")
+    if not normalized:
+        return None
+    try:
+        return MarketCategory(normalized)
+    except ValueError:
+        try:
+            return MarketCategory[normalized]
+        except KeyError:
+            return None
+
+
+def _keyword_matches(text: str, keyword: str) -> bool:
+    if len(keyword) <= 3 and keyword.isalnum():
+        return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+    return keyword in text
 
 
 class ClaudeClient:
@@ -188,20 +313,37 @@ class ClaudeClient:
                     self.in_queue.task_done()
 
     async def _route_market(self, item: Dict[str, Any]) -> MarketCategory:
-        """Layer 0: classify market into a domain category via keyword matching."""
+        """Layer 0: classify market from Gamma category, then keyword fallback."""
+        category = _coerce_market_category(item.get("category"))
+        if category is not None:
+            return category
+
         condition_id = item.get("condition_id", "")
-        title = item.get("title", "")
-        tags = " ".join(item.get("tags", []))
+        title = item.get("title") or item.get("question", "")
+        raw_tags = item.get("tags", [])
+        tags = " ".join(str(tag) for tag in raw_tags if tag is not None)
         text = f"{condition_id} {title} {tags}".lower()
 
-        for category in [
+        fallback_order = [
             MarketCategory.CRYPTO,
             MarketCategory.POLITICS,
+            MarketCategory.ELECTIONS,
             MarketCategory.SPORTS,
-        ]:
-            if any(kw in text for kw in _ROUTING_TABLE[category]):
-                return category
-        return MarketCategory.GENERAL
+            MarketCategory.ESPORTS,
+            MarketCategory.IRAN,
+            MarketCategory.FINANCE,
+            MarketCategory.GEOPOLITICS,
+            MarketCategory.TECH,
+            MarketCategory.CULTURE,
+            MarketCategory.ECONOMY,
+            MarketCategory.WEATHER,
+            MarketCategory.MENTIONS,
+        ]
+        for fallback_category in fallback_order:
+            keywords = _ROUTING_TABLE[fallback_category]
+            if any(_keyword_matches(text, keyword) for keyword in keywords):
+                return fallback_category
+        return MarketCategory.CULTURE
 
     def _log_sentiment(
         self,
@@ -231,7 +373,7 @@ class ClaudeClient:
         """Stage A: fetch sentiment from Grok for eligible categories.
 
         - CRYPTO / POLITICS -> call GrokClient (timeout handled internally).
-        - SPORTS / GENERAL -> neutral fallback immediately (skip Grok).
+        - non-eligible categories -> neutral fallback immediately (skip Grok).
         - Any failure -> neutral fallback; never stalls the pipeline.
         """
         if category not in _GROK_ELIGIBLE:
@@ -450,6 +592,7 @@ class ClaudeClient:
                     "snapshot_id": snapshot_id,
                     "evaluation": eval_resp,
                     "yes_token_id": snapshot_yes_token_id,
+                    "category": category,
                 }
             )
         else:

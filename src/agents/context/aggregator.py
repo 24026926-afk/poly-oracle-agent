@@ -42,6 +42,9 @@ class DataAggregator:
         self._last_emit_time = 0.0
         self._last_emitted_midpoint: Optional[float] = None
         self._yes_token_id: Optional[str] = None
+        self._market_category: Optional[str] = None
+        self._market_tags: list[str] = []
+        self._market_question: str = ""
 
         # In-memory orderbook (simplified: keeping best bid/ask for now)
         self.best_bid = 0.0
@@ -155,6 +158,10 @@ class DataAggregator:
 
         state = {
             "condition_id": self.condition_id,
+            "title": self._market_question,
+            "question": self._market_question,
+            "category": self._market_category,
+            "tags": list(self._market_tags),
             "best_bid": self.best_bid,
             "best_ask": self.best_ask,
             "midpoint": current_midpoint,
@@ -265,6 +272,10 @@ class DataAggregator:
 
         state_dict = {
             "condition_id": self.condition_id,
+            "title": self._market_question,
+            "question": self._market_question,
+            "category": self._market_category,
+            "tags": list(self._market_tags),
             "best_bid": self.best_bid,
             "best_ask": self.best_ask,
             "midpoint": current_midpoint,

@@ -220,7 +220,7 @@ def _approved_ev_json_minimal() -> str:
 async def test_grok_skipped_claude_proceeds_with_neutral(
     mock_polymarket,
 ):
-    """Grok fallback for GENERAL category → Claude still evaluates."""
+    """Grok fallback for non-Grok category → Claude still evaluates."""
     cfg = _DryRunConfig(dry_run=True)
 
     in_q: asyncio.Queue = asyncio.Queue()
@@ -236,7 +236,7 @@ async def test_grok_skipped_claude_proceeds_with_neutral(
     )
     client._persist_decision = AsyncMock()
 
-    # Use a GENERAL market (not CRYPTO/POLITICS/SPORTS)
+    # Use a CULTURE market (not CRYPTO/POLITICS)
     item = {
         "snapshot_id": "snap-neutral-general",
         "yes_token_id": "tok-yes-001",
@@ -253,7 +253,7 @@ async def test_grok_skipped_claude_proceeds_with_neutral(
     }
     await client._process_evaluation(item)
 
-    # Grok is skipped for GENERAL category → Claude proceeds with neutral sentiment
+    # Grok is skipped for CULTURE category → Claude proceeds with neutral sentiment
     assert out_q.qsize() == 1
     result = out_q.get_nowait()
     assert result["evaluation"].decision_boolean is True

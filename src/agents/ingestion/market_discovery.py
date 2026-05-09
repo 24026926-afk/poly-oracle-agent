@@ -4,7 +4,7 @@ src/agents/ingestion/market_discovery.py
 Autonomous market discovery using the Gamma REST API.
 
 Fetches active markets, applies eligibility filters (metadata presence,
-time-to-resolution, exposure limits), and returns condition_ids ordered
+time-to-resolution, exposure limits), and returns market metadata ordered
 by priority.  All monetary comparisons use ``Decimal``.
 """
 
@@ -46,8 +46,8 @@ class MarketDiscoveryEngine:
     # Public API
     # ------------------------------------------------------------------
 
-    async def discover(self) -> list[str]:
-        """Return eligible condition_ids, best candidates first.
+    async def discover(self) -> list[MarketMetadata]:
+        """Return eligible markets, best candidates first.
 
         Returns an empty list (with a warning log) when no market passes
         all filters.  Never falls back to a hardcoded condition_id.
@@ -60,7 +60,7 @@ class MarketDiscoveryEngine:
         bankroll = await self._bankroll_tracker.get_total_bankroll()
         exposure_cap = Decimal(str(self._config.max_exposure_pct)) * bankroll
 
-        eligible: list[str] = []
+        eligible: list[MarketMetadata] = []
         stats = {
             "total": len(markets),
             "no_metadata": 0,
@@ -88,7 +88,7 @@ class MarketDiscoveryEngine:
                 )
                 continue
 
-            eligible.append(market.condition_id)
+            eligible.append(market)
 
         if not eligible:
             logger.warning(
