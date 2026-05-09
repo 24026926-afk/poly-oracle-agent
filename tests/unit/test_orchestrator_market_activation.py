@@ -58,11 +58,18 @@ async def test_activate_market_updates_ws_mapping_and_aggregator_context(test_co
     await orch._activate_market(market)
 
     assert orch.active_condition_id == "0xactivate001"
-    assert orch.ws_client._assets_ids == ["yes-token-001", "no-token-001"]
+    assert set(orch.ws_client._assets_ids) == {"yes-token-001", "no-token-001"}
+    # ws_client._token_id_mapping maps tokens → yes_token_id (for snapshot enrichment)
     assert orch.ws_client._token_id_mapping == {
         "yes-token-001": "yes-token-001",
         "no-token-001": "yes-token-001",
         "0xactivate001": "yes-token-001",
+    }
+    # orchestrator._condition_by_token maps tokens → condition_id (for routing)
+    assert orch._condition_by_token == {
+        "yes-token-001": "0xactivate001",
+        "no-token-001": "0xactivate001",
+        "0xactivate001": "0xactivate001",
     }
     assert orch.aggregator.condition_id == "0xactivate001"
     assert orch.aggregator.best_bid == 0.0

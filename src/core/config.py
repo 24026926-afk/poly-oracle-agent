@@ -383,7 +383,7 @@ class AppConfig(BaseSettings):
 
     # --- WI-32: Concurrent Market Tracking ---
     max_concurrent_markets: int = Field(
-        default=5,
+        default=15,
         description="Maximum number of markets tracked concurrently",
     )
     market_tracking_interval_sec: Decimal = Field(
@@ -391,7 +391,7 @@ class AppConfig(BaseSettings):
         description="Cadence for market discovery refresh",
     )
     enable_market_tracking: bool = Field(
-        default=False,
+        default=True,
         description="Enable MarketTrackingTask in Orchestrator",
     )
 

@@ -61,6 +61,7 @@ class CLOBWebSocketClient:
         self._market_repo_factory = market_repo_factory
         self._assets_ids: list[str] = assets_ids or []
         self._token_id_mapping: dict[str, str] = token_id_to_yes_token_id or {}
+        self._condition_by_token: dict[str, str] = {}
         self._subscription_sent_at: float = 0.0
         self._aggregator_map: dict[str, Any] = {}
         self._ws: websockets.ClientConnection | None = None
@@ -178,6 +179,14 @@ class CLOBWebSocketClient:
     def set_token_id_mapping(self, mapping: dict[str, str]) -> None:
         """Set the token_id → yes_token_id mapping for snapshot enrichment."""
         self._token_id_mapping = mapping
+
+    def set_condition_by_token(self, mapping: dict[str, str]) -> None:
+        """Set the token_id → condition_id routing map for diagnostics.
+
+        This is the authoritative setter — do not mutate _condition_by_token
+        directly from outside the class.
+        """
+        self._condition_by_token = mapping
 
     def register_aggregator(self, asset_id: str, aggregator: Any) -> None:
         """Register a DataAggregator for frame routing."""
@@ -408,6 +417,8 @@ class CLOBWebSocketClient:
         - last_trade_price: midpoint from last_trade_price
         - price_change: midpoint from best_bid/best_ask
         - book: midpoint from bids[0]/asks[0] lists
+
+        WI-32 fix: frames from stale (deactivated) tokens are dropped.
         """
         event_type = data.get("event_type") or data.get("event", "")
         if event_type not in _VALID_EVENTS:
@@ -416,15 +427,59 @@ class CLOBWebSocketClient:
         condition_id = data.get("market", data.get("condition_id", ""))
         asset_id = data.get("asset_id", "")
 
+        # WI-32: Drop frames from tokens not in any active market.
+        # When _condition_by_token is populated, both condition_id and
+        # asset_id must reference active markets.  A frame with a stale
+        # asset_id but no condition_id must also be rejected.
+        if self._condition_by_token:
+            active_conditions = set(self._condition_by_token.values())
+            active_tokens = set(self._condition_by_token.keys())
+            # condition_id must be active (if present)
+            if condition_id and condition_id not in active_conditions:
+                logger.debug(
+                    "ws_client.drop_stale_token",
+                    asset_id=asset_id,
+                    condition_id=condition_id,
+                    event_type=event_type,
+                    reason="stale_condition_id",
+                )
+                return
+            # asset_id must be active (if present) — catches stale tokens
+            # even when condition_id is missing from the frame
+            if asset_id and asset_id not in active_tokens:
+                logger.debug(
+                    "ws_client.drop_stale_token",
+                    asset_id=asset_id,
+                    condition_id=condition_id,
+                    event_type=event_type,
+                    reason="stale_asset_id",
+                )
+                return
+        elif asset_id and asset_id not in self._token_id_mapping:
+            logger.debug(
+                "ws_client.drop_unknown_token",
+                asset_id=asset_id,
+                event_type=event_type,
+            )
+            return
+
         # Resolve yes_token_id from the token_id mapping set by MarketDiscoveryEngine.
         # no_token_id is populated later from Gamma market metadata (clobTokenIds[1]).
         yes_token_id: str | None = None
         no_token_id: str | None = None
 
+        known_token = asset_id in self._token_id_mapping if asset_id else False
         if asset_id and asset_id in self._token_id_mapping:
             yes_token_id = self._token_id_mapping[asset_id]
         elif condition_id and condition_id in self._token_id_mapping:
             yes_token_id = self._token_id_mapping[condition_id]
+
+        logger.debug(
+            "snapshot_route_debug",
+            token_id=asset_id,
+            condition_id=condition_id,
+            known_token=known_token,
+        )
 
         # Extract best_bid/best_ask based on frame type
         best_bid = 0.0
@@ -483,6 +538,18 @@ class CLOBWebSocketClient:
                 condition_id=condition_id,
                 best_bid=best_bid,
                 best_ask=best_ask,
+            )
+            return
+
+        # last_trade_price frames lack a full orderbook — do not treat as
+        # complete market snapshots for evaluation.  They are useful for
+        # price tracking but should not produce midpoint=0.0 or malformed EV inputs.
+        if event_type == "last_trade_price" and best_bid <= 0 and best_ask <= 0:
+            logger.debug(
+                "ws_client.skip_last_trade_no_book",
+                event_type=event_type,
+                condition_id=condition_id,
+                last_trade_price=last_trade_price,
             )
             return
 
