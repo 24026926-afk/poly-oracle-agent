@@ -73,3 +73,90 @@ async def test_activate_market_updates_ws_mapping_and_aggregator_context(test_co
     assert orch.aggregator._market_tags == ["btc", "crypto"]
     assert orch.aggregator._market_question == "Will BTC exceed $100k?"
     assert orch.aggregator._yes_token_id == "yes-token-001"
+
+
+def test_select_rotation_candidate_waits_for_three_spread_failures(test_config):
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    orch.active_condition_id = "0xactive"
+    orch.aggregator = DataAggregator(
+        input_queue=asyncio.Queue(),
+        output_queue=asyncio.Queue(),
+        condition_id="0xactive",
+    )
+    orch.aggregator.best_bid = 0.001
+    orch.aggregator.best_ask = 0.500
+    active = _market(conditionId="0xactive")
+    alternate = _market(conditionId="0xalternate")
+
+    assert orch._select_rotation_candidate([active, alternate]) is None
+    assert orch._select_rotation_candidate([active, alternate]) is None
+    assert orch._consecutive_spread_failures == 2
+
+
+def test_select_rotation_candidate_returns_first_non_active_after_three_failures(
+    test_config,
+):
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    orch.active_condition_id = "0xactive"
+    orch.aggregator = DataAggregator(
+        input_queue=asyncio.Queue(),
+        output_queue=asyncio.Queue(),
+        condition_id="0xactive",
+    )
+    orch.aggregator.best_bid = 0.001
+    orch.aggregator.best_ask = 0.500
+    active = _market(conditionId="0xactive")
+    alternate = _market(conditionId="0xalternate")
+
+    assert orch._select_rotation_candidate([active, alternate]) is None
+    assert orch._select_rotation_candidate([active, alternate]) is None
+    assert orch._select_rotation_candidate([active, alternate]) == alternate
+    assert orch._consecutive_spread_failures == 3
+
+
+def test_select_rotation_candidate_does_not_rotate_single_market(test_config):
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    orch.active_condition_id = "0xactive"
+    orch.aggregator = DataAggregator(
+        input_queue=asyncio.Queue(),
+        output_queue=asyncio.Queue(),
+        condition_id="0xactive",
+    )
+    orch.aggregator.best_bid = 0.001
+    orch.aggregator.best_ask = 0.500
+    active = _market(conditionId="0xactive")
+
+    assert orch._select_rotation_candidate([active]) is None
+    assert orch._select_rotation_candidate([active]) is None
+    assert orch._select_rotation_candidate([active]) is None
+    assert orch._consecutive_spread_failures == 3
+
+
+def test_select_rotation_candidate_resets_counter_when_spread_recovers(test_config):
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    orch.active_condition_id = "0xactive"
+    orch.aggregator = DataAggregator(
+        input_queue=asyncio.Queue(),
+        output_queue=asyncio.Queue(),
+        condition_id="0xactive",
+    )
+    active = _market(conditionId="0xactive")
+    alternate = _market(conditionId="0xalternate")
+
+    orch.aggregator.best_bid = 0.001
+    orch.aggregator.best_ask = 0.500
+    assert orch._select_rotation_candidate([active, alternate]) is None
+    assert orch._consecutive_spread_failures == 1
+
+    orch.aggregator.best_bid = 0.495
+    orch.aggregator.best_ask = 0.500
+    assert orch._select_rotation_candidate([active, alternate]) is None
+    assert orch._consecutive_spread_failures == 0

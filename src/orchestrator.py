@@ -246,6 +246,7 @@ class Orchestrator:
         self.discovery_engine: MarketDiscoveryEngine | None = None
         self.broadcaster: OrderBroadcaster | None = None
         self.market_tracking_task: asyncio.Task[Any] | None = None
+        self._consecutive_spread_failures = 0
 
         # WI-46: Health server (started in start(), stopped in shutdown())
         self.health_server: HealthServer | None = None
@@ -430,6 +431,35 @@ class Orchestrator:
             token_count=len(token_ids),
             mapping_count=len(token_id_mapping),
         )
+
+    def _select_rotation_candidate(
+        self,
+        eligible: list[MarketMetadata],
+    ) -> MarketMetadata | None:
+        """Rotate only after repeated spread failures on the active market."""
+        if self.aggregator is None:
+            return None
+
+        best_bid = Decimal(str(self.aggregator.best_bid))
+        best_ask = Decimal(str(self.aggregator.best_ask))
+        if best_bid <= Decimal("0") or best_ask <= Decimal("0"):
+            self._consecutive_spread_failures = 0
+            return None
+
+        spread_pct = (best_ask - best_bid) / best_ask
+        max_spread_pct = Decimal(str(self.config.max_spread_pct))
+        if spread_pct > max_spread_pct:
+            self._consecutive_spread_failures += 1
+        else:
+            self._consecutive_spread_failures = 0
+
+        if self._consecutive_spread_failures < 3 or len(eligible) <= 1:
+            return None
+
+        for market in eligible:
+            if market.condition_id != self.active_condition_id:
+                return market
+        return None
 
     async def _execution_consumer_loop(self) -> None:
         """Consume approved decisions and broadcast signed orders."""
@@ -711,13 +741,16 @@ class Orchestrator:
                 if self.discovery_engine is None:
                     continue
                 eligible = await self.discovery_engine.discover()
-                if eligible and eligible[0].condition_id != self.active_condition_id:
+                next_market = self._select_rotation_candidate(eligible)
+                if next_market is not None:
                     logger.info(
                         "orchestrator.market_rotation",
                         old_condition_id=self.active_condition_id,
-                        new_condition_id=eligible[0].condition_id,
+                        new_condition_id=next_market.condition_id,
+                        spread_failures=self._consecutive_spread_failures,
                     )
-                    await self._activate_market(eligible[0])
+                    await self._activate_market(next_market)
+                    self._consecutive_spread_failures = 0
                 elif not eligible:
                     logger.warning(
                         "orchestrator.no_eligible_markets_on_refresh",
