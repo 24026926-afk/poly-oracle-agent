@@ -91,6 +91,7 @@ class Orchestrator:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.active_condition_id: str | None = None
+        self._active_condition_ids: list[str] = []
         self._running = False
 
         # Queue wiring per architecture sequence:
@@ -307,12 +308,13 @@ class Orchestrator:
                 "orchestrator.no_eligible_markets_at_startup",
             )
             return
-        await self._activate_market(eligible[0])
+        await self._activate_markets(eligible)
 
+        primary_condition_id = self._active_condition_ids[0]
         self.aggregator = DataAggregator(
             input_queue=self.market_queue,
             output_queue=self.prompt_queue,
-            condition_id=self.active_condition_id or eligible[0].condition_id,
+            condition_id=primary_condition_id,
         )
         self._set_aggregator_market_context(eligible[0])
         # WI-32: DataAggregator reference for concurrent tracking

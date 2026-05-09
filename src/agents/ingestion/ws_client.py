@@ -104,6 +104,7 @@ class CLOBWebSocketClient:
         self._market_repo_factory = market_repo_factory
         self._assets_ids: list[str] = assets_ids or []
         self._token_id_mapping: dict[str, str] = token_id_to_yes_token_id or {}
+        self._condition_mapping: dict[str, str] = {}
         self._subscription_sent_at: float = 0.0
         self._aggregator_map: dict[str, Any] = {}
         self._ws: websockets.ClientConnection | None = None
@@ -221,6 +222,10 @@ class CLOBWebSocketClient:
     def set_token_id_mapping(self, mapping: dict[str, str]) -> None:
         """Set the token_id → yes_token_id mapping for snapshot enrichment."""
         self._token_id_mapping = mapping
+
+    def set_condition_mapping(self, mapping: dict[str, str]) -> None:
+        """Set the token_id/condition_id → condition_id lookup for routing."""
+        self._condition_mapping = mapping
 
     def register_aggregator(self, asset_id: str, aggregator: Any) -> None:
         """Register a DataAggregator for frame routing."""
@@ -465,8 +470,16 @@ class CLOBWebSocketClient:
         condition_id = data.get("market", data.get("condition_id", ""))
         asset_id = data.get("asset_id", "")
 
-        # Resolve yes_token_id from the token_id mapping set by MarketDiscoveryEngine.
-        # no_token_id is populated later from Gamma market metadata (clobTokenIds[1]).
+        # Resolve condition_id from asset_id when the frame lacks a direct
+        # market/condition_id field (common in price_change frames).
+        if not condition_id and asset_id:
+            if asset_id in self._condition_mapping:
+                condition_id = self._condition_mapping[asset_id]
+        if not condition_id and asset_id:
+            if asset_id in self._token_id_mapping:
+                condition_id = self._token_id_mapping[asset_id]
+
+        # Resolve yes_token_id from the token_id mapping set by market discovery.
         yes_token_id: str | None = None
         no_token_id: str | None = None
 
@@ -474,6 +487,13 @@ class CLOBWebSocketClient:
             yes_token_id = self._token_id_mapping[asset_id]
         elif condition_id and condition_id in self._token_id_mapping:
             yes_token_id = self._token_id_mapping[condition_id]
+
+        logger.debug(
+            "snapshot_route_debug",
+            token_id=asset_id,
+            condition_id=condition_id,
+            known_token=asset_id in self._condition_mapping,
+        )
 
         # Extract best_bid/best_ask based on frame type
         best_bid = 0.0
@@ -523,8 +543,16 @@ class CLOBWebSocketClient:
             if best_ask == 0.0:
                 best_ask = data.get("best_ask", 0.0)
 
-        # Guard: do not emit snapshot with midpoint=0 for frames that
-        # should carry spread data.  Preserves last known midpoint downstream.
+        # Guard: do not emit snapshot for last_trade_price-only frames (no full
+        # orderbook), nor for price_change/book frames with no spread data.
+        # Preserves last known midpoint downstream.
+        if event_type == "last_trade_price":
+            logger.debug(
+                "ws_client.skip_last_trade",
+                condition_id=condition_id,
+                price=data.get("price", 0.0),
+            )
+            return
         if event_type in ("price_change", "book") and (best_bid <= 0 or best_ask <= 0):
             logger.debug(
                 "ws_client.skip_no_spread",
