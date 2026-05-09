@@ -214,6 +214,24 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 |---|---|---|---|---|
 | `DATABASE_URL` | str | `sqlite+aiosqlite:///./poly_oracle.db` | No | SQLAlchemy async connection string |
 
+#### Grok Sentiment Oracle
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `GROK_API_KEY` | SecretStr | `""` | Live Grok only | xAI/Grok API key. Missing or invalid keys fall back to neutral sentiment. |
+| `GROK_MOCKED` | bool | `true` | No | Uses deterministic sentiment and makes no live xAI request. |
+| `GROK_LIVE_ENABLED` | bool | `false` | No | Explicit gate for live xAI/Grok calls; requires `GROK_MOCKED=false` and a key. |
+| `GROK_TIMEOUT_SECONDS` | float | `2.0` | No | Per-attempt live Grok timeout. In `DRY_RUN=true`, retries can use the full configured Grok budget rather than the 2s live-trading chain cap. |
+| `GROK_MAX_RETRIES` | int | `2` | No | Maximum live Grok retries before neutral fallback. |
+
+#### Concurrent Market Tracking
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_MARKET_TRACKING` | bool | `false` | No | `false` keeps the conservative single-primary-market runtime; set `true` to fan out subscriptions. |
+| `MAX_CONCURRENT_MARKETS` | int | `5` | No | Maximum discovered markets to track when concurrent market tracking is enabled. |
+| `MARKET_TRACKING_INTERVAL_SEC` | Decimal | `10` | No | Discovery refresh cadence for the market-tracking task. |
+
 #### Operational
 
 | Variable | Type | Default | Required | Description |

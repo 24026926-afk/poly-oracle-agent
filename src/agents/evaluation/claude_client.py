@@ -54,7 +54,12 @@ def _compute_grok_budget(config: Any) -> float:
         timeout = float(config.grok_timeout_seconds)
         retries = int(config.grok_max_retries)
         raw = timeout * (retries + 1)
-        return min(raw, _CHAIN_BUDGET * 0.7)
+        chain_budget = (
+            _CHAIN_BUDGET_DRY_RUN
+            if bool(getattr(config, "dry_run", False))
+            else _CHAIN_BUDGET
+        )
+        return min(raw, chain_budget * 0.7)
     except (TypeError, ValueError):
         return 4.0  # safe default
 

@@ -41,6 +41,49 @@ _VALID_EVENTS = {"book", "price_change", "last_trade_price"}
 _HEARTBEAT_INTERVAL_S = 10
 
 
+def _event_type(data: dict[str, Any]) -> str:
+    return str(data.get("event_type") or data.get("event") or "")
+
+
+def _first_price_change(data: dict[str, Any]) -> dict[str, Any] | None:
+    price_changes = data.get("price_changes", [])
+    if not isinstance(price_changes, list):
+        return None
+
+    preferred: dict[str, Any] | None = None
+    for change in price_changes:
+        if not isinstance(change, dict):
+            continue
+        if preferred is None:
+            preferred = change
+        if change.get("best_bid") is not None and change.get("best_ask") is not None:
+            return change
+    return preferred
+
+
+def _normalise_event_frame(data: dict[str, Any]) -> dict[str, Any]:
+    """Lift nested price_change fields into the frame used by routing."""
+    normalised = dict(data)
+    event_type = _event_type(normalised)
+    if event_type:
+        normalised["event_type"] = event_type
+
+    if event_type != "price_change":
+        return normalised
+
+    first_change = _first_price_change(normalised)
+    if first_change is None:
+        return normalised
+
+    for key in ("asset_id", "market", "condition_id", "best_bid", "best_ask"):
+        if (
+            normalised.get(key) in (None, "")
+            and first_change.get(key) not in (None, "")
+        ):
+            normalised[key] = first_change[key]
+    return normalised
+
+
 class CLOBWebSocketClient:
     """Streams live CLOB orderbook events and enqueues MarketSnapshots."""
 
@@ -365,30 +408,6 @@ class CLOBWebSocketClient:
                     )
                     return  # do not treat as transport error
 
-        # WI-32: Route to per-market aggregator via asset_id before standard processing
-        asset_id = data.get("asset_id") if isinstance(data, dict) else None
-        if asset_id and asset_id in self._aggregator_map:
-            aggregator = self._aggregator_map[asset_id]
-            aggregator.process_frame(data)
-            aggregator.frame_count += 1
-            aggregator.last_seen_utc = datetime.now(timezone.utc)
-            return  # Routed — skip standard persistence path
-
-        if asset_id is not None and asset_id not in self._aggregator_map:
-            logger.warning(
-                "ws.frame_unrouted",
-                asset_id=asset_id,
-                frame_type=data.get("event_type", "unknown")
-                if isinstance(data, dict)
-                else "unknown",
-            )
-        elif isinstance(data, dict) and "asset_id" not in data:
-            logger.warning(
-                "ws.frame_unrouted",
-                asset_id=None,
-                frame_type=data.get("event_type", "unknown"),
-            )
-
         # The CLOB WS may send list-wrapped messages (batches or ack frames).
         # Normalise to a list of dicts and process each individually.
         if isinstance(data, list):
@@ -399,7 +418,36 @@ class CLOBWebSocketClient:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            await self._process_event(item, raw_msg)
+            frame = _normalise_event_frame(item)
+            event_type = _event_type(frame)
+            asset_id = frame.get("asset_id")
+
+            # WI-32: Route to per-market aggregator via asset_id before the
+            # standard persistence/enqueue path.  Price-change frames often
+            # carry asset_id inside price_changes[], so routing must happen
+            # after normalisation.
+            if asset_id and asset_id in self._aggregator_map:
+                aggregator = self._aggregator_map[asset_id]
+                aggregator.process_frame(frame)
+                aggregator.frame_count += 1
+                aggregator.last_seen_utc = datetime.now(timezone.utc)
+                continue
+
+            if self._aggregator_map and event_type in _VALID_EVENTS:
+                if asset_id is not None and asset_id not in self._aggregator_map:
+                    logger.warning(
+                        "ws.frame_unrouted",
+                        asset_id=asset_id,
+                        frame_type=event_type,
+                    )
+                elif "asset_id" not in frame:
+                    logger.warning(
+                        "ws.frame_unrouted",
+                        asset_id=None,
+                        frame_type=event_type,
+                    )
+
+            await self._process_event(frame, raw_msg)
 
     async def _process_event(self, data: dict, raw_msg: str) -> None:
         """Process a single event dict from the WS stream.
@@ -409,7 +457,8 @@ class CLOBWebSocketClient:
         - price_change: midpoint from best_bid/best_ask
         - book: midpoint from bids[0]/asks[0] lists
         """
-        event_type = data.get("event_type") or data.get("event", "")
+        data = _normalise_event_frame(data)
+        event_type = _event_type(data)
         if event_type not in _VALID_EVENTS:
             return
 
