@@ -187,7 +187,6 @@ async def test_orchestrator_start_registers_portfolio_aggregator_task_when_enabl
         "DiscoveryTask",
         "ExitScanTask",
         "PortfolioAggregatorTask",
-        "MarketTrackingTask",
     ]
 
 
@@ -267,7 +266,6 @@ async def test_orchestrator_start_does_not_register_portfolio_task_when_disabled
         "ExecutionTask",
         "DiscoveryTask",
         "ExitScanTask",
-        "MarketTrackingTask",
     ]
 
 
