@@ -402,6 +402,82 @@ class AppConfig(BaseSettings):
         description="Enable MarketTrackingTask in Orchestrator",
     )
 
+    # --- WI-52: LLM Cost Guard and Cognitive Circuit Breaker ---
+    enable_llm_cost_guard: bool = Field(
+        default=True,
+        description="Master enable for LLM budget enforcement before provider calls",
+    )
+    llm_hourly_call_limit: int = Field(
+        default=60,
+        ge=0,
+        description="Max LLM provider calls per hour (0=unlimited)",
+    )
+    llm_daily_call_limit: int = Field(
+        default=500,
+        ge=0,
+        description="Max LLM provider calls per day (0=unlimited)",
+    )
+    llm_daily_token_limit: int = Field(
+        default=0,
+        ge=0,
+        description="Max total tokens consumed per day (0=unlimited)",
+    )
+    llm_daily_cost_limit_usd: Decimal = Field(
+        default=Decimal("10"),
+        ge=0,
+        description="Max estimated LLM cost per day in USD (0=unlimited)",
+    )
+    llm_market_hourly_call_limit: int = Field(
+        default=0,
+        ge=0,
+        description="Max calls per market per hour (0=unlimited)",
+    )
+    llm_repeated_hold_threshold: int = Field(
+        default=5,
+        ge=1,
+        description="Consecutive HOLD outcomes before market cooldown",
+    )
+    llm_repeated_invalid_threshold: int = Field(
+        default=3,
+        ge=1,
+        description="Consecutive invalid/malformed outputs before market cooldown",
+    )
+    llm_market_cooldown_seconds: Decimal = Field(
+        default=Decimal("300"),
+        ge=0,
+        description="Seconds a market stays in cooldown after repeated failures",
+    )
+    llm_fallback_tokens_per_call: int = Field(
+        default=4096,
+        gt=0,
+        description="Conservative fallback token count when provider usage is missing",
+    )
+    llm_cost_per_input_token_usd: Decimal = Field(
+        default=Decimal("0.0000015"),
+        ge=0,
+        description="Estimated cost per input token in USD",
+    )
+    llm_cost_per_output_token_usd: Decimal = Field(
+        default=Decimal("0.000006"),
+        ge=0,
+        description="Estimated cost per output token in USD",
+    )
+
+    @field_validator(
+        "llm_daily_cost_limit_usd",
+        "llm_market_cooldown_seconds",
+        "llm_cost_per_input_token_usd",
+        "llm_cost_per_output_token_usd",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_llm_cost_fields(cls, value: Any) -> Decimal:
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
     # --- Validators ---
 
     @model_validator(mode="before")

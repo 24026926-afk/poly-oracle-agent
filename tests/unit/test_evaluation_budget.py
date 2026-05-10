@@ -74,6 +74,18 @@ class _DryRunConfig:
 
     def __init__(self, *, dry_run: bool):
         self.dry_run = dry_run
+        self.enable_llm_cost_guard = False
+        self.llm_repeated_hold_threshold = 5
+        self.llm_repeated_invalid_threshold = 3
+        self.llm_market_cooldown_seconds = 300
+        self.llm_fallback_tokens_per_call = 4096
+        self.llm_hourly_call_limit = 60
+        self.llm_daily_call_limit = 500
+        self.llm_daily_token_limit = 0
+        self.llm_daily_cost_limit_usd = 10
+        self.llm_market_hourly_call_limit = 0
+        self.llm_cost_per_input_token_usd = 0.0000015
+        self.llm_cost_per_output_token_usd = 0.000006
         self.anthropic_api_key = MagicMock()
         self.anthropic_api_key.get_secret_value.return_value = "sk-test"
         self.anthropic_model = "claude-test"

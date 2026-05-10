@@ -234,11 +234,17 @@ class Orchestrator:
             db_session_factory=AsyncSessionLocal,
         )
         self.prompt_factory = PromptFactory()
+
+        # WI-47: Metrics registry — created before ClaudeClient so WI-52
+        # guards can receive metrics for LLM cost observability.
+        self.metrics_registry: MetricsRegistry = MetricsRegistry()
+
         self.claude_client = ClaudeClient(
             in_queue=self.prompt_queue,
             out_queue=self.execution_queue,
             config=self.config,
             db_session_factory=AsyncSessionLocal,
+            metrics=self.metrics_registry,
         )
 
         # Initialized in start() after discovery
@@ -264,8 +270,7 @@ class Orchestrator:
                 dry_run=self.config.dry_run,
             )
 
-        # WI-47: Metrics registry and server
-        self.metrics_registry: MetricsRegistry = MetricsRegistry()
+        # WI-47: Metrics server (registry created above for WI-52)
         self.metrics_server: MetricsServer | None = None
         if self.config.enable_metrics_server:
             self.metrics_server = MetricsServer(

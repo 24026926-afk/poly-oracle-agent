@@ -1,9 +1,27 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-08
-**Version:** 0.14.4
-**Status:** Phase 14 COMPLETE — archived
-**Active WI:** None — awaiting Phase 15 PRD
+**Last Updated:** 2026-05-10
+**Version:** 0.15.1-dev
+**Status:** Phase 15 IN PROGRESS — WI-52 complete, WI-53/54/55 ready
+**Active WI:** None — Phase 15 WIs ready for `/wi-start`
+
+---
+
+## Phase 15 In Progress
+
+- **PRD:** `docs/PRD-v15.0.md`
+- **Planning Date:** 2026-05-10
+- **Objective:** Prevent uncontrolled LLM spend, fix repeated single-market evaluation loops, and add DeepSeek V4 Pro as a lower-cost configurable evaluation provider while preserving `DRY_RUN=true`, Gatekeeper authority, Decimal integrity, and auditability.
+- **Operational trigger:** A DigitalOcean paper-trading run exhausted Claude usage while the bot remained stuck evaluating one market. Phase 15 treats this as a financial-integrity issue, not a normal provider preference.
+- **Scope guard:** `DRY_RUN=false`, live trading approval, live signing, live broadcasting, Gatekeeper replacement, full-time Claude/DeepSeek shadow mode, prompt-strategy redesign, and adding the `openai` SDK remain out of scope.
+- **Provider approach:** DeepSeek must be integrated through DeepSeek's Anthropic-compatible endpoint using the existing `anthropic` SDK unless implementation proves that path unsafe and escalates before dependency changes.
+- **WIs completed:**
+  - **WI-52 — LLM Cost Guard and Cognitive Circuit Breaker:** COMPLETE. `src/agents/evaluation/llm_cost_guard.py` (LLMBudgetGuard + MarketCognitiveCircuitBreaker), `src/schemas/llm.py` (11 new schemas), `src/core/config.py` (12 new fields), `src/observability/metrics.py` (6 new metrics), `src/orchestrator.py` (metrics wired), `docs/runbooks/llm-cost-guard.md`. 115 new tests (100 unit + 15 integration). Branch: `feat/wi-52-llm-cost-guard-and-cognitive-circuit-breaker`, merge commit: `b716f29`.
+- **WIs ready for implementation:**
+  - WI-53 — Market Eligibility, Evaluation Deduplication, and Queue Backpressure
+  - WI-54 — Configurable DeepSeek Provider via Anthropic-Compatible Endpoint
+  - WI-55 — DeepSeek Backtest Calibration and Paper-Trading Readiness Gate
+- **Deliverable boundary:** Per `AGENTS.md`, `/prd` created only `docs/PRD-v15.0.md` and updated `STATE.md`. WI business-logic and implementation-prompt deliverables must be generated one at a time via `/wi-start {WI}`.
 
 ---
 
