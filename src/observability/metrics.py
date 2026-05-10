@@ -323,6 +323,37 @@ class MetricsRegistry:
             self._counters[name_count] = {}
             self._counter_helps[name_count] = f"{help_text} — call count"
 
+        # WI-52: LLM cost guard metrics
+        for name, help_text in [
+            (
+                "poly_agent_llm_calls_total",
+                "Total LLM provider calls by type (primary/reflection)",
+            ),
+            (
+                "poly_agent_llm_budget_blocks_total",
+                "Total LLM budget blocks by reason",
+            ),
+            (
+                "poly_agent_llm_cooldown_blocks_total",
+                "Total per-market cognitive cooldown blocks",
+            ),
+            (
+                "poly_agent_llm_tokens_total",
+                "Total tokens consumed by LLM calls (input + output)",
+            ),
+            (
+                "poly_agent_llm_estimated_spend_usd_total",
+                "Total estimated LLM spend in USD",
+            ),
+        ]:
+            self._counters[name] = {}
+            self._counter_helps[name] = help_text
+
+        self._gauges["poly_agent_active_cooldown_count"] = {}
+        self._gauge_helps["poly_agent_active_cooldown_count"] = (
+            "Number of markets currently in LLM cooldown"
+        )
+
     # ── Public mutation API ────────────────────────────────────────────
 
     async def record_decision(self, event: DecisionMetricEvent) -> None:
@@ -426,6 +457,52 @@ class MetricsRegistry:
                 str(max(0, active_asset_count))
             )
             self._last_heartbeat_at_utc = datetime.now(timezone.utc)
+
+    # ── WI-52: LLM cost guard metrics ────────────────────────────────
+
+    async def record_llm_call(self, *, call_type: str) -> None:
+        """Increment LLM call counter by type."""
+        label_key = _serialize_labels({"call_type": call_type})
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_calls_total"]
+            current = counter.get(label_key, Decimal("0"))
+            counter[label_key] = current + Decimal("1")
+
+    async def record_llm_budget_block(self, *, reason: str) -> None:
+        """Increment budget block counter by reason."""
+        label_key = _serialize_labels({"reason": reason})
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_budget_blocks_total"]
+            current = counter.get(label_key, Decimal("0"))
+            counter[label_key] = current + Decimal("1")
+
+    async def record_llm_cooldown_block(self) -> None:
+        """Increment per-market cooldown block counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_cooldown_blocks_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal("1")
+
+    async def record_llm_tokens(self, *, total_tokens: int) -> None:
+        """Add to total token consumption counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_tokens_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal(str(total_tokens))
+
+    async def record_llm_estimated_spend(self, *, cost_usd: Decimal) -> None:
+        """Add to estimated spend counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_estimated_spend_usd_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + cost_usd
+
+    async def set_active_cooldown_count(self, count: int) -> None:
+        """Set the active cooldown count gauge."""
+        async with self._lock:
+            self._gauges["poly_agent_active_cooldown_count"][""] = Decimal(
+                str(max(0, count))
+            )
 
     # ── Read API ───────────────────────────────────────────────────────
 

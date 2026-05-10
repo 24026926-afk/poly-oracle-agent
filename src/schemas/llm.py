@@ -304,6 +304,227 @@ class GatekeeperAudit(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# WI-52: LLM Cost Guard and Cognitive Circuit Breaker schemas
+# ---------------------------------------------------------------------------
+
+
+class LLMProviderName(str, Enum):
+    """Supported LLM provider identifiers."""
+
+    ANTHROPIC = "anthropic"
+    DEEPSEEK = "deepseek"
+
+
+class LLMBudgetBlockReason(str, Enum):
+    """Typed reasons for LLM budget blocks."""
+
+    HOURLY_CALL_LIMIT_EXHAUSTED = "hourly_call_limit_exhausted"
+    DAILY_CALL_LIMIT_EXHAUSTED = "daily_call_limit_exhausted"
+    DAILY_TOKEN_LIMIT_EXHAUSTED = "daily_token_limit_exhausted"
+    DAILY_COST_LIMIT_EXHAUSTED = "daily_cost_limit_exhausted"
+    PER_MARKET_HOURLY_LIMIT_EXHAUSTED = "per_market_hourly_limit_exhausted"
+
+
+class MarketCooldownReason(str, Enum):
+    """Typed reasons for per-market cognitive cooldown."""
+
+    REPEATED_HOLD = "repeated_hold"
+    REPEATED_INVALID_JSON = "repeated_invalid_json"
+    REPEATED_LOW_CONFIDENCE = "repeated_low_confidence"
+    REPEATED_SKIP = "repeated_skip"
+    REPEATED_PROVIDER_ERROR = "repeated_provider_error"
+
+
+class LLMUsageRecord(BaseModel):
+    """Provider usage record for a single LLM call.
+
+    All cost/token fields use Decimal — raw float is forbidden.
+    """
+
+    model_config = {"frozen": True}
+
+    provider: LLMProviderName
+    model_name: str
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    estimated_cost_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    is_estimated: bool = Field(
+        default=False,
+        description="True when usage fields were missing/malformed and fallback was used",
+    )
+    timestamp_utc: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    @field_validator("estimated_cost_usd", mode="before")
+    @classmethod
+    def _reject_float_cost(cls, v: object) -> Decimal:
+        if isinstance(v, float):
+            raise ValueError("Float cost values are forbidden; use Decimal")
+        if isinstance(v, Decimal):
+            return v
+        return Decimal(str(v))
+
+
+class LLMBudgetConfig(BaseModel):
+    """Configuration for LLM budget enforcement.
+
+    All limits use Decimal for cost/token values.
+    """
+
+    model_config = {"frozen": True}
+
+    enabled: bool = Field(default=False)
+    hourly_call_limit: int = Field(
+        default=0, ge=0, description="Max LLM calls per hour (0=unlimited)"
+    )
+    daily_call_limit: int = Field(
+        default=0, ge=0, description="Max LLM calls per day (0=unlimited)"
+    )
+    daily_token_limit: int = Field(
+        default=0, ge=0, description="Max total tokens per day (0=unlimited)"
+    )
+    daily_cost_limit_usd: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        description="Max estimated cost per day in USD (0=unlimited)",
+    )
+    per_market_hourly_call_limit: int = Field(
+        default=0, ge=0, description="Max calls per market per hour (0=unlimited)"
+    )
+    fallback_tokens_per_call: int = Field(
+        default=4096,
+        gt=0,
+        description="Conservative fallback token count when provider usage is missing",
+    )
+    cost_per_input_token_usd: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        description="Estimated cost per input token in USD",
+    )
+    cost_per_output_token_usd: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        description="Estimated cost per output token in USD",
+    )
+
+    @field_validator(
+        "daily_cost_limit_usd",
+        "cost_per_input_token_usd",
+        "cost_per_output_token_usd",
+        mode="before",
+    )
+    @classmethod
+    def _reject_float_decimal_fields(cls, v: object) -> Decimal:
+        if isinstance(v, float):
+            raise ValueError("Float values are forbidden; use Decimal")
+        if isinstance(v, Decimal):
+            return v
+        try:
+            return Decimal(str(v))
+        except Exception:
+            raise ValueError(f"Cannot coerce to Decimal: {type(v).__name__}")
+
+
+class LLMBudgetWindow(BaseModel):
+    """Tracks call counts within hourly and daily windows."""
+
+    model_config = {"frozen": False}
+
+    hourly_calls: int = Field(default=0, ge=0)
+    daily_calls: int = Field(default=0, ge=0)
+    hourly_window_start_utc: Optional[datetime] = None
+    daily_window_start_utc: Optional[datetime] = None
+
+
+class LLMBudgetState(BaseModel):
+    """Current budget state — whether a call is allowed."""
+
+    model_config = {"frozen": True}
+
+    allowed: bool
+    block_reason: Optional[LLMBudgetBlockReason] = None
+    remaining_calls_hourly: Optional[int] = None
+    remaining_calls_daily: Optional[int] = None
+    remaining_tokens_daily: Optional[int] = None
+    remaining_cost_daily_usd: Optional[Decimal] = None
+
+    @field_validator("remaining_cost_daily_usd", mode="before")
+    @classmethod
+    def _reject_float_cost(cls, v: object) -> Optional[Decimal]:
+        if v is None:
+            return None
+        if isinstance(v, float):
+            raise ValueError("Float cost values are forbidden; use Decimal")
+        if isinstance(v, Decimal):
+            return v
+        return Decimal(str(v))
+
+
+class LLMBudgetDecision(BaseModel):
+    """Decision from budget guard: allow or block."""
+
+    model_config = {"frozen": True}
+
+    allowed: bool
+    block_reason: Optional[LLMBudgetBlockReason] = None
+    call_type: str = Field(
+        default="primary",
+        description="primary or reflection",
+    )
+
+
+class MarketCognitiveState(BaseModel):
+    """Tracks repeated outcomes for a single market."""
+
+    model_config = {"frozen": False}
+
+    market_key: str
+    consecutive_non_actionable: int = Field(default=0, ge=0)
+    consecutive_invalid: int = Field(default=0, ge=0)
+    last_outcome_type: Optional[str] = None
+    cooldown_active_until_utc: Optional[datetime] = None
+    cooldown_reason: Optional[MarketCooldownReason] = None
+
+
+class MarketCooldownDecision(BaseModel):
+    """Whether a market is currently in cooldown."""
+
+    model_config = {"frozen": True}
+
+    in_cooldown: bool
+    cooldown_reason: Optional[MarketCooldownReason] = None
+    expires_at_utc: Optional[datetime] = None
+
+
+class LLMCostGuardSnapshot(BaseModel):
+    """Audit snapshot of cost guard state at evaluation time.
+
+    Secret-free — no prompts, keys, or high-cardinality identifiers.
+    """
+
+    model_config = {"frozen": True}
+
+    budget_enabled: bool
+    budget_allowed: bool
+    budget_block_reason: Optional[LLMBudgetBlockReason] = None
+    cooldown_in_effect: bool = False
+    cooldown_market_key: Optional[str] = None
+    cooldown_reason: Optional[MarketCooldownReason] = None
+    estimated_spend_usd: Decimal = Field(default=Decimal("0"), ge=0)
+
+    @field_validator("estimated_spend_usd", mode="before")
+    @classmethod
+    def _reject_float_spend(cls, v: object) -> Decimal:
+        if isinstance(v, float):
+            raise ValueError("Float cost values are forbidden; use Decimal")
+        if isinstance(v, Decimal):
+            return v
+        return Decimal(str(v))
+
+
+# ---------------------------------------------------------------------------
 # Primary Schema: LLMEvaluationResponse  (THE GATEKEEPER)
 # ---------------------------------------------------------------------------
 class LLMEvaluationResponse(BaseModel):

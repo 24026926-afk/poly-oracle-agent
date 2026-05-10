@@ -6,6 +6,7 @@ Parses prompts via the Gatekeeper (LLMEvaluationResponse) and logs to the DB.
 """
 
 import asyncio
+import hashlib
 import json
 import re
 import time
@@ -21,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
 from src.schemas.llm import (
+    LLMProviderName,
+    LLMBudgetBlockReason,
     LLMEvaluationResponse,
     MarketCategory,
     ReflectionResponse,
@@ -29,6 +32,10 @@ from src.schemas.llm import (
 )
 from src.agents.context.prompt_factory import PromptFactory
 from src.agents.evaluation.grok_client import GrokClient, NEUTRAL_SENTIMENT
+from src.agents.evaluation.llm_cost_guard import (
+    LLMBudgetGuard,
+    MarketCognitiveCircuitBreaker,
+)
 from src.agents.execution.polymarket_client import PolymarketClient
 from src.db.models import AgentDecisionLog
 from src.db.repositories.decision_repo import DecisionRepository
@@ -233,6 +240,13 @@ def _coerce_market_category(raw: object) -> MarketCategory | None:
             return None
 
 
+def _hash_market_key(market_key: str) -> str:
+    """Hash a market key to a short, low-cardinality identifier for logs.
+
+    Prevents raw condition_id exposure in log output per WI-52."""
+    return hashlib.sha256(market_key.encode()).hexdigest()[:8]
+
+
 def _keyword_matches(text: str, keyword: str) -> bool:
     if len(keyword) <= 3 and keyword.isalnum():
         return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
@@ -255,12 +269,14 @@ class ClaudeClient:
         decision_repo_factory: Callable[
             [AsyncSession], DecisionRepository
         ] = DecisionRepository,
+        metrics: Any = None,
     ):
         self.in_queue = in_queue
         self.out_queue = out_queue
         self.config = config
         self._db_factory = db_session_factory
         self._decision_repo_factory = decision_repo_factory
+        self._metrics = metrics
         self.client = AsyncAnthropic(
             api_key=self.config.anthropic_api_key.get_secret_value()
         )
@@ -276,6 +292,10 @@ class ClaudeClient:
         )
         self._running = False
         self.model = self.config.anthropic_model
+        self._budget_guard = LLMBudgetGuard(self.config, metrics=self._metrics)
+        self._cognitive_breaker = MarketCognitiveCircuitBreaker(
+            self.config, metrics=self._metrics
+        )
 
     async def start(self) -> None:
         """Starts the evaluation loop."""
@@ -474,6 +494,23 @@ class ClaudeClient:
         # Stage A: Fetch sentiment
         sentiment = await self._fetch_sentiment(category, market_state, snapshot_id)
 
+        # WI-52: Derive market key for budget/cooldown tracking
+        market_key = market_state.get("condition_id", "unknown")
+
+        # WI-52: Check cognitive cooldown before any provider call
+        cooldown_decision = await self._cognitive_breaker.check_cooldown(market_key)
+        if cooldown_decision.in_cooldown:
+            logger.warning(
+                "market_in_cooldown — skipping evaluation.",
+                market_key=_hash_market_key(market_key),
+                reason=cooldown_decision.cooldown_reason.value if cooldown_decision.cooldown_reason else None,
+                snapshot_id=snapshot_id,
+            )
+            # WI-52: Emit cooldown block metric for actual blocked evaluation
+            if self._metrics is not None:
+                asyncio.ensure_future(self._metrics.record_llm_cooldown_block())
+            return
+
         # Stage B: Primary evaluation candidate (no Gatekeeper validation yet)
         prompt = PromptFactory.build_evaluation_prompt(
             market_state=market_state,
@@ -489,7 +526,7 @@ class ClaudeClient:
             return
         try:
             primary_result = await asyncio.wait_for(
-                self._get_primary_candidate(prompt, snapshot_id),
+                self._get_primary_candidate(prompt, snapshot_id, market_key=market_key),
                 timeout=remaining,
             )
         except asyncio.TimeoutError:
@@ -517,6 +554,7 @@ class ClaudeClient:
             sentiment=sentiment,
             snapshot_id=snapshot_id,
             budget=remaining_budget,
+            market_key=market_key,
         )
 
         # Stage C→D: Apply reflection verdict to choose final candidate
@@ -598,6 +636,25 @@ class ClaudeClient:
         else:
             logger.info("Trade REJECTED/HOLD by Gatekeeper.", snapshot_id=snapshot_id)
 
+        # WI-52: Record outcome for cognitive cooldown tracking
+        action = eval_resp.recommended_action.value
+        if action == "HOLD":
+            await self._cognitive_breaker.record_outcome(
+                market_key=market_key, outcome_type="hold",
+            )
+        elif action == "SKIP":
+            await self._cognitive_breaker.record_outcome(
+                market_key=market_key, outcome_type="skip",
+            )
+        elif action == "BUY":
+            await self._cognitive_breaker.record_outcome(
+                market_key=market_key, outcome_type="buy",
+            )
+        elif action == "SELL":
+            await self._cognitive_breaker.record_outcome(
+                market_key=market_key, outcome_type="sell",
+            )
+
     def _extract_json(self, text: str) -> str:
         """Attempts to cleanly extract a JSON object from markdown or raw text."""
         match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -621,15 +678,32 @@ class ClaudeClient:
         prompt: str,
         snapshot_id: str,
         max_retries: int = 2,
+        market_key: Optional[str] = None,
     ) -> Optional[tuple[str, str, Dict[str, int]]]:
         """Make primary LLM call and return (raw_text, candidate_json, token_usage).
 
         Retries on unparseable JSON but does NOT run Gatekeeper validation —
         that happens after reflection (Stage D).
+
+        WI-52: Budget guard is enforced before EVERY paid provider call,
+        including each retry attempt.
         """
         messages = [{"role": "user", "content": prompt}]
 
         for attempt in range(max_retries + 1):
+            # WI-52: Enforce budget before EACH paid call (including retries)
+            budget_decision = await self._budget_guard.check_budget(
+                call_type="primary", market_key=market_key,
+            )
+            if not budget_decision.allowed:
+                logger.warning(
+                    "llm_budget_blocked — skipping primary provider call.",
+                    reason=budget_decision.block_reason.value if budget_decision.block_reason else None,
+                    snapshot_id=snapshot_id,
+                    attempt=attempt + 1,
+                )
+                return None
+
             try:
                 resp = await self.client.messages.create(
                     model=self.model,
@@ -643,10 +717,22 @@ class ClaudeClient:
                 # Verify parseable JSON (structural only, no Gatekeeper filters)
                 json.loads(json_str)
 
+                # WI-52: Safely extract usage — may be missing/malformed
+                _usage = getattr(resp, "usage", None)
                 token_usage = {
-                    "input": resp.usage.input_tokens,
-                    "output": resp.usage.output_tokens,
+                    "input": getattr(_usage, "input_tokens", None),
+                    "output": getattr(_usage, "output_tokens", None),
                 }
+
+                # WI-52: Record usage after successful call (fallback handled internally)
+                await self._budget_guard.record_usage(
+                    provider=LLMProviderName.ANTHROPIC,
+                    model_name=self.model,
+                    input_tokens=token_usage["input"],
+                    output_tokens=token_usage["output"],
+                    market_key=market_key,
+                )
+
                 return raw_content, json_str, token_usage
 
             except json.JSONDecodeError:
@@ -654,6 +740,19 @@ class ClaudeClient:
                     "Primary candidate JSON parse error. Re-prompting.",
                     attempt=attempt + 1,
                     snapshot_id=snapshot_id,
+                )
+                # WI-52: Record fallback token accounting for invalid JSON
+                await self._budget_guard.record_usage(
+                    provider=LLMProviderName.ANTHROPIC,
+                    model_name=self.model,
+                    input_tokens=None,
+                    output_tokens=None,
+                    market_key=market_key,
+                )
+                # WI-52: Record invalid JSON outcome for cooldown tracking
+                await self._cognitive_breaker.record_outcome(
+                    market_key=market_key or "unknown",
+                    outcome_type="invalid_json",
                 )
                 if attempt < max_retries:
                     messages.append({"role": "assistant", "content": raw_content})
@@ -671,6 +770,12 @@ class ClaudeClient:
                     error=str(e),
                     attempt=attempt + 1,
                     snapshot_id=snapshot_id,
+                )
+                # WI-52: Record provider error
+                await self._budget_guard.record_provider_error(market_key=market_key)
+                await self._cognitive_breaker.record_outcome(
+                    market_key=market_key or "unknown",
+                    outcome_type="provider_error",
                 )
                 if attempt == max_retries:
                     return None
@@ -690,13 +795,33 @@ class ClaudeClient:
         sentiment: SentimentResponse,
         snapshot_id: str,
         budget: float,
+        market_key: Optional[str] = None,
     ) -> ReflectionResponse:
         """Execute single-pass adversarial reflection on the primary candidate.
 
         Uses strict remaining shared budget. If budget is exhausted (<=0),
         the API call is skipped entirely and a conservative REJECTED verdict
         is returned immediately.
+
+        WI-52: Budget guard is enforced before every paid reflection call.
         """
+        # WI-52: Enforce budget before paid reflection call
+        reflection_budget_decision = await self._budget_guard.check_budget(
+            call_type="reflection", market_key=market_key,
+        )
+        if not reflection_budget_decision.allowed:
+            logger.warning(
+                "llm_budget_blocked — skipping reflection provider call.",
+                reason=reflection_budget_decision.block_reason.value if reflection_budget_decision.block_reason else None,
+                market_key=_hash_market_key(market_key) if market_key else None,
+                snapshot_id=snapshot_id,
+            )
+            return ReflectionResponse(
+                verdict=ReflectionVerdict.REJECTED,
+                audit_note="BUDGET_BLOCKED_REFLECTION",
+                latency_ms=0,
+            )
+
         if budget <= 0:
             logger.warning(
                 "Budget exhausted before reflection. Defaulting to REJECTED.",
@@ -747,6 +872,16 @@ class ClaudeClient:
                     latency_ms=reflection.latency_ms,
                 )
 
+            # WI-52: Record usage for successful reflection call (fallback handled internally)
+            _usage = getattr(resp, "usage", None)
+            await self._budget_guard.record_usage(
+                provider=LLMProviderName.ANTHROPIC,
+                model_name=self.model,
+                input_tokens=getattr(_usage, "input_tokens", None),
+                output_tokens=getattr(_usage, "output_tokens", None),
+                market_key=market_key,
+            )
+
             return reflection
 
         except asyncio.TimeoutError:
@@ -755,6 +890,8 @@ class ClaudeClient:
                 snapshot_id=snapshot_id,
                 budget_s=round(budget, 3),
             )
+            # WI-52: Record error with fallback accounting
+            await self._budget_guard.record_provider_error(market_key=market_key)
             return ReflectionResponse(
                 verdict=ReflectionVerdict.REJECTED,
                 audit_note="BUDGET_EXHAUSTED",
@@ -767,6 +904,8 @@ class ClaudeClient:
                 snapshot_id=snapshot_id,
                 error=str(exc),
             )
+            # WI-52: Record error with fallback accounting
+            await self._budget_guard.record_provider_error(market_key=market_key)
             return ReflectionResponse(
                 verdict=ReflectionVerdict.REJECTED,
                 audit_note=f"REFLECTION_ERROR: {exc}",
@@ -809,11 +948,30 @@ class ClaudeClient:
         return json.dumps(candidate)
 
     async def _evaluate_with_retries(
-        self, prompt: str, snapshot_id: str, max_retries: int = 2
+        self, prompt: str, snapshot_id: str, max_retries: int = 2,
+        market_key: Optional[str] = None,
     ) -> Optional[tuple[LLMEvaluationResponse, str, Dict[str, int]]]:
+        """Direct evaluation path with budget guard enforcement.
+
+        WI-52: Budget guard is enforced before EVERY paid provider call,
+        including each retry attempt.
+        """
         messages = [{"role": "user", "content": prompt}]
 
         for attempt in range(max_retries + 1):
+            # WI-52: Enforce budget before EACH paid call (including retries)
+            budget_decision = await self._budget_guard.check_budget(
+                call_type="primary", market_key=market_key,
+            )
+            if not budget_decision.allowed:
+                logger.warning(
+                    "llm_budget_blocked — skipping _evaluate_with_retries call.",
+                    reason=budget_decision.block_reason.value if budget_decision.block_reason else None,
+                    snapshot_id=snapshot_id,
+                    attempt=attempt + 1,
+                )
+                return None
+
             try:
                 logger.debug(
                     "Calling Anthropic API...",
@@ -833,10 +991,21 @@ class ClaudeClient:
                 try:
                     eval_response = LLMEvaluationResponse.model_validate_json(json_str)
 
+                    # WI-52: Safely extract usage — may be missing/malformed
+                    _usage = getattr(resp, "usage", None)
                     token_usage = {
-                        "input": resp.usage.input_tokens,
-                        "output": resp.usage.output_tokens,
+                        "input": getattr(_usage, "input_tokens", None),
+                        "output": getattr(_usage, "output_tokens", None),
                     }
+
+                    # WI-52: Record usage after successful call (fallback handled internally)
+                    await self._budget_guard.record_usage(
+                        provider=LLMProviderName.ANTHROPIC,
+                        model_name=self.model,
+                        input_tokens=token_usage["input"],
+                        output_tokens=token_usage["output"],
+                        market_key=market_key,
+                    )
 
                     return eval_response, raw_content, token_usage
 
@@ -845,6 +1014,13 @@ class ClaudeClient:
                         "JSON Validation Error. Re-prompting Claude...",
                         attempt=attempt + 1,
                         snapshot_id=snapshot_id,
+                    )
+                    # WI-52: Record fallback accounting for invalid JSON
+                    await self._budget_guard.record_usage(
+                        provider=LLMProviderName.ANTHROPIC,
+                        model_name=self.model,
+                        input_tokens=None, output_tokens=None,
+                        market_key=market_key,
                     )
                     if attempt < max_retries:
                         messages.append({"role": "assistant", "content": raw_content})
@@ -865,6 +1041,8 @@ class ClaudeClient:
                     attempt=attempt + 1,
                     snapshot_id=snapshot_id,
                 )
+                # WI-52: Record provider error
+                await self._budget_guard.record_provider_error(market_key=market_key)
                 if attempt == max_retries:
                     return None
                 await asyncio.sleep(2.0**attempt)
