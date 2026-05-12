@@ -354,6 +354,45 @@ class MetricsRegistry:
             "Number of markets currently in LLM cooldown"
         )
 
+        # WI-53: Market eligibility, dedupe, and backpressure metrics
+        for name, help_text in [
+            (
+                "poly_agent_preflight_pass_total",
+                "Total markets that passed preflight eligibility checks",
+            ),
+            (
+                "poly_agent_preflight_fail_total",
+                "Total markets that failed preflight eligibility checks by reason",
+            ),
+            (
+                "poly_agent_quarantine_total",
+                "Total markets placed in quarantine by reason",
+            ),
+            (
+                "poly_agent_emitted_contexts_total",
+                "Total evaluation contexts emitted after dedupe gate",
+            ),
+            (
+                "poly_agent_deduped_contexts_total",
+                "Total evaluation contexts suppressed by dedupe gate",
+            ),
+            (
+                "poly_agent_dropped_stale_contexts_total",
+                "Total stale contexts dropped from evaluation queue",
+            ),
+            (
+                "poly_agent_coalesced_contexts_total",
+                "Total contexts coalesced in evaluation queue",
+            ),
+        ]:
+            self._counters[name] = {}
+            self._counter_helps[name] = help_text
+
+        self._gauges["poly_agent_evaluation_queue_depth"] = {}
+        self._gauge_helps["poly_agent_evaluation_queue_depth"] = (
+            "Current evaluation queue depth"
+        )
+
     # ── Public mutation API ────────────────────────────────────────────
 
     async def record_decision(self, event: DecisionMetricEvent) -> None:
@@ -502,6 +541,66 @@ class MetricsRegistry:
         async with self._lock:
             self._gauges["poly_agent_active_cooldown_count"][""] = Decimal(
                 str(max(0, count))
+            )
+
+    # ── WI-53: Market eligibility, dedupe, backpressure metrics ──────
+
+    async def record_preflight_pass(self) -> None:
+        """Increment preflight pass counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_preflight_pass_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal("1")
+
+    async def record_preflight_fail(self, *, reason: str) -> None:
+        """Increment preflight fail counter by reason."""
+        label_key = _serialize_labels({"reason": reason})
+        async with self._lock:
+            counter = self._counters["poly_agent_preflight_fail_total"]
+            current = counter.get(label_key, Decimal("0"))
+            counter[label_key] = current + Decimal("1")
+
+    async def record_quarantine(self, *, reason: str) -> None:
+        """Increment quarantine counter by reason."""
+        label_key = _serialize_labels({"reason": reason})
+        async with self._lock:
+            counter = self._counters["poly_agent_quarantine_total"]
+            current = counter.get(label_key, Decimal("0"))
+            counter[label_key] = current + Decimal("1")
+
+    async def record_emitted_context(self) -> None:
+        """Increment emitted contexts counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_emitted_contexts_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal("1")
+
+    async def record_deduped_context(self) -> None:
+        """Increment deduped contexts counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_deduped_contexts_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal("1")
+
+    async def record_dropped_stale_context(self) -> None:
+        """Increment dropped stale contexts counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_dropped_stale_contexts_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal("1")
+
+    async def record_coalesced_context(self) -> None:
+        """Increment coalesced contexts counter."""
+        async with self._lock:
+            counter = self._counters["poly_agent_coalesced_contexts_total"]
+            current = counter.get("", Decimal("0"))
+            counter[""] = current + Decimal("1")
+
+    async def set_evaluation_queue_depth(self, depth: int) -> None:
+        """Set the evaluation queue depth gauge."""
+        async with self._lock:
+            self._gauges["poly_agent_evaluation_queue_depth"][""] = Decimal(
+                str(max(0, depth))
             )
 
     # ── Read API ───────────────────────────────────────────────────────

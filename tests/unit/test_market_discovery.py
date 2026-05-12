@@ -72,10 +72,20 @@ class FakeConfig:
         min_ttr_hours: float = 4.0,
         max_exposure_pct: float = 0.03,
         initial_bankroll_usdc: Decimal = Decimal("1000"),
+        enable_market_discovery_preflight: bool = False,
+        market_discovery_preflight_timeout_ms: Decimal = Decimal("5000"),
+        market_discovery_max_preflight_candidates: int = 10,
+        preflight_quarantine_duration_seconds: Decimal = Decimal("300"),
+        preflight_max_spread_pct: Decimal = Decimal("0.05"),
     ) -> None:
         self.min_ttr_hours = min_ttr_hours
         self.max_exposure_pct = max_exposure_pct
         self.initial_bankroll_usdc = initial_bankroll_usdc
+        self.enable_market_discovery_preflight = enable_market_discovery_preflight
+        self.market_discovery_preflight_timeout_ms = market_discovery_preflight_timeout_ms
+        self.market_discovery_max_preflight_candidates = market_discovery_max_preflight_candidates
+        self.preflight_quarantine_duration_seconds = preflight_quarantine_duration_seconds
+        self.preflight_max_spread_pct = preflight_max_spread_pct
 
 
 def _make_gamma_stub(markets: list[MarketMetadata]) -> AsyncMock:

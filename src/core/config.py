@@ -456,6 +456,64 @@ class AppConfig(BaseSettings):
         description="Estimated cost per output token in USD",
     )
 
+    # --- WI-53: Market Eligibility Preflight ---
+    enable_market_discovery_preflight: bool = Field(
+        default=False,
+        description="Enable read-only preflight checks before market activation",
+    )
+    market_discovery_preflight_timeout_ms: Decimal = Field(
+        default=Decimal("5000"),
+        ge=0,
+        description="Timeout in milliseconds for a single candidate preflight check",
+    )
+    market_discovery_max_preflight_candidates: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum number of candidates to evaluate per discovery cycle",
+    )
+    preflight_quarantine_duration_seconds: Decimal = Field(
+        default=Decimal("300"),
+        ge=0,
+        description="Seconds a market stays in quarantine after repeated preflight failures",
+    )
+    preflight_max_spread_pct: Decimal = Field(
+        default=Decimal("0.05"),
+        ge=0,
+        description="Maximum bid-ask spread allowed by preflight (5%)",
+    )
+
+    # --- WI-53: Market Evaluation Deduplication ---
+    enable_market_evaluation_dedupe: bool = Field(
+        default=False,
+        description="Enable per-market deduplication of evaluation contexts",
+    )
+    dedupe_min_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("30"),
+        ge=0,
+        description="Minimum seconds between evaluations of the same market",
+    )
+    dedupe_midpoint_delta: Decimal = Field(
+        default=Decimal("0.01"),
+        ge=0,
+        description="Minimum midpoint change to trigger a new evaluation (1pp)",
+    )
+    dedupe_spread_delta: Decimal = Field(
+        default=Decimal("0.005"),
+        ge=0,
+        description="Minimum spread change to trigger a new evaluation (0.5pp)",
+    )
+
+    # --- WI-53: Prompt Queue Backpressure ---
+    prompt_queue_maxsize: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum number of prompts allowed in the queue",
+    )
+    prompt_queue_coalesce_by_market: bool = Field(
+        default=True,
+        description="When queue is full, coalesce by market instead of dropping",
+    )
+
     @field_validator(
         "llm_daily_cost_limit_usd",
         "llm_market_cooldown_seconds",
@@ -526,6 +584,12 @@ class AppConfig(BaseSettings):
         "ws_reconnect_jitter_pct",
         "ws_pong_timeout_seconds",
         "readiness_grace_window_seconds",
+        "market_discovery_preflight_timeout_ms",
+        "preflight_quarantine_duration_seconds",
+        "preflight_max_spread_pct",
+        "dedupe_min_evaluation_interval_sec",
+        "dedupe_midpoint_delta",
+        "dedupe_spread_delta",
         mode="before",
     )
     @classmethod
