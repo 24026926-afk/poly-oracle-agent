@@ -1,8 +1,8 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-10
-**Version:** 0.15.1-dev
-**Status:** Phase 15 IN PROGRESS — WI-52 complete, WI-53/54/55 ready
+**Last Updated:** 2026-05-12
+**Version:** 0.15.2-dev
+**Status:** Phase 15 IN PROGRESS — WI-52/53 complete, WI-54/55 ready
 **Active WI:** None — Phase 15 WIs ready for `/wi-start`
 
 ---
@@ -17,8 +17,8 @@
 - **Provider approach:** DeepSeek must be integrated through DeepSeek's Anthropic-compatible endpoint using the existing `anthropic` SDK unless implementation proves that path unsafe and escalates before dependency changes.
 - **WIs completed:**
   - **WI-52 — LLM Cost Guard and Cognitive Circuit Breaker:** COMPLETE. `src/agents/evaluation/llm_cost_guard.py` (LLMBudgetGuard + MarketCognitiveCircuitBreaker), `src/schemas/llm.py` (11 new schemas), `src/core/config.py` (12 new fields), `src/observability/metrics.py` (6 new metrics), `src/orchestrator.py` (metrics wired), `docs/runbooks/llm-cost-guard.md`. 115 new tests (100 unit + 15 integration). Branch: `feat/wi-52-llm-cost-guard-and-cognitive-circuit-breaker`, merge commit: `b716f29`.
+  - **WI-53 — Market Eligibility, Evaluation Deduplication, and Queue Backpressure:** COMPLETE. `src/schemas/market_eligibility.py` (12 new schemas: MarketEligibilityPreflightResult, MarketQuarantineDecision, MarketEvaluationFingerprint, MarketEvaluationDedupeDecision, PromptQueueBackpressureDecision, etc.), `src/agents/ingestion/market_quarantine.py` (MarketQuarantineManager), `src/agents/context/bounded_queue.py` (BoundedPromptQueue with deque-based coalescing), `src/agents/ingestion/market_discovery.py` (preflight with bounded concurrency), `src/agents/context/aggregator.py` (dedupe with Decimal boundary), `src/core/config.py` (6 new fields matching PRD names), `src/observability/metrics.py` (7 new metrics), `src/orchestrator.py` (all wired), `docs/runbooks/market-eligibility-and-backpressure.md`. 113 new tests (95 unit + 18 integration). Branch: `feat/wi-53-market-eligibility-evaluation-deduplication-and-queue-backpressure`, merge commit: `9d3f0c7`.
 - **WIs ready for implementation:**
-  - WI-53 — Market Eligibility, Evaluation Deduplication, and Queue Backpressure
   - WI-54 — Configurable DeepSeek Provider via Anthropic-Compatible Endpoint
   - WI-55 — DeepSeek Backtest Calibration and Paper-Trading Readiness Gate
 - **Deliverable boundary:** Per `AGENTS.md`, `/prd` created only `docs/PRD-v15.0.md` and updated `STATE.md`. WI business-logic and implementation-prompt deliverables must be generated one at a time via `/wi-start {WI}`.
@@ -52,7 +52,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1349 |
+| Total tests | 1607 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
