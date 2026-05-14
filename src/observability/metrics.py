@@ -393,6 +393,25 @@ class MetricsRegistry:
             "Current evaluation queue depth"
         )
 
+        # WI-54: Provider selection and failure metrics (low-cardinality labels)
+        for name, help_text in [
+            (
+                "poly_agent_llm_provider_selections_total",
+                "Total provider selections by provider name",
+            ),
+            (
+                "poly_agent_llm_provider_failures_total",
+                "Total provider failures by provider name and reason",
+            ),
+        ]:
+            self._counters[name] = {}
+            self._counter_helps[name] = help_text
+
+        self._gauges["poly_agent_llm_active_provider"] = {}
+        self._gauge_helps["poly_agent_llm_active_provider"] = (
+            "Currently active LLM provider name (1=active)"
+        )
+
     # ── Public mutation API ────────────────────────────────────────────
 
     async def record_decision(self, event: DecisionMetricEvent) -> None:
@@ -602,6 +621,31 @@ class MetricsRegistry:
             self._gauges["poly_agent_evaluation_queue_depth"][""] = Decimal(
                 str(max(0, depth))
             )
+
+    # ── WI-54: Provider selection and failure metrics ──────────────────
+
+    async def record_provider_selection(self, *, provider: str) -> None:
+        """Increment provider selection counter."""
+        label_key = _serialize_labels({"provider": provider})
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_provider_selections_total"]
+            current = counter.get(label_key, Decimal("0"))
+            counter[label_key] = current + Decimal("1")
+
+    async def record_provider_failure(self, *, provider: str, reason: str) -> None:
+        """Increment provider failure counter by provider and reason."""
+        label_key = _serialize_labels({"provider": provider, "reason": reason})
+        async with self._lock:
+            counter = self._counters["poly_agent_llm_provider_failures_total"]
+            current = counter.get(label_key, Decimal("0"))
+            counter[label_key] = current + Decimal("1")
+
+    async def set_active_provider(self, provider: str) -> None:
+        """Set the active provider gauge (1 for the active provider)."""
+        async with self._lock:
+            gauge = self._gauges["poly_agent_llm_active_provider"]
+            gauge.clear()
+            gauge[_serialize_labels({"provider": provider})] = Decimal("1")
 
     # ── Read API ───────────────────────────────────────────────────────
 

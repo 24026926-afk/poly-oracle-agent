@@ -103,7 +103,7 @@ graph TB
 - **PromptFactory:** Assembles high-fidelity LLM prompts by combining market data, technical indicators, and historical context.
 
 ### 3.3 Layer 3: Evaluation
-- **ClaudeClient:** Orchestrates the primary trading logic via Anthropic's Claude. Includes a mandatory **Reflection Auditor** pass to detect bias or reasoning contradictions.
+- **ClaudeClient:** The single canonical evaluation client for both Anthropic Claude and DeepSeek V4 Pro (WI-54). Provider selection is operator-configurable via `LLM_PROVIDER`. Both providers are accessed through the existing `anthropic` SDK; no other LLM SDK is introduced. Includes a mandatory **Reflection Auditor** pass to detect bias or reasoning contradictions. `LLMEvaluationResponse` remains the terminal Gatekeeper regardless of provider.
 - **GrokClient:** Fetches real-time sentiment signals from xAI/Grok (crypto/politics categories) to supplement evaluation.
 - **LLMEvaluationResponse (Gatekeeper):** A rigid Pydantic V2 schema that enforces the 5 mandatory safety filters (EV, Confidence, Spread, Exposure, TTR).
 

@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-05-12
 **Version:** 0.15.2-dev
-**Status:** Phase 15 IN PROGRESS — WI-52/53 complete, WI-54/55 ready
-**Active WI:** None — Phase 15 WIs ready for `/wi-start`
+**Status:** Phase 15 IN PROGRESS — WI-52/53 complete, WI-54 Green Phase complete (tests stubbed, ready for Red→Green refinement)
+**Active WI:** WI-54 — Green Phase implementation complete, pending `/maap wi-54`
 
 ---
 
@@ -21,6 +21,7 @@
 - **WIs ready for implementation:**
   - WI-54 — Configurable DeepSeek Provider via Anthropic-Compatible Endpoint
   - WI-55 — DeepSeek Backtest Calibration and Paper-Trading Readiness Gate
+- **WI-54 Green Phase:** Implementation complete. `src/schemas/llm.py` (9 new schemas: LLMProvider, LLMProviderConfig, LLMProviderRuntimeContext, LLMProviderUsage, LLMProviderMetadata, LLMProviderSelectionDecision, LLMProviderSelectionReason, LLMProviderConfigError, LLMProviderConfigErrorReason — all frozen Pydantic V2, Decimal-native cost fields), `src/core/config.py` (6 new fields + model_validator for fail-closed provider validation), `src/agents/evaluation/claude_client.py` (provider-aware `__init__` resolving api_key/base_url/model/max_tokens from selected provider, preserved `ClaudeClient` class name, provider-neutral log/error messages, provider metadata in audit logs), `src/observability/metrics.py` (3 new provider metrics: selections, failures, active provider gauge — all low-cardinality labels), `.env.example` updated with DeepSeek block, `README.md` provider config table added, `docs/system_architecture.md` Layer 3 updated for dual-provider operation, `AGENTS.md` entry for WI-54 added. 70 Red Phase stubs in `tests/unit/test_wi54_configurable_deepseek_provider.py`. Full regression: 1607 passed, 93% coverage.
 - **Deliverable boundary:** Per `AGENTS.md`, `/prd` created only `docs/PRD-v15.0.md` and updated `STATE.md`. WI business-logic and implementation-prompt deliverables must be generated one at a time via `/wi-start {WI}`.
 
 ---

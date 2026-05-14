@@ -112,6 +112,19 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `ANTHROPIC_MAX_TOKENS` | int | `4096` | No | Max response tokens |
 | `ANTHROPIC_MAX_RETRIES` | int | `2` | No | Retries on JSON validation failure |
 
+#### LLM Provider Selection (WI-54)
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `LLM_PROVIDER` | str | `anthropic` | No | LLM evaluation provider: `anthropic` (default) or `deepseek` |
+| `DEEPSEEK_API_KEY` | SecretStr | `""` | When provider=`deepseek` | API key for DeepSeek V4 Pro |
+| `DEEPSEEK_BASE_URL` | str | `https://api.deepseek.com/anthropic` | No | DeepSeek Anthropic-compatible endpoint base URL |
+| `DEEPSEEK_MODEL` | str | `deepseek-v4-pro` | No | DeepSeek model identifier |
+| `DEEPSEEK_MAX_TOKENS` | int | `4096` | No | Max output tokens per DeepSeek call |
+| `DEEPSEEK_MAX_RETRIES` | int | `2` | No | Max retries on malformed DeepSeek responses |
+
+> **Provider selection:** `ClaudeClient` is the single canonical evaluation client for both providers. When `LLM_PROVIDER=deepseek`, the existing `anthropic` SDK is used against the DeepSeek-compatible base URL. The class name `ClaudeClient` is never renamed or aliased. No `openai` SDK is introduced. Provider configuration fails closed at startup when DeepSeek is selected without an API key.
+
 #### Polygon / Web3
 
 | Variable | Type | Default | Required | Description |

@@ -18,6 +18,8 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from web3 import Web3
 
+from src.schemas.llm import LLMProvider
+
 logger = structlog.get_logger(__name__)
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
@@ -456,6 +458,32 @@ class AppConfig(BaseSettings):
         description="Estimated cost per output token in USD",
     )
 
+    # --- WI-54: Configurable DeepSeek Provider ---
+    llm_provider: str = Field(
+        default="anthropic",
+        description="LLM evaluation provider: anthropic or deepseek",
+    )
+    deepseek_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="API key for DeepSeek V4 Pro (required when llm_provider=deepseek)",
+    )
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com/anthropic",
+        description="DeepSeek Anthropic-compatible endpoint base URL",
+    )
+    deepseek_model: str = Field(
+        default="deepseek-v4-pro",
+        description="DeepSeek model identifier",
+    )
+    deepseek_max_tokens: int = Field(
+        default=4096,
+        description="Max output tokens per DeepSeek call",
+    )
+    deepseek_max_retries: int = Field(
+        default=2,
+        description="Max retries on malformed DeepSeek responses",
+    )
+
     # --- WI-53: Market Eligibility Preflight ---
     enable_market_discovery_preflight: bool = Field(
         default=False,
@@ -528,6 +556,40 @@ class AppConfig(BaseSettings):
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+    @model_validator(mode="after")
+    def _validate_llm_provider_config(self) -> "AppConfig":
+        """Validate WI-54 provider configuration at config-load time.
+
+        - Unknown ``llm_provider`` → typed failure.
+        - DeepSeek selected and key missing → typed failure.
+        """
+        raw_provider = self.llm_provider.strip().lower()
+        known = {m.value for m in LLMProvider}
+        if raw_provider not in known:
+            raise ValueError(
+                f"Unsupported llm_provider '{self.llm_provider}'. "
+                f"Must be one of {sorted(known)}."
+            )
+
+        selected = LLMProvider(raw_provider)
+
+        if selected == LLMProvider.DEEPSEEK:
+            key = self.deepseek_api_key.get_secret_value().strip()
+            if not key:
+                raise ValueError(
+                    "llm_provider=deepseek requires deepseek_api_key to be set."
+                )
+
+            from urllib.parse import urlparse
+
+            parsed = urlparse(self.deepseek_base_url.strip())
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError(
+                    f"deepseek_base_url is malformed: '{self.deepseek_base_url}'."
+                )
+
+        return self
 
     # --- Validators ---
 

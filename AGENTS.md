@@ -72,6 +72,7 @@ These are the ONLY valid class names. Do NOT rename, alias, or create variants.
 | `src/orchestrator.py`                    | `Orchestrator`          |
 | `src/agents/ingestion/ws_client.py`      | `CLOBWebSocketClient`   |
 | `src/agents/evaluation/claude_client.py` | `ClaudeClient`          |
+|                                     | **WI-54:** `ClaudeClient` supports both Anthropic and DeepSeek providers via the existing `anthropic` SDK. Provider is selected via `llm_provider` config. The class name `ClaudeClient` is **never** renamed, aliased, or wrapped. |
 | `src/agents/execution/execution_router.py` | `ExecutionRouter`     |
 | `src/db/repositories/position_repository.py` | `PositionRepository` |
 | `src/agents/context/prompt_factory.py`   | `PromptFactory`         |
@@ -102,6 +103,7 @@ Before any `git commit` on core logic:
 2. **Maker** outputs `git diff` of all staged changes.
 3. **Checker** (second agent) reviews the diff against PRD.md and business_logic files.
 4. **Checker** must explicitly clear or flag:
+   - **Checker Mindset (ZERO-TRUST)** — Do not trust passing tests. Mentally simulate execution paths to actively hunt for concurrency hangs, deadlocks, and edge cases.
    - **Decimal Integrity Risk** — `float` in money, price, EV, Kelly, or PnL paths
    - **Gatekeeper Bypass** — execution path that skips `LLMEvaluationResponse`
    - **Repository Violation** — direct DB session or raw SQL in agent code
@@ -125,14 +127,14 @@ MAAP is optional for: `docs/`, `tests/`, `scripts/`, config files.
 ## 🧪 Testing Commands
 ```bash
 # Run full test suite
-python -m pytest --asyncio-mode=auto tests/
+.venv/bin/python -m pytest --asyncio-mode=auto tests/
 
 # Run with coverage (target ≥ 80%)
-python -m coverage run -m pytest tests/ --asyncio-mode=auto
-python -m coverage report -m
+.venv/bin/python -m coverage run -m pytest tests/ --asyncio-mode=auto
+.venv/bin/python -m coverage report -m
 
 # Run single layer tests
-python -m pytest tests/unit/test_schemas.py -v
+.venv/bin/python -m pytest tests/unit/test_schemas.py -v
 ```
 
 New code must not decrease coverage below 80%.
