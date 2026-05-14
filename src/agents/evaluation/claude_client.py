@@ -22,8 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
 from src.schemas.llm import (
+    LLMProvider,
     LLMProviderName,
     LLMBudgetBlockReason,
+    LLMProviderMetadata,
     LLMEvaluationResponse,
     MarketCategory,
     ReflectionResponse,
@@ -277,9 +279,51 @@ class ClaudeClient:
         self._db_factory = db_session_factory
         self._decision_repo_factory = decision_repo_factory
         self._metrics = metrics
-        self.client = AsyncAnthropic(
-            api_key=self.config.anthropic_api_key.get_secret_value()
+
+        # WI-54: Resolve provider configuration
+        llm_provider_str = self.config.llm_provider.strip().lower()
+
+        if llm_provider_str == LLMProvider.DEEPSEEK.value:
+            _api_key = self.config.deepseek_api_key.get_secret_value()
+            _base_url = self.config.deepseek_base_url
+            _model = self.config.deepseek_model
+            _max_tokens = self.config.deepseek_max_tokens
+            _max_retries = self.config.deepseek_max_retries
+            self._provider_name = LLMProviderName.DEEPSEEK
+        else:
+            _api_key = self.config.anthropic_api_key.get_secret_value()
+            _base_url = "https://api.anthropic.com"
+            _model = self.config.anthropic_model
+            _max_tokens = self.config.anthropic_max_tokens
+            _max_retries = self.config.anthropic_max_retries
+            self._provider_name = LLMProviderName.ANTHROPIC
+
+        self.client = AsyncAnthropic(api_key=_api_key, base_url=_base_url, max_retries=_max_retries)
+        self.model = _model
+        self.max_tokens = _max_tokens
+        self.max_retries = _max_retries
+
+        # WI-54: Build secret-free provider metadata for audit/logs
+        from urllib.parse import urlparse
+
+        _host = (
+            urlparse(_base_url).netloc
+            if isinstance(_base_url, str) and "://" in _base_url
+            else str(_base_url)
         )
+        try:
+            self._provider_metadata = LLMProviderMetadata(
+                provider=self._provider_name.value,
+                model_name=str(_model),
+                base_url_host=_host,
+            )
+        except Exception:
+            self._provider_metadata = LLMProviderMetadata(
+                provider=self._provider_name.value,
+                model_name="unknown",
+                base_url_host="unknown",
+            )
+
         self._grok_client = GrokClient(
             api_key=self.config.grok_api_key,
             base_url=self.config.grok_base_url,
@@ -291,7 +335,6 @@ class ClaudeClient:
             total_budget_seconds=_compute_grok_budget(self.config),
         )
         self._running = False
-        self.model = self.config.anthropic_model
         self._budget_guard = LLMBudgetGuard(self.config, metrics=self._metrics)
         self._cognitive_breaker = MarketCognitiveCircuitBreaker(
             self.config, metrics=self._metrics
@@ -300,7 +343,25 @@ class ClaudeClient:
     async def start(self) -> None:
         """Starts the evaluation loop."""
         self._running = True
-        logger.info("Starting Claude Evaluation Node...", model=self.model)
+        logger.info(
+            "Starting LLM Evaluation Node...",
+            model=self.model,
+            provider=self._provider_metadata.provider,
+            base_url_host=self._provider_metadata.base_url_host,
+        )
+
+        # WI-54: Record provider selection metric and active provider gauge
+        if self._metrics is not None:
+            asyncio.ensure_future(
+                self._metrics.record_provider_selection(
+                    provider=self._provider_name.value
+                )
+            )
+            asyncio.ensure_future(
+                self._metrics.set_active_provider(
+                    provider=self._provider_name.value
+                )
+            )
 
         # Start the background consumption loop
         task = asyncio.create_task(self._consume_queue())
@@ -593,6 +654,8 @@ class ClaudeClient:
         logger.info(
             "Evaluation complete (Gatekeeper Enforced)",
             snapshot_id=snapshot_id,
+            provider=self._provider_metadata.provider,
+            model=self._provider_metadata.model_name,
             market_category=category.value,
             action=eval_resp.recommended_action.value,
             expected_value=eval_resp.expected_value,
@@ -677,7 +740,7 @@ class ClaudeClient:
         self,
         prompt: str,
         snapshot_id: str,
-        max_retries: int = 2,
+        max_retries: Optional[int] = None,
         market_key: Optional[str] = None,
     ) -> Optional[tuple[str, str, Dict[str, int]]]:
         """Make primary LLM call and return (raw_text, candidate_json, token_usage).
@@ -688,6 +751,7 @@ class ClaudeClient:
         WI-52: Budget guard is enforced before EVERY paid provider call,
         including each retry attempt.
         """
+        max_retries = max_retries if max_retries is not None else self.max_retries
         messages = [{"role": "user", "content": prompt}]
 
         for attempt in range(max_retries + 1):
@@ -707,7 +771,7 @@ class ClaudeClient:
             try:
                 resp = await self.client.messages.create(
                     model=self.model,
-                    max_tokens=4096,
+                    max_tokens=self.max_tokens,
                     messages=messages,
                     temperature=0.0,
                 )
@@ -726,7 +790,7 @@ class ClaudeClient:
 
                 # WI-52: Record usage after successful call (fallback handled internally)
                 await self._budget_guard.record_usage(
-                    provider=LLMProviderName.ANTHROPIC,
+                    provider=self._provider_name,
                     model_name=self.model,
                     input_tokens=token_usage["input"],
                     output_tokens=token_usage["output"],
@@ -743,7 +807,7 @@ class ClaudeClient:
                 )
                 # WI-52: Record fallback token accounting for invalid JSON
                 await self._budget_guard.record_usage(
-                    provider=LLMProviderName.ANTHROPIC,
+                    provider=self._provider_name,
                     model_name=self.model,
                     input_tokens=None,
                     output_tokens=None,
@@ -766,7 +830,8 @@ class ClaudeClient:
                     return None
             except Exception as e:
                 logger.error(
-                    "Anthropic API Error.",
+                    "Provider API Error.",
+                    provider=self._provider_metadata.provider,
                     error=str(e),
                     attempt=attempt + 1,
                     snapshot_id=snapshot_id,
@@ -875,7 +940,7 @@ class ClaudeClient:
             # WI-52: Record usage for successful reflection call (fallback handled internally)
             _usage = getattr(resp, "usage", None)
             await self._budget_guard.record_usage(
-                provider=LLMProviderName.ANTHROPIC,
+                provider=self._provider_name,
                 model_name=self.model,
                 input_tokens=getattr(_usage, "input_tokens", None),
                 output_tokens=getattr(_usage, "output_tokens", None),
@@ -948,7 +1013,7 @@ class ClaudeClient:
         return json.dumps(candidate)
 
     async def _evaluate_with_retries(
-        self, prompt: str, snapshot_id: str, max_retries: int = 2,
+        self, prompt: str, snapshot_id: str, max_retries: Optional[int] = None,
         market_key: Optional[str] = None,
     ) -> Optional[tuple[LLMEvaluationResponse, str, Dict[str, int]]]:
         """Direct evaluation path with budget guard enforcement.
@@ -956,6 +1021,7 @@ class ClaudeClient:
         WI-52: Budget guard is enforced before EVERY paid provider call,
         including each retry attempt.
         """
+        max_retries = max_retries if max_retries is not None else self.max_retries
         messages = [{"role": "user", "content": prompt}]
 
         for attempt in range(max_retries + 1):
@@ -980,7 +1046,7 @@ class ClaudeClient:
                 )
                 resp = await self.client.messages.create(
                     model=self.model,
-                    max_tokens=4096,
+                    max_tokens=self.max_tokens,
                     messages=messages,
                     temperature=0.0,
                 )
@@ -1000,7 +1066,7 @@ class ClaudeClient:
 
                     # WI-52: Record usage after successful call (fallback handled internally)
                     await self._budget_guard.record_usage(
-                        provider=LLMProviderName.ANTHROPIC,
+                        provider=self._provider_name,
                         model_name=self.model,
                         input_tokens=token_usage["input"],
                         output_tokens=token_usage["output"],
@@ -1017,7 +1083,7 @@ class ClaudeClient:
                     )
                     # WI-52: Record fallback accounting for invalid JSON
                     await self._budget_guard.record_usage(
-                        provider=LLMProviderName.ANTHROPIC,
+                        provider=self._provider_name,
                         model_name=self.model,
                         input_tokens=None, output_tokens=None,
                         market_key=market_key,
@@ -1036,7 +1102,8 @@ class ClaudeClient:
 
             except Exception as e:
                 logger.error(
-                    "Anthropic API Error.",
+                    "Provider API Error.",
+                    provider=self._provider_metadata.provider,
                     error=str(e),
                     attempt=attempt + 1,
                     snapshot_id=snapshot_id,
