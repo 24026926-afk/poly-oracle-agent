@@ -1,13 +1,24 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-14
-**Version:** 0.15.4-dev
-**Status:** Phase 15 IN PROGRESS — WI-52/53/54/55 complete
+**Version:** 0.15.4
+**Status:** Phase 15 COMPLETE — archived to `04_Archive/poly-oracle-agent/Phase-15/`
 **Active WI:** none
 
 ---
 
-## Phase 15 In Progress
+## Phase 15 Archive
+
+- **PRD:** `docs/PRD-v15.0.md`
+- **Completion Report:** `04_Archive/poly-oracle-agent/Phase-15/PHASE-15-COMPLETE.md`
+- **Close Date:** 2026-05-14
+- **Final Tests:** 1824 | **Coverage:** 93%
+- **Develop HEAD:** `53f62c8`
+- **WIs Completed:** WI-52, WI-53, WI-54, WI-55
+
+---
+
+## Phase 15 (Detail)
 
 - **PRD:** `docs/PRD-v15.0.md`
 - **Planning Date:** 2026-05-10
