@@ -169,6 +169,7 @@ class HealthServer:
                 db_ok = False
 
         ws_health = None
+        runtime = None
         if self._get_ws_health is not None:
             try:
                 runtime = await self._get_ws_health()
@@ -202,10 +203,16 @@ class HealthServer:
                 ws_ok = False
 
         # Determine readiness
-        if db_ok and ws_ok:
+        # WI-56: ledger degraded forces DEGRADED even if everything else is ok
+        ledger_ok = not (
+            runtime is not None
+            and getattr(runtime, "ledger_degraded", False)
+        )
+
+        if db_ok and ws_ok and ledger_ok:
             status = ReadinessStatus.READY
             http_status = 200
-        elif db_ok and not ws_ok:
+        elif db_ok and (not ws_ok or not ledger_ok):
             status = ReadinessStatus.DEGRADED
             http_status = 200
         else:

@@ -406,3 +406,82 @@ class Position(Base):
         Index("ix_positions_status", "status"),
         Index("ix_positions_condition_id_status", "condition_id", "status"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Table 5: OperationalEvent (WI-56)
+# ---------------------------------------------------------------------------
+
+
+class OperationalEvent(Base):
+    """Durable, append-only operational event record for the audit ledger.
+
+    Records important runtime lifecycle, discovery, WebSocket, readiness,
+    LLM budget/cooldown/provider, decision, dry-run execution, circuit
+    breaker, alert, and recovery events.  Persisted through
+    ``OperationalEventRepository`` only.
+    """
+
+    __tablename__ = "operational_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_new_uuid)
+    event_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        comment="Stable event type from OperationalEventType enum",
+    )
+    severity: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="Event severity: INFO, WARNING, CRITICAL, or ERROR",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="Source component: ORCHESTRATOR, INGESTION, etc.",
+    )
+    reason_code: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="Stable reason code from OperationalEventReasonCode enum",
+    )
+    payload_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="{}",
+        comment="JSON-serialized OperationalEventPayload; secret-safe by validation",
+    )
+    persistence_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="PERSISTED",
+        comment="Persistence status: PENDING, PERSISTED, FAILED, or DROPPED",
+    )
+    created_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        index=True,
+        comment="UTC timestamp when the event was created at source",
+    )
+    recorded_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        comment="UTC timestamp when the event was persisted to the ledger",
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_operational_events_severity_composite",
+            "severity",
+            "created_at_utc",
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<OperationalEvent type={self.event_type!r} "
+            f"severity={self.severity!r} source={self.source!r}>"
+        )
