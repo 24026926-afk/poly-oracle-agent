@@ -958,3 +958,290 @@ class OperationalEventRedactionResult(BaseModel):
     original_event_type: Optional[OperationalEventType] = Field(
         default=None, description="Event type of the original event"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WI-57 — Deterministic Human Narratives
+#
+# Presentation-layer schemas that convert typed operational ledger events
+# into plain-English operator summaries. These schemas are intentionally
+# separate from LLMEvaluationResponse (Gatekeeper) and from cognitive /
+# execution schemas; the narrative layer is read-only and never persists.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class NarrativeRenderStatus(str, Enum):
+    """Outcome status for a single narrative render attempt."""
+
+    SUCCESS = "SUCCESS"
+    FALLBACK = "FALLBACK"
+    REDACTED = "REDACTED"
+    FAILED = "FAILED"
+
+
+class NarrativeRenderFailureReason(str, Enum):
+    """Stable reasons a narrative render fell back or failed."""
+
+    MALFORMED_PAYLOAD_JSON = "MALFORMED_PAYLOAD_JSON"
+    FORBIDDEN_CONTENT = "FORBIDDEN_CONTENT"
+    UNKNOWN_TEMPLATE = "UNKNOWN_TEMPLATE"
+    NAIVE_TIMESTAMP = "NAIVE_TIMESTAMP"
+    INVALID_INPUT = "INVALID_INPUT"
+
+
+class NarrativeTemplateKey(str, Enum):
+    """Stable, bounded template keys for deterministic narrative rendering.
+
+    Each key maps a supported (event_type, reason_code) family to a fixed
+    English template. Adding a new mapping requires extending this enum.
+    """
+
+    # Lifecycle
+    LIFECYCLE_START = "LIFECYCLE_START"
+    LIFECYCLE_SHUTDOWN = "LIFECYCLE_SHUTDOWN"
+    CONFIG_LOADED = "CONFIG_LOADED"
+    # Markets
+    MARKET_DISCOVERED = "MARKET_DISCOVERED"
+    MARKET_REJECTED_INELIGIBLE = "MARKET_REJECTED_INELIGIBLE"
+    MARKET_REJECTED_NOT_FOUND = "MARKET_REJECTED_NOT_FOUND"
+    MARKET_REJECTED_COOLDOWN = "MARKET_REJECTED_COOLDOWN"
+    MARKET_QUARANTINED = "MARKET_QUARANTINED"
+    # WebSocket
+    WS_CONNECTED = "WS_CONNECTED"
+    WS_RECONNECT = "WS_RECONNECT"
+    WS_PONG_STALE = "WS_PONG_STALE"
+    # Readiness
+    READINESS_READY = "READINESS_READY"
+    READINESS_DEGRADED = "READINESS_DEGRADED"
+    READINESS_NOT_READY = "READINESS_NOT_READY"
+    # LLM budget / cooldown
+    BUDGET_DAILY = "BUDGET_DAILY"
+    BUDGET_HOURLY = "BUDGET_HOURLY"
+    BUDGET_TOKEN = "BUDGET_TOKEN"
+    BUDGET_COST = "BUDGET_COST"
+    BUDGET_REFLECTION = "BUDGET_REFLECTION"
+    COOLDOWN_REPEATED_HOLD = "COOLDOWN_REPEATED_HOLD"
+    COOLDOWN_REPEATED_INVALID = "COOLDOWN_REPEATED_INVALID"
+    # Provider
+    PROVIDER_CALL_FAILED = "PROVIDER_CALL_FAILED"
+    PROVIDER_RESPONSE_MALFORMED = "PROVIDER_RESPONSE_MALFORMED"
+    # Decisions
+    DECISION_ACCEPTED_BUY = "DECISION_ACCEPTED_BUY"
+    DECISION_ACCEPTED_HOLD = "DECISION_ACCEPTED_HOLD"
+    DECISION_SKIP_LOW_CONF = "DECISION_SKIP_LOW_CONF"
+    DECISION_SKIP_LOW_EV = "DECISION_SKIP_LOW_EV"
+    DECISION_SKIP_HIGH_SPREAD = "DECISION_SKIP_HIGH_SPREAD"
+    DECISION_SKIP_EXPOSURE = "DECISION_SKIP_EXPOSURE"
+    DECISION_SKIP_TTR = "DECISION_SKIP_TTR"
+    # Execution
+    EXECUTION_DRY_RUN = "EXECUTION_DRY_RUN"
+    # Circuit breaker
+    CIRCUIT_BREAKER_OPEN = "CIRCUIT_BREAKER_OPEN"
+    CIRCUIT_BREAKER_CLOSED = "CIRCUIT_BREAKER_CLOSED"
+    CIRCUIT_BREAKER_OVERRIDE = "CIRCUIT_BREAKER_OVERRIDE"
+    # Alerts
+    ALERT_DISPATCHED = "ALERT_DISPATCHED"
+    ALERT_DISPATCH_FAILED = "ALERT_DISPATCH_FAILED"
+    # Recovery / error
+    ERROR_HANDLED = "ERROR_HANDLED"
+    ERROR_UNHANDLED = "ERROR_UNHANDLED"
+    # Generic / catch-all
+    GENERIC = "GENERIC"
+
+
+class NarrativeInspectionHint(BaseModel):
+    """Bounded, secret-safe pointer to what an operator should inspect next.
+
+    Component and pointer values are drawn from low-cardinality enums or
+    short stable strings. Never carries token IDs, condition IDs, wallet
+    addresses, or raw payload data.
+    """
+
+    model_config = {"frozen": True}
+
+    component: OperationalEventSource = Field(
+        ..., description="Source component the operator should inspect"
+    )
+    pointer: str = Field(
+        default="",
+        max_length=64,
+        description="Short stable pointer (e.g. 'readiness', 'budget', 'breaker')",
+    )
+    severity: OperationalEventSeverity = Field(
+        default=OperationalEventSeverity.INFO,
+        description="Severity of the situation prompting inspection",
+    )
+
+    @field_validator("pointer")
+    @classmethod
+    def _reject_forbidden_in_pointer(cls, value: str) -> str:
+        if value == "":
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"pointer contains forbidden content: {violations}")
+        return value
+
+
+class OperationalNarrative(BaseModel):
+    """Plain-English operator summary of a single operational event."""
+
+    model_config = {"frozen": True}
+
+    event_type: OperationalEventType
+    severity: OperationalEventSeverity
+    source: OperationalEventSource
+    reason_code: OperationalEventReasonCode
+    template_key: NarrativeTemplateKey
+    summary: str = Field(
+        ..., min_length=1, max_length=1024,
+        description="Deterministic plain-English operator summary",
+    )
+    continuation_state: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="continued / skipped / degraded / stopped — when inferable",
+    )
+    inspection_hint: Optional[NarrativeInspectionHint] = None
+    timestamp_utc: Optional[datetime] = Field(
+        default=None,
+        description="Event timestamp normalized to UTC, when available",
+    )
+    dry_run: Optional[bool] = Field(
+        default=None,
+        description="dry-run status at event time (read-only display field)",
+    )
+
+    @field_validator("summary")
+    @classmethod
+    def _reject_forbidden_in_summary(cls, value: str) -> str:
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"summary contains forbidden content: {violations}")
+        return value
+
+    @field_validator("continuation_state")
+    @classmethod
+    def _validate_continuation_state(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if value not in {"continued", "skipped", "degraded", "stopped"}:
+            raise ValueError(
+                "continuation_state must be one of: continued, skipped, degraded, stopped"
+            )
+        return value
+
+
+class DecisionNarrative(BaseModel):
+    """Plain-English operator summary of an evaluation decision outcome."""
+
+    model_config = {"frozen": True}
+
+    event_type: OperationalEventType
+    severity: OperationalEventSeverity
+    source: OperationalEventSource
+    reason_code: OperationalEventReasonCode
+    template_key: NarrativeTemplateKey
+    decision_action: Optional[str] = Field(
+        default=None,
+        max_length=16,
+        description="Aggregate action (BUY/HOLD/SKIP)",
+    )
+    summary: str = Field(..., min_length=1, max_length=1024)
+    continuation_state: Optional[str] = Field(default=None, max_length=32)
+    inspection_hint: Optional[NarrativeInspectionHint] = None
+    timestamp_utc: Optional[datetime] = None
+    dry_run: Optional[bool] = None
+
+    @field_validator("summary")
+    @classmethod
+    def _reject_forbidden_in_summary(cls, value: str) -> str:
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"summary contains forbidden content: {violations}")
+        return value
+
+    @field_validator("decision_action")
+    @classmethod
+    def _validate_decision_action(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"decision_action contains forbidden content: {violations}")
+        return value
+
+    @field_validator("continuation_state")
+    @classmethod
+    def _validate_continuation_state(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if value not in {"continued", "skipped", "degraded", "stopped"}:
+            raise ValueError(
+                "continuation_state must be one of: continued, skipped, degraded, stopped"
+            )
+        return value
+
+
+class RuntimeNarrative(BaseModel):
+    """Discriminated wrapper around an operational or decision narrative.
+
+    Future surfaces (incident replay, dashboard timeline, daily digest)
+    consume RuntimeNarrative without caring whether the underlying record
+    is an operational lifecycle event or a decision event.
+    """
+
+    model_config = {"frozen": True}
+
+    kind: Literal["operational", "decision"]
+    operational: Optional[OperationalNarrative] = None
+    decision: Optional[DecisionNarrative] = None
+
+    @model_validator(mode="after")
+    def _validate_exactly_one(self) -> "RuntimeNarrative":
+        if self.kind == "operational" and self.operational is None:
+            raise ValueError("kind=operational requires operational narrative")
+        if self.kind == "decision" and self.decision is None:
+            raise ValueError("kind=decision requires decision narrative")
+        if self.kind == "operational" and self.decision is not None:
+            raise ValueError("kind=operational must not carry decision narrative")
+        if self.kind == "decision" and self.operational is not None:
+            raise ValueError("kind=decision must not carry operational narrative")
+        return self
+
+
+class NarrativeRenderResult(BaseModel):
+    """Typed result of a single narrative render attempt.
+
+    Render never raises for supported inputs; it returns a typed status
+    plus an optional narrative payload and optional failure reason.
+    """
+
+    model_config = {"frozen": True}
+
+    status: NarrativeRenderStatus
+    narrative: Optional[RuntimeNarrative] = None
+    failure_reason: Optional[NarrativeRenderFailureReason] = None
+    detail: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Short, secret-safe explanation for non-SUCCESS results",
+    )
+
+    @field_validator("detail")
+    @classmethod
+    def _reject_forbidden_in_detail(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"detail contains forbidden content: {violations}")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_status_consistency(self) -> "NarrativeRenderResult":
+        if self.status == NarrativeRenderStatus.SUCCESS and self.narrative is None:
+            raise ValueError("SUCCESS status requires a narrative")
+        if self.status == NarrativeRenderStatus.FAILED and self.failure_reason is None:
+            raise ValueError("FAILED status requires a failure_reason")
+        return self
