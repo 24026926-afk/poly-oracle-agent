@@ -1,8 +1,8 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-14
+**Last Updated:** 2026-05-15
 **Version:** 0.16.0
-**Status:** Phase 16 READY FOR IMPLEMENTATION — Operator Clarity and Runtime Audit Trail
+**Status:** Phase 16 IN PROGRESS — Operator Clarity and Runtime Audit Trail
 **Active WI:** none
 
 ---
@@ -14,8 +14,9 @@
 - **Objective:** Make every autonomous dry-run server run understandable, resumable, and reconstructable by a non-technical operator through a durable operational event ledger, deterministic human-readable narratives, incident replay, dashboard timeline visibility, and an automatic daily operations digest.
 - **Operational trigger:** The previous DigitalOcean paper-trading run exposed that technical stdout/Docker logs were ephemeral and hard to inspect, while the dashboard did not provide a durable chronological story of runtime behavior.
 - **Scope guard:** Live trading, `DRY_RUN=false` changes, live signing or broadcasting, Gatekeeper changes, LLM-generated narratives, historical Docker-log backfill, hash-chain ledgers, PostgreSQL migration, and public dashboard exposure remain out of scope.
-- **WIs ready for implementation:**
-  - WI-56 — Operational Event Ledger
+- **WIs completed:**
+  - **WI-56 — Operational Event Ledger:** COMPLETE. Added typed operational event schemas, Alembic migration `0006_add_operational_events.py`, append-only `OperationalEventRepository`, bounded async `OperationalEventBus`, readiness degradation for safety-critical ledger failures, low-cardinality event metrics, source hooks across orchestrator/evaluation/market discovery, and `docs/runbooks/operational-event-ledger.md`. MAAP findings resolved: no-market startup now flushes/shuts down cleanly, event ledger monitor task is owned, critical publish/persist failures fail closed, runtime hooks include LLM and market-quarantine events, overflow policy is typed, and `drop_diagnostic` preserves critical events over lower-priority queued data. 148 WI-specific tests; full regression 1972 passed; coverage 92%. Branch: `feat/wi-56-operational-event-ledger`, final commit: `57c5946`, merge commit: `27e1485`.
+- **WIs remaining:**
   - WI-57 — Deterministic Human Narratives
   - WI-58 — Incident Replay CLI
   - WI-59 — Dashboard Activity Feed
@@ -79,10 +80,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1824 |
-| Coverage | 93% (target ≥ 80%) |
+| Total tests | 1972 |
+| Coverage | 92% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
-| DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
+| DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
 
 Phase 14 planned 2026-05-06 — DigitalOcean 24/7 Paper-Trading Deployment:
 - `docs/PRD-v14.0.md` created as the Phase 14 planning source.
