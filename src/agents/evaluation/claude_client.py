@@ -586,7 +586,7 @@ class ClaudeClient:
             )
             return
         try:
-            primary_result = await asyncio.wait_for(
+            primary_result, _primary_block = await asyncio.wait_for(
                 self._get_primary_candidate(prompt, snapshot_id, market_key=market_key),
                 timeout=remaining,
             )
@@ -601,6 +601,7 @@ class ClaudeClient:
             logger.error(
                 "Failed to obtain primary candidate after retries.",
                 snapshot_id=snapshot_id,
+                block_reason=_primary_block,
             )
             return
 
@@ -733,6 +734,167 @@ class ClaudeClient:
         return text.strip()
 
     # ------------------------------------------------------------------
+    # WI-55: Public evaluate contract for backtest injection
+    # ------------------------------------------------------------------
+
+    async def evaluate_for_backtest(
+        self, prompt: str, snapshot_id: str = "backtest",
+        market_key: str = "backtest-market",
+    ) -> tuple[dict[str, Any], dict[str, int] | None, str | None]:
+        """Public async evaluate(prompt) -> (dict, usage, block_reason).
+
+        Exercises the full canonical ClaudeClient evaluation chain:
+        cooldown → budget guard → primary API call → retry → JSON extraction
+        → simple reflection → verdict application.
+
+        ``market_key`` activates per-market budget and cooldown enforcement.
+
+        Returns ``(parsed_dict, token_usage, block_reason)`` where
+        ``block_reason`` is one of ``"budget"``, ``"cooldown"``,
+        ``"provider_error"``, or ``None`` (call proceeded normally).
+        """
+        import json as _json
+
+        # --- Cooldown check (matches _process_evaluation flow) ---
+        cooldown = await self._cognitive_breaker.check_cooldown(market_key)
+        if cooldown.in_cooldown:
+            return self._bt_fallback("cooldown blocked primary call"), None, "cooldown"
+
+        # --- Primary call (budget guard + retries + JSON extraction inside; timeout wrapper) ---
+        # _get_primary_candidate returns (result, block_reason); block_reason
+        # is returned by value to avoid cross-market bleed under concurrent calls.
+        try:
+            primary, primary_block = await asyncio.wait_for(
+                self._get_primary_candidate(
+                    prompt=prompt, snapshot_id=snapshot_id,
+                    max_retries=self.max_retries, market_key=market_key,
+                ),
+                timeout=60.0,
+            )
+        except asyncio.TimeoutError:
+            return self._bt_fallback("primary call timed out"), None, "provider_error"
+
+        if primary is None:
+            reason = primary_block or "provider_error"
+            return self._bt_fallback("primary call failed after retries"), None, reason
+
+        _raw, candidate_json, usage = primary
+
+        # --- Simple reflection (same guards active; fail-closed) ---
+        reflection = await self._bt_reflection(
+            candidate_json=candidate_json, snapshot_id=snapshot_id,
+            market_key=market_key,
+        )
+
+        if reflection.verdict.value == "REJECTED":
+            # Propagate budget-block reason from reflection to the caller
+            refl_block = (
+                "budget" if "budget" in (reflection.audit_note or "").lower()
+                else None
+            )
+            return self._bt_fallback("reflection rejected the candidate"), usage, refl_block
+
+        final_json = candidate_json
+        if (
+            reflection.verdict.value == "ADJUSTED"
+            and reflection.corrected_candidate_json is not None
+        ):
+            final_json = _json.dumps(reflection.corrected_candidate_json)
+
+        try:
+            parsed = _json.loads(final_json, parse_float=Decimal)
+        except (_json.JSONDecodeError, TypeError):
+            return self._bt_fallback("final candidate unparseable after reflection"), usage, None
+
+        return parsed, usage, None  # type: ignore[return-value]
+
+    async def _bt_reflection(
+        self, *, candidate_json: str, snapshot_id: str,
+        market_key: str = "backtest-market",
+    ) -> ReflectionResponse:
+        """Single-shot reflection call for backtest context.
+
+        Uses the same budget guard and API path as ``_get_primary_candidate``.
+        Market context and sentiment are not available — a minimal review
+        prompt is used instead.
+
+        **Fail-closed:** budget-blocked or failed reflection returns REJECTED
+        so the primary candidate is NOT silently passed through.
+        """
+        refl_key = f"{market_key}-reflection"
+        budget_ok = await self._budget_guard.check_budget(
+            call_type="reflection", market_key=refl_key,
+        )
+        if not budget_ok.allowed:
+            return ReflectionResponse(
+                verdict=ReflectionVerdict.REJECTED,
+                audit_note="budget blocked reflection — rejecting candidate",
+                latency_ms=0,
+            )
+
+        prompt = (
+            "You are an audit reviewer. Review this trading candidate JSON "
+            "for numerical consistency, bias, and risk. Return ONLY valid JSON:\n"
+            '{"verdict": "APPROVED"|"REJECTED"|"ADJUSTED", '
+            '"bias_flags": [], "consistency_flags": [], "risk_flags": [], '
+            '"audit_note": "... (min 20 chars)", "correction_instructions": null, '
+            '"corrected_candidate_json": null}\n\n'
+            f"CANDIDATE:\n{candidate_json}"
+        )
+
+        try:
+            resp = await asyncio.wait_for(
+                self.client.messages.create(
+                    model=self.model,
+                    max_tokens=2048,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                ),
+                timeout=30.0,
+            )
+            raw = resp.content[0].text
+            json_str = self._extract_json(raw)
+            r = ReflectionResponse.model_validate_json(json_str)
+
+            rec_usage = getattr(resp, "usage", None)
+            await self._budget_guard.record_usage(
+                provider=self._provider_name,
+                model_name=self.model,
+                input_tokens=getattr(rec_usage, "input_tokens", None),
+                output_tokens=getattr(rec_usage, "output_tokens", None),
+                market_key=refl_key,
+            )
+            return r
+        except (asyncio.TimeoutError, Exception):
+            return ReflectionResponse(
+                verdict=ReflectionVerdict.REJECTED,
+                audit_note="reflection call timed out or failed — rejecting candidate",
+                latency_ms=0,
+            )
+
+    @staticmethod
+    def _bt_fallback(reason: str) -> dict[str, Any]:
+        """Build a structurally valid fallback response (>=50 char reasoning)."""
+        return {
+            "market_context": {
+                "condition_id": "0000000000",
+                "outcome_evaluated": "YES",
+                "best_bid": "0.5", "best_ask": "0.5", "midpoint": "0.5",
+            },
+            "probabilistic_estimate": {"p_true": "0.5", "p_market": "0.5"},
+            "risk_assessment": {
+                "liquidity_risk_score": "0.5",
+                "resolution_risk_score": "0.5",
+                "information_asymmetry_flag": False,
+                "risk_notes": f"Fallback — {reason} — this explanation meets minimum length for LLMEvaluationResponse validation schema requirements.",
+            },
+            "confidence_score": 0.0,
+            "decision_boolean": False,
+            "recommended_action": "HOLD",
+            "reasoning_log": f"Provider call blocked or returned unusable output because {reason} — conservative HOLD enforced.",
+        }
+
+    # ------------------------------------------------------------------
     # Stage B: Primary candidate retrieval (pre-Gatekeeper)
     # ------------------------------------------------------------------
 
@@ -742,14 +904,20 @@ class ClaudeClient:
         snapshot_id: str,
         max_retries: Optional[int] = None,
         market_key: Optional[str] = None,
-    ) -> Optional[tuple[str, str, Dict[str, int]]]:
-        """Make primary LLM call and return (raw_text, candidate_json, token_usage).
+    ) -> tuple[Optional[tuple[str, str, Dict[str, int]]], Optional[str]]:
+        """Make primary LLM call and return (result, block_reason).
+
+        ``result`` is ``(raw_text, candidate_json, token_usage)`` when the call
+        succeeds, ``None`` otherwise.  ``block_reason`` is one of ``"budget"``
+        or ``"provider_error"`` when the call was blocked, else ``None``.
 
         Retries on unparseable JSON but does NOT run Gatekeeper validation —
         that happens after reflection (Stage D).
 
         WI-52: Budget guard is enforced before EVERY paid provider call,
-        including each retry attempt.
+        including each retry attempt.  Returning the block reason directly
+        (rather than via instance state) avoids cross-market bleed under
+        concurrent invocation.
         """
         max_retries = max_retries if max_retries is not None else self.max_retries
         messages = [{"role": "user", "content": prompt}]
@@ -766,7 +934,7 @@ class ClaudeClient:
                     snapshot_id=snapshot_id,
                     attempt=attempt + 1,
                 )
-                return None
+                return None, "budget"
 
             try:
                 resp = await self.client.messages.create(
@@ -797,7 +965,7 @@ class ClaudeClient:
                     market_key=market_key,
                 )
 
-                return raw_content, json_str, token_usage
+                return (raw_content, json_str, token_usage), None
 
             except json.JSONDecodeError:
                 logger.warning(
@@ -827,7 +995,7 @@ class ClaudeClient:
                         }
                     )
                 else:
-                    return None
+                    return None, "provider_error"
             except Exception as e:
                 logger.error(
                     "Provider API Error.",
@@ -843,10 +1011,10 @@ class ClaudeClient:
                     outcome_type="provider_error",
                 )
                 if attempt == max_retries:
-                    return None
+                    return None, "provider_error"
                 await asyncio.sleep(2.0**attempt)
 
-        return None
+        return None, "provider_error"
 
     # ------------------------------------------------------------------
     # Stage C: Reflection Auditor

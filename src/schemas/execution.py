@@ -275,6 +275,11 @@ class BacktestDecision(BaseModel):
     gatekeeper_result: str
     reason: str
     realized_pnl_usdc: Decimal = Decimal("0")
+    # WI-55: True when this row carries a known outcome — either a trade was
+    # executed (PnL is real, possibly zero) or the source dataset carried
+    # explicit resolution data.  Distinct from a non-zero PnL check, since
+    # break-even outcomes are valid resolved outcomes.
+    outcome_resolved: bool = False
 
     @field_validator("position_size_usdc", "ev", "confidence", "realized_pnl_usdc", mode="before")
     @classmethod
