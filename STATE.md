@@ -1,9 +1,26 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-14
-**Version:** 0.15.4
-**Status:** Phase 15 COMPLETE — archived to `04_Archive/poly-oracle-agent/Phase-15/`
+**Version:** 0.16.0
+**Status:** Phase 16 READY FOR IMPLEMENTATION — Operator Clarity and Runtime Audit Trail
 **Active WI:** none
+
+---
+
+## Phase 16 Plan
+
+- **PRD:** `docs/PRD-v16.0.md`
+- **Planning Date:** 2026-05-14
+- **Objective:** Make every autonomous dry-run server run understandable, resumable, and reconstructable by a non-technical operator through a durable operational event ledger, deterministic human-readable narratives, incident replay, dashboard timeline visibility, and an automatic daily operations digest.
+- **Operational trigger:** The previous DigitalOcean paper-trading run exposed that technical stdout/Docker logs were ephemeral and hard to inspect, while the dashboard did not provide a durable chronological story of runtime behavior.
+- **Scope guard:** Live trading, `DRY_RUN=false` changes, live signing or broadcasting, Gatekeeper changes, LLM-generated narratives, historical Docker-log backfill, hash-chain ledgers, PostgreSQL migration, and public dashboard exposure remain out of scope.
+- **WIs ready for implementation:**
+  - WI-56 — Operational Event Ledger
+  - WI-57 — Deterministic Human Narratives
+  - WI-58 — Incident Replay CLI
+  - WI-59 — Dashboard Activity Feed
+  - WI-60 — Daily Operations Digest
+- **Deliverable boundary:** Per `AGENTS.md`, `/prd` created only `docs/PRD-v16.0.md` and updated `STATE.md`. WI business-logic and implementation-prompt deliverables must be generated one at a time via `/wi-start {WI}`.
 
 ---
 
