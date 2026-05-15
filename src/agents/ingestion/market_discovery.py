@@ -14,8 +14,10 @@ order book validation, spread checks, and quarantine for repeated failures.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 import structlog
 
@@ -28,6 +30,14 @@ from src.schemas.market_eligibility import (
     MarketEligibilityPreflightResult,
     MarketEligibilityStatus,
     MarketEligibilitySkipReason,
+)
+from src.schemas.ops import (
+    OperationalEventCreate,
+    OperationalEventPayload,
+    OperationalEventReasonCode,
+    OperationalEventSeverity,
+    OperationalEventSource,
+    OperationalEventType,
 )
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +60,7 @@ class MarketDiscoveryEngine:
         config: AppConfig,
         polymarket_client=None,  # Optional, for preflight order book lookups
         metrics=None,  # Optional MetricsRegistry for WI-53 metrics
+        event_publisher: Callable[[OperationalEventCreate], Awaitable[Any]] | None = None,
     ) -> None:
         self._gamma_client = gamma_client
         self._bankroll_tracker = bankroll_tracker
@@ -57,6 +68,35 @@ class MarketDiscoveryEngine:
         self._polymarket_client = polymarket_client
         self._quarantine_manager = MarketQuarantineManager(config)
         self._metrics = metrics
+        self._event_publisher = event_publisher
+
+    async def _publish_event(
+        self,
+        *,
+        event_type: OperationalEventType,
+        severity: OperationalEventSeverity,
+        reason_code: OperationalEventReasonCode,
+        message: str,
+    ) -> None:
+        if self._event_publisher is None:
+            return
+        try:
+            payload = OperationalEventPayload(
+                message=message,
+                reason_code=reason_code.value,
+                dry_run=self._config.dry_run,
+            )
+            await self._event_publisher(
+                OperationalEventCreate(
+                    event_type=event_type,
+                    severity=severity,
+                    source=OperationalEventSource.INGESTION,
+                    reason_code=reason_code,
+                    payload=payload,
+                )
+            )
+        except Exception:
+            logger.debug("market_discovery.operational_event_skipped")
 
     # ------------------------------------------------------------------
     # Public API
@@ -100,10 +140,22 @@ class MarketDiscoveryEngine:
         for market in candidates:
             if not self._has_required_metadata(market):
                 stats["no_metadata"] += 1
+                await self._publish_event(
+                    event_type=OperationalEventType.MARKET_REJECTED,
+                    severity=OperationalEventSeverity.WARNING,
+                    reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
+                    message="Market rejected because required metadata was missing",
+                )
                 continue
 
             if not self._meets_ttr_requirement(market):
                 stats["ttr_fail"] += 1
+                await self._publish_event(
+                    event_type=OperationalEventType.MARKET_REJECTED,
+                    severity=OperationalEventSeverity.INFO,
+                    reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
+                    message="Market rejected because time-to-resolution was below threshold",
+                )
                 continue
 
             exposure = await self._bankroll_tracker.get_exposure(market.condition_id)
@@ -114,6 +166,12 @@ class MarketDiscoveryEngine:
                     condition_id=market.condition_id,
                     exposure_usdc=str(exposure),
                     cap_usdc=str(exposure_cap),
+                )
+                await self._publish_event(
+                    event_type=OperationalEventType.MARKET_REJECTED,
+                    severity=OperationalEventSeverity.WARNING,
+                    reason_code=OperationalEventReasonCode.DECISION_SKIP_EXPOSURE,
+                    message="Market rejected because exposure cap was reached",
                 )
                 continue
 
@@ -158,6 +216,12 @@ class MarketDiscoveryEngine:
                 # Check quarantine first
                 if self._quarantine_manager.is_quarantined(market.condition_id):
                     stats["quarantine_skip"] += 1
+                    await self._publish_event(
+                        event_type=OperationalEventType.MARKET_QUARANTINE,
+                        severity=OperationalEventSeverity.WARNING,
+                        reason_code=OperationalEventReasonCode.MARKET_QUARANTINED,
+                        message="Market skipped because quarantine is active",
+                    )
                     return None
 
                 result = await asyncio.wait_for(
@@ -193,6 +257,19 @@ class MarketDiscoveryEngine:
                     "market_discovery.preflight_failed",
                     skip_reason=preflight_result.skip_reason.value if preflight_result.skip_reason else None,
                 )
+                await self._publish_event(
+                    event_type=OperationalEventType.MARKET_REJECTED,
+                    severity=OperationalEventSeverity.WARNING,
+                    reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
+                    message="Market rejected by bounded preflight checks",
+                )
+                if decision is not None:
+                    await self._publish_event(
+                        event_type=OperationalEventType.MARKET_QUARANTINE,
+                        severity=OperationalEventSeverity.WARNING,
+                        reason_code=OperationalEventReasonCode.MARKET_QUARANTINED,
+                        message="Market placed into quarantine after repeated preflight failures",
+                    )
             else:
                 self._quarantine_manager.record_success(market.condition_id)
                 if self._metrics is not None:

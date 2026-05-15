@@ -130,3 +130,7 @@ class RuntimeHealthSnapshot(BaseModel):
     db_reachable: bool = Field(default=False)
     active_market_count: int = Field(default=0, ge=0)
     subscribed_asset_count: int = Field(default=0, ge=0)
+    ledger_degraded: bool = Field(
+        default=False,
+        description="True when the event ledger has experienced a critical persistence failure",
+    )

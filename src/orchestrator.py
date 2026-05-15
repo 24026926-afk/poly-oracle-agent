@@ -42,7 +42,16 @@ from src.agents.execution.position_tracker import PositionTracker
 from src.agents.execution.signer import TransactionSigner
 from src.agents.execution.telegram_notifier import TelegramNotifier
 from src.observability.operational_alerts import OperationalAlertBridge
-from src.schemas.ops import OperationalAlertConfig
+from src.observability.operational_event_bus import OperationalEventBus
+from src.schemas.ops import (
+    OperationalAlertConfig,
+    OperationalEventCreate,
+    OperationalEventPayload,
+    OperationalEventReasonCode,
+    OperationalEventSeverity,
+    OperationalEventSource,
+    OperationalEventType,
+)
 from src.agents.execution.wallet_balance_provider import WalletBalanceProvider
 from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
 from src.agents.ingestion.rest_client import GammaRESTClient
@@ -237,6 +246,27 @@ class Orchestrator:
         else:
             logger.info("operational_alerts.disabled")
 
+        # WI-56: Operational event ledger
+        self.event_bus: OperationalEventBus | None = None
+        self._event_ledger_degraded = False
+        if self.config.enable_operational_event_ledger:
+            async def _event_repo_factory():
+                from src.db.repositories.operational_event_repository import (
+                    OperationalEventRepository,
+                )
+                session = AsyncSessionLocal()
+                return (OperationalEventRepository(session), session)
+
+            self.event_bus = OperationalEventBus(
+                repository_factory=_event_repo_factory,
+                config=self.config,
+                metrics=self.metrics_registry,
+                on_critical_failure=self._mark_event_ledger_degraded,
+            )
+            logger.info("operational_event_ledger.enabled")
+        else:
+            logger.info("operational_event_ledger.disabled")
+
         self.ws_client = CLOBWebSocketClient(
             config=self.config,
             queue=self.market_queue,
@@ -250,6 +280,7 @@ class Orchestrator:
             config=self.config,
             db_session_factory=AsyncSessionLocal,
             metrics=self.metrics_registry,
+            event_publisher=self._publish_operational_event,
         )
 
         # Initialized in start() after discovery
@@ -289,6 +320,17 @@ class Orchestrator:
         logger.info("orchestrator.starting")
         self._running = True
 
+        # WI-56: Start event bus FIRST so START/CONFIG_LOADED always emit
+        if self.event_bus is not None:
+            await self.event_bus.start()
+            await self._emit_startup_events()
+            self._tasks.append(
+                asyncio.create_task(
+                    self._event_ledger_monitor_loop(),
+                    name="EventLedgerMonitorTask",
+                )
+            )
+
         self._http_session = aiohttp.ClientSession()
         self._httpx_client = httpx.AsyncClient()
         self.gamma_client = GammaRESTClient(
@@ -301,6 +343,7 @@ class Orchestrator:
             config=self.config,
             polymarket_client=self.polymarket_client,
             metrics=self.metrics_registry,
+            event_publisher=self._publish_operational_event,
         )
         self.broadcaster = OrderBroadcaster(
             w3=self.w3,
@@ -320,6 +363,15 @@ class Orchestrator:
             logger.warning(
                 "orchestrator.no_eligible_markets_at_startup",
             )
+            # WI-56: Emit no-market event before early return
+            await self._emit_event(
+                event_type=OperationalEventType.MARKET_REJECTED,
+                severity=OperationalEventSeverity.WARNING,
+                source=OperationalEventSource.ORCHESTRATOR,
+                reason_code=OperationalEventReasonCode.MARKET_NOT_FOUND,
+                message="No eligible markets found at startup",
+            )
+            await self.shutdown()
             return
 
         # Create aggregator BEFORE activation so per-market registration runs.
@@ -343,7 +395,18 @@ class Orchestrator:
         # Activate up to max_concurrent_markets eligible markets
         max_active = min(len(eligible), self.config.max_concurrent_markets)
         markets_to_activate = eligible[:max_active]
+        rejected = eligible[max_active:]
         await self._activate_markets(markets_to_activate)
+
+        # WI-56: Emit MARKET_REJECTED for eligible-but-not-activated markets
+        for _ in rejected:
+            await self._emit_event(
+                event_type=OperationalEventType.MARKET_REJECTED,
+                severity=OperationalEventSeverity.INFO,
+                source=OperationalEventSource.ORCHESTRATOR,
+                reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
+                message="Market not activated: exceeds max_concurrent_markets",
+            )
 
         logger.info(
             "activation_summary",
@@ -352,10 +415,21 @@ class Orchestrator:
             activated=len(self.active_markets),
             active_condition_ids=[m.condition_id for m in self.active_markets],
         )
+
+        # WI-56: Emit MARKET_DISCOVERED for activated markets
+        if self.event_bus is not None:
+            for market in self.active_markets:
+                await self._emit_event(
+                    event_type=OperationalEventType.MARKET_DISCOVERED,
+                    severity=OperationalEventSeverity.INFO,
+                    source=OperationalEventSource.ORCHESTRATOR,
+                    reason_code=OperationalEventReasonCode.MARKET_FOUND,
+                    message=f"Market activated: {market.category}",
+                )
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator
 
-        self._tasks = [
+        self._tasks.extend([
             asyncio.create_task(self.ws_client.run(), name="IngestionTask"),
             asyncio.create_task(self.aggregator.start(), name="ContextTask"),
             asyncio.create_task(self.claude_client.start(), name="EvaluationTask"),
@@ -371,7 +445,7 @@ class Orchestrator:
                 self._exit_scan_loop(),
                 name="ExitScanTask",
             ),
-        ]
+        ])
         if self.config.enable_portfolio_aggregator:
             self._tasks.append(
                 asyncio.create_task(
@@ -815,6 +889,52 @@ class Orchestrator:
                     except Exception:
                         pass
 
+                # WI-56: Map skip reasons to LLM budget/cooldown/provider events
+                if execution_result.action == ExecutionAction.SKIP:
+                    skip_reason = execution_result.reason or ""
+                    llm_event: OperationalEventType | None = None
+                    llm_rcode: OperationalEventReasonCode | None = None
+                    if "budget" in skip_reason:
+                        llm_event = OperationalEventType.BUDGET_BLOCK
+                        llm_rcode = OperationalEventReasonCode.BUDGET_HOURLY
+                    elif "cooldown" in skip_reason:
+                        llm_event = OperationalEventType.COOLDOWN_BLOCK
+                        llm_rcode = OperationalEventReasonCode.COOLDOWN_REPEATED_HOLD
+                    elif "provider" in skip_reason:
+                        llm_event = OperationalEventType.PROVIDER_FAILURE
+                        llm_rcode = OperationalEventReasonCode.PROVIDER_CALL_FAILED
+                    elif "circuit_breaker" in skip_reason:
+                        llm_event = OperationalEventType.LLM_CALL_BLOCKED
+                        llm_rcode = OperationalEventReasonCode.CB_OPEN
+                    else:
+                        llm_event = OperationalEventType.LLM_CALL_BLOCKED
+                        llm_rcode = OperationalEventReasonCode.DECISION_SKIP_LOW_CONF
+                    await self._emit_event(
+                        event_type=llm_event,
+                        severity=OperationalEventSeverity.WARNING,
+                        source=OperationalEventSource.EVALUATION,
+                        reason_code=llm_rcode,
+                        message=f"LLM decision blocked: {skip_reason}",
+                    )
+
+                # WI-56: Emit decision/execution events
+                if execution_result.action == ExecutionAction.SKIP:
+                    await self._emit_event(
+                        event_type=OperationalEventType.DECISION_SKIPPED,
+                        severity=OperationalEventSeverity.INFO,
+                        source=OperationalEventSource.EXECUTION,
+                        reason_code=OperationalEventReasonCode.EXEC_DRY_RUN_SKIP if self.config.dry_run else OperationalEventReasonCode.EXEC_FAILED,
+                        message=f"Execution skipped: {execution_result.reason or 'unknown'}",
+                    )
+                elif execution_result.action in (ExecutionAction.EXECUTED, ExecutionAction.DRY_RUN):
+                    await self._emit_event(
+                        event_type=OperationalEventType.DECISION_ACCEPTED,
+                        severity=OperationalEventSeverity.INFO,
+                        source=OperationalEventSource.EXECUTION,
+                        reason_code=OperationalEventReasonCode.DECISION_BUY if eval_resp.recommended_action and str(eval_resp.recommended_action.value).upper() == "BUY" else OperationalEventReasonCode.DECISION_HOLD,
+                        message=f"Decision: {execution_result.action.value}",
+                    )
+
                 if self.config.dry_run:
                     logger.info(
                         "execution.dry_run_skip",
@@ -826,6 +946,13 @@ class Orchestrator:
                             if execution_result.order_size_usdc is not None
                             else "unknown"
                         ),
+                    )
+                    await self._emit_event(
+                        event_type=OperationalEventType.EXECUTION_DRY_RUN,
+                        severity=OperationalEventSeverity.INFO,
+                        source=OperationalEventSource.EXECUTION,
+                        reason_code=OperationalEventReasonCode.EXEC_DRY_RUN_SKIP,
+                        message="Dry-run: order would have been routed",
                     )
                     continue
 
@@ -1159,10 +1286,27 @@ class Orchestrator:
                             try:
                                 previous_state = self.circuit_breaker.state
                                 self.circuit_breaker.evaluate_alerts(alerts)
+                                new_state = self.circuit_breaker.state
+                                if previous_state != new_state:
+                                    if new_state == CircuitBreakerState.OPEN:
+                                        await self._emit_event(
+                                            event_type=OperationalEventType.CIRCUIT_BREAKER_OPEN,
+                                            severity=OperationalEventSeverity.CRITICAL,
+                                            source=OperationalEventSource.EXECUTION,
+                                            reason_code=OperationalEventReasonCode.CB_OPEN,
+                                            message="Circuit breaker tripped: BUY routing halted",
+                                        )
+                                    elif new_state == CircuitBreakerState.CLOSED:
+                                        await self._emit_event(
+                                            event_type=OperationalEventType.CIRCUIT_BREAKER_CLOSED,
+                                            severity=OperationalEventSeverity.INFO,
+                                            source=OperationalEventSource.EXECUTION,
+                                            reason_code=OperationalEventReasonCode.CB_CLOSED,
+                                            message="Circuit breaker restored: BUY routing resumed",
+                                        )
                                 if (
                                     previous_state == CircuitBreakerState.CLOSED
-                                    and self.circuit_breaker.state
-                                    == CircuitBreakerState.OPEN
+                                    and new_state == CircuitBreakerState.OPEN
                                     and self.telegram_notifier is not None
                                 ):
                                     try:
@@ -1181,6 +1325,15 @@ class Orchestrator:
                                     "circuit_breaker.evaluate_error",
                                     error=str(exc),
                                 )
+                        # WI-56: Emit ALERT_SENT for each fired alert
+                        for alert in alerts:
+                            await self._emit_event(
+                                event_type=OperationalEventType.ALERT_SENT,
+                                severity=OperationalEventSeverity.WARNING,
+                                source=OperationalEventSource.OBSERVABILITY,
+                                reason_code=OperationalEventReasonCode.ALERT_DISPATCHED,
+                                message=f"Alert: {alert.severity.value} {alert.rule_name}",
+                            )
                     else:
                         logger.info(
                             "alert_engine.all_clear",
@@ -1319,6 +1472,7 @@ class Orchestrator:
     async def shutdown(self) -> None:
         """Stop running components, cancel tasks, and dispose shared resources."""
         logger.info("orchestrator.shutdown_start")
+        self._running = False
 
         # WI-32: Cancel MarketTrackingTask if running
         if (
@@ -1371,6 +1525,11 @@ class Orchestrator:
             await self._http_session.close()
             self._http_session = None
 
+        # WI-56: Stop operational event bus (emits SHUTDOWN event)
+        if self.event_bus is not None:
+            await self._emit_shutdown_event()
+            await self.event_bus.stop()
+
         await engine.dispose()
         logger.info("orchestrator.shutdown_complete")
 
@@ -1390,6 +1549,7 @@ class Orchestrator:
             db_reachable=await self._check_db_reachable(),
             active_market_count=len(self.active_markets) if self.active_markets else (1 if self.active_condition_id else 0),
             subscribed_asset_count=len(self.ws_client._assets_ids) if self.ws_client else 0,
+            ledger_degraded=getattr(self, "_event_ledger_degraded", False),
         )
 
     @staticmethod
@@ -1403,6 +1563,188 @@ class Orchestrator:
             return True
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    # WI-56: Operational event emission helpers
+    # ------------------------------------------------------------------
+
+    def _mark_event_ledger_degraded(self) -> None:
+        self._event_ledger_degraded = True
+
+    async def _publish_operational_event(
+        self,
+        event: OperationalEventCreate,
+    ) -> Any:
+        if self.event_bus is None:
+            return None
+        result = await self.event_bus.publish(event)
+        if (
+            not result.accepted
+            and event.severity
+            in (OperationalEventSeverity.CRITICAL, OperationalEventSeverity.ERROR)
+        ):
+            self._mark_event_ledger_degraded()
+            logger.error(
+                "operational_event.critical_publish_rejected",
+                event_type=event.event_type.value,
+                reason=result.reason,
+            )
+        return result
+
+    async def _emit_event(
+        self,
+        event_type: OperationalEventType,
+        severity: OperationalEventSeverity,
+        source: OperationalEventSource,
+        reason_code: OperationalEventReasonCode,
+        message: str | None = None,
+    ) -> None:
+        """Emit an operational event to the ledger if the bus is active."""
+        if self.event_bus is None:
+            return
+        try:
+            payload = OperationalEventPayload(
+                message=message,
+                reason_code=reason_code.value,
+                dry_run=self.config.dry_run,
+                ready_state="READY" if self._running else "SHUTDOWN",
+            )
+            event = OperationalEventCreate(
+                event_type=event_type,
+                severity=severity,
+                source=source,
+                reason_code=reason_code,
+                payload=payload,
+            )
+            await self._publish_operational_event(event)
+        except Exception:
+            if severity in (
+                OperationalEventSeverity.CRITICAL,
+                OperationalEventSeverity.ERROR,
+            ):
+                self._mark_event_ledger_degraded()
+            logger.debug("operational_event.emit_skipped", event_type=event_type.value)
+
+    async def _emit_startup_events(self) -> None:
+        """Emit START and CONFIG_LOADED lifecycle events."""
+        await self._emit_event(
+            event_type=OperationalEventType.CONFIG_LOADED,
+            severity=OperationalEventSeverity.INFO,
+            source=OperationalEventSource.ORCHESTRATOR,
+            reason_code=OperationalEventReasonCode.CONFIG_VALID,
+            message=f"Config loaded: dry_run={self.config.dry_run}, provider={self.config.llm_provider}",
+        )
+        await self._emit_event(
+            event_type=OperationalEventType.START,
+            severity=OperationalEventSeverity.INFO,
+            source=OperationalEventSource.ORCHESTRATOR,
+            reason_code=OperationalEventReasonCode.STARTUP,
+            message="Orchestrator started in dry-run paper-trading mode",
+        )
+
+    async def _emit_shutdown_event(self) -> None:
+        """Emit SHUTDOWN lifecycle event."""
+        await self._emit_event(
+            event_type=OperationalEventType.SHUTDOWN,
+            severity=OperationalEventSeverity.INFO,
+            source=OperationalEventSource.ORCHESTRATOR,
+            reason_code=OperationalEventReasonCode.GRACEFUL_SHUTDOWN,
+            message="Orchestrator shut down gracefully",
+        )
+
+    # ------------------------------------------------------------------
+    # WI-56: Periodic event ledger monitor
+    # ------------------------------------------------------------------
+
+    async def _event_ledger_monitor_loop(self) -> None:
+        """Periodic monitor that checks component states and emits
+        WS_CONNECTED/RECONNECT/PONG_STALE and READY_STATE_CHANGED events
+        on transitions.  Runs every 15 seconds.
+        """
+        # Track previous states for transition detection
+        _prev_ws_connected: bool = False
+        _prev_ready: bool = False
+        _reported_ws_connected: bool = False
+
+        while self._running:
+            try:
+                await asyncio.sleep(15)
+                if not self._running or self.event_bus is None:
+                    continue
+
+                ws_health = (
+                    self.ws_client.get_health_snapshot()
+                    if self.ws_client is not None
+                    else None
+                )
+                ws_connected = (
+                    ws_health is not None
+                    and ws_health.connection_state == "CONNECTED"
+                )
+
+                # WS connectivity transitions
+                if ws_connected and not _prev_ws_connected:
+                    if _reported_ws_connected:
+                        await self._emit_event(
+                            event_type=OperationalEventType.WS_RECONNECT,
+                            severity=OperationalEventSeverity.WARNING,
+                            source=OperationalEventSource.INGESTION,
+                            reason_code=OperationalEventReasonCode.WS_RECONNECTED,
+                            message="WebSocket reconnected",
+                        )
+                    else:
+                        await self._emit_event(
+                            event_type=OperationalEventType.WS_CONNECTED,
+                            severity=OperationalEventSeverity.INFO,
+                            source=OperationalEventSource.INGESTION,
+                            reason_code=OperationalEventReasonCode.WS_ESTABLISHED,
+                            message="WebSocket connected",
+                        )
+                        _reported_ws_connected = True
+                elif not ws_connected and _prev_ws_connected:
+                    await self._emit_event(
+                        event_type=OperationalEventType.WS_PONG_STALE,
+                        severity=OperationalEventSeverity.WARNING,
+                        source=OperationalEventSource.INGESTION,
+                        reason_code=OperationalEventReasonCode.WS_LOST,
+                        message="WebSocket disconnected or PONG stale",
+                    )
+
+                _prev_ws_connected = ws_connected
+
+                # Readiness transitions
+                health = await self._get_runtime_health()
+                ready = (
+                    health.ws_health is not None
+                    and health.ws_health.connection_state == "CONNECTED"
+                    and health.db_reachable
+                    and not getattr(self, "_event_ledger_degraded", False)
+                )
+
+                if ready != _prev_ready:
+                    await self._emit_event(
+                        event_type=OperationalEventType.READY_STATE_CHANGED,
+                        severity=OperationalEventSeverity.INFO if ready else OperationalEventSeverity.WARNING,
+                        source=OperationalEventSource.OBSERVABILITY,
+                        reason_code=OperationalEventReasonCode.READY if ready else OperationalEventReasonCode.DEGRADED,
+                        message=f"Readiness changed to {'ready' if ready else 'degraded'}",
+                    )
+                _prev_ready = ready
+
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error(
+                    "event_ledger_monitor.error",
+                    error=str(exc),
+                )
+                await self._emit_event(
+                    event_type=OperationalEventType.ERROR_RECOVERED,
+                    severity=OperationalEventSeverity.ERROR,
+                    source=OperationalEventSource.OBSERVABILITY,
+                    reason_code=OperationalEventReasonCode.ERROR_HANDLED,
+                    message="Event ledger monitor error handled",
+                )
 
 
 async def main() -> None:
