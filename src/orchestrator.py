@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from web3 import AsyncHTTPProvider, AsyncWeb3
 
 from src.agents.context.aggregator import DataAggregator
+from src.agents.context.bounded_queue import BoundedPromptQueue
 from src.agents.context.prompt_factory import PromptFactory
 from src.agents.evaluation.claude_client import ClaudeClient
 from src.agents.execution.bankroll_sync import BankrollSyncProvider
@@ -95,10 +96,18 @@ class Orchestrator:
         self._condition_by_token: dict[str, str] = {}
         self._running = False
 
+        # WI-47: Metrics registry — created early so WI-53 prompt queue can use it
+        self.metrics_registry: MetricsRegistry = MetricsRegistry()
+
         # Queue wiring per architecture sequence:
         # ingestion -> context -> evaluation -> execution
         self.market_queue: asyncio.Queue[Any] = asyncio.Queue()
-        self.prompt_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        # WI-53: Bounded prompt queue with coalescing
+        self.prompt_queue: BoundedPromptQueue = BoundedPromptQueue(
+            max_size=self.config.prompt_queue_maxsize,
+            coalescing=self.config.prompt_queue_coalesce_by_market,
+            metrics=self.metrics_registry,
+        )
         self.execution_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
         self._http_session: aiohttp.ClientSession | None = None
@@ -235,10 +244,6 @@ class Orchestrator:
         )
         self.prompt_factory = PromptFactory()
 
-        # WI-47: Metrics registry — created before ClaudeClient so WI-52
-        # guards can receive metrics for LLM cost observability.
-        self.metrics_registry: MetricsRegistry = MetricsRegistry()
-
         self.claude_client = ClaudeClient(
             in_queue=self.prompt_queue,
             out_queue=self.execution_queue,
@@ -294,6 +299,8 @@ class Orchestrator:
             gamma_client=self.gamma_client,
             bankroll_tracker=self.bankroll_tracker,
             config=self.config,
+            polymarket_client=self.polymarket_client,
+            metrics=self.metrics_registry,
         )
         self.broadcaster = OrderBroadcaster(
             w3=self.w3,
@@ -321,6 +328,14 @@ class Orchestrator:
             input_queue=self.market_queue,
             output_queue=self.prompt_queue,
             condition_id=primary_cid,
+            metrics=self.metrics_registry,
+        )
+        # WI-53: Configure dedupe from config
+        self.aggregator.configure_dedupe(
+            enabled=self.config.enable_market_evaluation_dedupe,
+            min_interval_sec=float(self.config.dedupe_min_evaluation_interval_sec),
+            midpoint_delta=self.config.dedupe_midpoint_delta,
+            spread_delta=self.config.dedupe_spread_delta,
         )
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator

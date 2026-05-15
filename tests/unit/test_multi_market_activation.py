@@ -394,8 +394,8 @@ async def test_aggregator_emits_correct_market_context(test_config):
         f"Expected market B category, got {state['category']}"
     )
     assert state["tags"] == ["b"]
-    assert state["best_bid"] == 0.30
-    assert state["best_ask"] == 0.70
+    assert state["best_bid"] == Decimal("0.3")
+    assert state["best_ask"] == Decimal("0.7")
     assert payload["yes_token_id"] == "yes-B"
 
 

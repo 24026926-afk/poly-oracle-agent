@@ -1,13 +1,24 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-10
-**Version:** 0.15.1-dev
-**Status:** Phase 15 IN PROGRESS — WI-52 complete, WI-53/54/55 ready
-**Active WI:** None — Phase 15 WIs ready for `/wi-start`
+**Last Updated:** 2026-05-14
+**Version:** 0.15.4
+**Status:** Phase 15 COMPLETE — archived to `04_Archive/poly-oracle-agent/Phase-15/`
+**Active WI:** none
 
 ---
 
-## Phase 15 In Progress
+## Phase 15 Archive
+
+- **PRD:** `docs/PRD-v15.0.md`
+- **Completion Report:** `04_Archive/poly-oracle-agent/Phase-15/PHASE-15-COMPLETE.md`
+- **Close Date:** 2026-05-14
+- **Final Tests:** 1824 | **Coverage:** 93%
+- **Develop HEAD:** `53f62c8`
+- **WIs Completed:** WI-52, WI-53, WI-54, WI-55
+
+---
+
+## Phase 15 (Detail)
 
 - **PRD:** `docs/PRD-v15.0.md`
 - **Planning Date:** 2026-05-10
@@ -17,10 +28,9 @@
 - **Provider approach:** DeepSeek must be integrated through DeepSeek's Anthropic-compatible endpoint using the existing `anthropic` SDK unless implementation proves that path unsafe and escalates before dependency changes.
 - **WIs completed:**
   - **WI-52 — LLM Cost Guard and Cognitive Circuit Breaker:** COMPLETE. `src/agents/evaluation/llm_cost_guard.py` (LLMBudgetGuard + MarketCognitiveCircuitBreaker), `src/schemas/llm.py` (11 new schemas), `src/core/config.py` (12 new fields), `src/observability/metrics.py` (6 new metrics), `src/orchestrator.py` (metrics wired), `docs/runbooks/llm-cost-guard.md`. 115 new tests (100 unit + 15 integration). Branch: `feat/wi-52-llm-cost-guard-and-cognitive-circuit-breaker`, merge commit: `b716f29`.
-- **WIs ready for implementation:**
-  - WI-53 — Market Eligibility, Evaluation Deduplication, and Queue Backpressure
-  - WI-54 — Configurable DeepSeek Provider via Anthropic-Compatible Endpoint
-  - WI-55 — DeepSeek Backtest Calibration and Paper-Trading Readiness Gate
+  - **WI-53 — Market Eligibility, Evaluation Deduplication, and Queue Backpressure:** COMPLETE. `src/schemas/market_eligibility.py` (12 new schemas), `src/agents/ingestion/market_quarantine.py` (MarketQuarantineManager), `src/agents/context/bounded_queue.py` (BoundedPromptQueue), `src/agents/ingestion/market_discovery.py` (preflight), `src/agents/context/aggregator.py` (dedupe), `src/core/config.py` (6 new fields), `src/observability/metrics.py` (7 new metrics), `src/orchestrator.py` (all wired), `docs/runbooks/market-eligibility-and-backpressure.md`. 113 new tests (95 unit + 18 integration). Branch: `feat/wi-53-market-eligibility-evaluation-deduplication-and-queue-backpressure`, merge commit: `9d3f0c7`.
+  - **WI-54 — Configurable DeepSeek Provider via Anthropic-Compatible Endpoint:** COMPLETE. `src/schemas/llm.py` (9 new schemas: LLMProvider, LLMProviderConfig, LLMProviderRuntimeContext, LLMProviderUsage, LLMProviderMetadata, LLMProviderSelectionDecision, LLMProviderSelectionReason, LLMProviderConfigError, LLMProviderConfigErrorReason — all frozen Pydantic V2, Decimal-native cost fields, SecretStr for api_key), `src/core/config.py` (6 new fields + model_validator for fail-closed provider validation), `src/agents/evaluation/claude_client.py` (provider-aware `__init__` resolving api_key/base_url/model/max_tokens/max_retries from selected provider, `AsyncAnthropic` instantiated with provider-specific `max_retries`, `_max_retries` wired into both retry methods with `Optional[int]=None` defaults, preserved `ClaudeClient` class name, provider-neutral log/error messages, provider metadata in audit logs), `src/observability/metrics.py` (3 new provider metrics: selections, failures, active provider gauge — all low-cardinality labels), `.env.example` updated with DeepSeek + `LLM_PROVIDER` block, `README.md` provider config table added, `docs/system_architecture.md` Layer 3 updated for dual-provider operation, `AGENTS.md` entry for WI-54 added, `tests/unit/test_evaluation_budget.py` extended with WI-54 fields. 80 new unit tests. Branch: `feat/wi-54-configurable-deepseek-provider-via-anthropic-compatible-endpoint`, merge commit: `bfd8102`.
+  - **WI-55 — DeepSeek Backtest Calibration and Paper-Trading Readiness Gate:** COMPLETE. `src/schemas/provider_comparison.py` (LLMProviderComparisonConfig, LLMProviderDecisionMetrics, LLMProviderCalibrationMetrics, LLMProviderCostMetrics, LLMProviderLatencyMetrics, LLMProviderComparisonResult, LLMProviderComparisonRun, LLMProviderComparisonReport, LLMProviderReadinessVerdict, LLMProviderReadinessReason, LLMProviderCalibrationRecommendation — all frozen Pydantic V2, Decimal-native), `src/backtesting/provider_comparison.py` (derive_readiness_verdict, derive_calibration_recommendation, redact_secrets, validate_report_path, generate_comparison_report), `scripts/run_llm_provider_comparison.py` (CLI runner driving the canonical `ClaudeClient.evaluate_for_backtest` chain for DeepSeek primary + optional Anthropic sampling), `src/agents/evaluation/claude_client.py` (new public `evaluate_for_backtest(prompt, snapshot_id, market_key)` returning `(parsed, usage, block_reason)`, `_get_primary_candidate` refactored to return `(result, block_reason)` — removed shared mutable `_last_primary_block_reason` to prevent cross-market bleed under concurrent calls), `src/schemas/execution.py` + `src/backtest_runner.py` (added `outcome_resolved: bool` field to `BacktestDecision`/`BacktestSnapshot`; loader sets when source carries explicit `realized_pnl_usdc` key; `_replay_snapshot` sets when a trade was executed — break-even zero-PnL outcomes now correctly counted as resolved data), `docs/runbooks/deepseek-paper-trading-readiness.md`. MAAP findings resolved: reflection-budget rejections counted in `budget_block_count` regardless of usage, no shared mutable block-reason state, outcome coverage detection no longer mis-classifies zero-PnL resolved outcomes. Branch: `feat/wi-55-deepseek-backtest-calibration-and-paper-trading-readiness-gate`.
 - **Deliverable boundary:** Per `AGENTS.md`, `/prd` created only `docs/PRD-v15.0.md` and updated `STATE.md`. WI business-logic and implementation-prompt deliverables must be generated one at a time via `/wi-start {WI}`.
 
 ---
@@ -52,7 +62,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1349 |
+| Total tests | 1824 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |

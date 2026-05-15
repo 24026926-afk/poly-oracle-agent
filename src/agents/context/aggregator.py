@@ -15,11 +15,17 @@ import uuid
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Dict, Any, Optional, List
 
 import structlog
 
 from src.schemas.market import CLOBMessage, PerMarketAggregatorState
+from src.schemas.market_eligibility import (
+    MarketEvaluationFingerprint,
+    MarketEvaluationDedupeDecision,
+    MarketEvaluationDedupeReason,
+)
 from src.agents.context.prompt_factory import PromptFactory
 
 logger = structlog.get_logger(__name__)
@@ -55,11 +61,13 @@ class DataAggregator:
         output_queue: asyncio.Queue[Dict[str, Any]],
         condition_id: str,
         condition_by_token: Optional[Dict[str, str]] = None,
+        metrics=None,  # Optional MetricsRegistry for WI-53 metrics
     ):
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.condition_id = condition_id
         self.condition_by_token: Dict[str, str] = condition_by_token or {}
+        self._metrics = metrics
 
         # Per-market state isolation (WI-32 fix)
         self._markets: Dict[str, _MarketState] = {}
@@ -74,6 +82,16 @@ class DataAggregator:
         # WI-32: Per-instance frame tracking (mutated by CLOBWebSocketClient routing)
         self.frame_count: int = 0
         self.last_seen_utc: Optional[datetime] = None
+
+        # WI-53: Dedupe state — per-market fingerprints
+        self._dedupe_enabled: bool = False
+        self._dedupe_min_interval: float = 30.0
+        self._dedupe_midpoint_delta: Decimal = Decimal("0.01")
+        self._dedupe_spread_delta: Decimal = Decimal("0.005")
+        # condition_id -> last fingerprint
+        self._last_fingerprints: Dict[str, MarketEvaluationFingerprint] = {}
+        # condition_id -> last emit timestamp for dedupe interval
+        self._dedupe_last_emit: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Backward-compatible global properties (delegate to primary market)
@@ -195,6 +213,97 @@ class DataAggregator:
     def clear_markets(self) -> None:
         """Remove all market state (e.g. on full deactivation)."""
         self._markets.clear()
+        self._last_fingerprints.clear()
+        self._dedupe_last_emit.clear()
+
+    # ------------------------------------------------------------------
+    # WI-53: Dedupe configuration
+    # ------------------------------------------------------------------
+
+    def configure_dedupe(
+        self,
+        enabled: bool = False,
+        min_interval_sec: float = 30.0,
+        midpoint_delta: Decimal = Decimal("0.01"),
+        spread_delta: Decimal = Decimal("0.005"),
+    ) -> None:
+        """Configure dedupe parameters."""
+        self._dedupe_enabled = enabled
+        self._dedupe_min_interval = min_interval_sec
+        self._dedupe_midpoint_delta = midpoint_delta
+        self._dedupe_spread_delta = spread_delta
+
+    # ------------------------------------------------------------------
+    # WI-53: Dedupe check
+    # ------------------------------------------------------------------
+
+    def _check_dedupe(
+        self,
+        condition_id: str,
+        midpoint: Decimal,
+        spread: Decimal,
+    ) -> MarketEvaluationDedupeDecision:
+        """Determine whether to emit a new evaluation for this market.
+
+        Returns a dedupe decision with emit=True/False and the reason.
+        """
+        if not self._dedupe_enabled:
+            return MarketEvaluationDedupeDecision(
+                condition_id=condition_id,
+                emit=True,
+                reason=MarketEvaluationDedupeReason.MIDPOINT_MOVED,
+            )
+
+        now = time.time()
+        last_emit = self._dedupe_last_emit.get(condition_id, 0.0)
+        elapsed = now - last_emit
+
+        # Check minimum interval
+        if elapsed < self._dedupe_min_interval:
+            last_fp = self._last_fingerprints.get(condition_id)
+            if last_fp is not None:
+                midpoint_changed = abs(midpoint - last_fp.midpoint) >= self._dedupe_midpoint_delta
+                spread_changed = abs(spread - last_fp.spread) >= self._dedupe_spread_delta
+
+                if not midpoint_changed and not spread_changed:
+                    return MarketEvaluationDedupeDecision(
+                        condition_id=condition_id,
+                        emit=False,
+                        reason=MarketEvaluationDedupeReason.UNCHANGED_STATE,
+                    )
+
+                # Material movement — emit
+                reason = (
+                    MarketEvaluationDedupeReason.MIDPOINT_MOVED
+                    if midpoint_changed
+                    else MarketEvaluationDedupeReason.SPREAD_MOVED
+                )
+                return MarketEvaluationDedupeDecision(
+                    condition_id=condition_id,
+                    emit=True,
+                    reason=reason,
+                )
+
+        # Either enough time elapsed, or no previous fingerprint
+        return MarketEvaluationDedupeDecision(
+            condition_id=condition_id,
+            emit=True,
+            reason=MarketEvaluationDedupeReason.MIDPOINT_MOVED,
+        )
+
+    def _record_fingerprint(
+        self,
+        condition_id: str,
+        midpoint: Decimal,
+        spread: Decimal,
+    ) -> None:
+        """Store the current fingerprint for a market."""
+        self._last_fingerprints[condition_id] = MarketEvaluationFingerprint(
+            condition_id=condition_id,
+            midpoint=midpoint,
+            spread=spread,
+        )
+        self._dedupe_last_emit[condition_id] = time.time()
 
     # ------------------------------------------------------------------
     # Main loop
@@ -277,28 +386,36 @@ class DataAggregator:
                         await self._emit_state_for_market(cid)
 
     async def _check_triggers_for_market(self, condition_id: str) -> None:
-        """Evaluates if the price change warrants an immediate LLM evaluation."""
+        """Evaluates if the price change warrants an immediate LLM evaluation.
+
+        WI-53: Midpoint and spread computed as Decimal at the boundary.
+        """
         ms = self._markets.get(condition_id)
         if ms is None or ms.best_bid <= 0 or ms.best_ask <= 0:
             return
 
-        current_midpoint = (ms.best_bid + ms.best_ask) / 2.0
+        # WI-53: Convert to Decimal at the boundary
+        bid_dec = Decimal(str(ms.best_bid))
+        ask_dec = Decimal(str(ms.best_ask))
+        current_midpoint_dec = (bid_dec + ask_dec) / Decimal("2")
+        current_midpoint = float(current_midpoint_dec)
         now = time.time()
 
         time_elapsed = now - ms.last_emit_time >= self.TIME_INTERVAL_SEC
 
         price_moved = False
         if ms.last_emitted_midpoint is not None and ms.last_emitted_midpoint > 0:
-            change = (
-                abs(current_midpoint - ms.last_emitted_midpoint)
-                / ms.last_emitted_midpoint
+            last_mid_dec = Decimal(str(ms.last_emitted_midpoint))
+            change_dec = (
+                abs(current_midpoint_dec - last_mid_dec) / last_mid_dec
             )
-            if change >= self.PRICE_CHANGE_THRESHOLD:
+            threshold_dec = Decimal(str(self.PRICE_CHANGE_THRESHOLD))
+            if change_dec >= threshold_dec:
                 price_moved = True
                 logger.debug(
                     "Volatility trigger activated.",
                     condition_id=condition_id,
-                    price_change_pct=change,
+                    price_change_pct=float(change_dec),
                 )
 
         if time_elapsed or price_moved:
@@ -307,7 +424,11 @@ class DataAggregator:
     async def _emit_state_for_market(
         self, condition_id: str, current_midpoint: Optional[float] = None,
     ) -> None:
-        """Builds the market summary and pushes it to the output queue."""
+        """Builds the market summary and pushes it to the output queue.
+
+        WI-53: Runs dedupe check before emitting.  If dedupe suppresses the
+        payload, no prompt is enqueued.
+        """
         ms = self._markets.get(condition_id)
         if ms is None:
             return
@@ -317,21 +438,40 @@ class DataAggregator:
 
         spread = ms.best_ask - ms.best_bid
 
+        # WI-53: Convert to Decimal at the boundary — no float in financial path
+        bid_dec = Decimal(str(ms.best_bid))
+        ask_dec = Decimal(str(ms.best_ask))
+        mid_dec = (bid_dec + ask_dec) / Decimal("2")
+        spr_dec = ask_dec - bid_dec
+        dedupe_decision = self._check_dedupe(condition_id, mid_dec, spr_dec)
+
+        if not dedupe_decision.emit:
+            logger.debug(
+                "dedupe.suppressed",
+                reason=dedupe_decision.reason.value,
+            )
+            if self._metrics is not None:
+                await self._metrics.record_deduped_context()
+            return
+
         state = {
             "condition_id": condition_id,
             "title": ms.question,
             "question": ms.question,
             "category": ms.category,
             "tags": list(ms.tags),
-            "best_bid": ms.best_bid,
-            "best_ask": ms.best_ask,
-            "midpoint": current_midpoint,
-            "spread": spread,
+            "best_bid": mid_dec - spr_dec / Decimal("2"),
+            "best_ask": mid_dec + spr_dec / Decimal("2"),
+            "midpoint": mid_dec,
+            "spread": spr_dec,
             "timestamp": time.time(),
         }
 
         ms.last_emit_time = time.time()
         ms.last_emitted_midpoint = current_midpoint
+
+        # WI-53: Record fingerprint after successful emit
+        self._record_fingerprint(condition_id, mid_dec, spr_dec)
 
         prompt = PromptFactory.build_evaluation_prompt(state)
 
@@ -348,6 +488,8 @@ class DataAggregator:
             midpoint=current_midpoint,
             spread=spread,
         )
+        if self._metrics is not None:
+            await self._metrics.record_emitted_context()
         await self.output_queue.put(output_payload)
 
     # ------------------------------------------------------------------

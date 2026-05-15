@@ -53,6 +53,10 @@ class BacktestSnapshot:
     best_ask: Decimal
     midpoint: Decimal
     realized_pnl_usdc: Decimal = _ZERO
+    # WI-55: True iff the source record carried an explicit
+    # ``realized_pnl_usdc`` field (regardless of value).  A break-even
+    # outcome is still a resolved outcome.
+    outcome_resolved: bool = False
 
 
 class BacktestDataLoader:
@@ -133,6 +137,7 @@ class BacktestDataLoader:
                 best_bid = self._parse_decimal(record["best_bid"])
                 best_ask = self._parse_decimal(record["best_ask"])
                 midpoint = self._parse_decimal(record["midpoint"])
+                outcome_resolved = "realized_pnl_usdc" in record
                 realized_pnl_usdc = self._parse_decimal(
                     record.get("realized_pnl_usdc", _ZERO)
                 )
@@ -149,6 +154,7 @@ class BacktestDataLoader:
                     best_ask=best_ask,
                     midpoint=midpoint,
                     realized_pnl_usdc=realized_pnl_usdc,
+                    outcome_resolved=outcome_resolved,
                 )
             )
 
@@ -431,6 +437,14 @@ class BacktestRunner:
             action = "HOLD"
             gatekeeper_result = "FAILED"
 
+        # WI-55: Outcome is "resolved" if either a trade was executed
+        # (PnL realized — including break-even zero PnL) or the underlying
+        # snapshot carried explicit resolution data.
+        if isinstance(snapshot, dict):
+            snapshot_resolved = bool(snapshot.get("outcome_resolved", False))
+        else:
+            snapshot_resolved = bool(getattr(snapshot, "outcome_resolved", False))
+
         decision = BacktestDecision(
             token_id=token_id,
             timestamp_utc=timestamp_utc,
@@ -442,6 +456,7 @@ class BacktestRunner:
             gatekeeper_result=gatekeeper_result,
             reason=reason,
             realized_pnl_usdc=trade_pnl,
+            outcome_resolved=trade_executed or snapshot_resolved,
         )
         return decision, trade_executed, trade_pnl
 

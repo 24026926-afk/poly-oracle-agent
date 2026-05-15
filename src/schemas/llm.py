@@ -14,7 +14,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +522,157 @@ class LLMCostGuardSnapshot(BaseModel):
         if isinstance(v, Decimal):
             return v
         return Decimal(str(v))
+
+
+# ---------------------------------------------------------------------------
+# WI-54: Configurable DeepSeek Provider schemas
+# ---------------------------------------------------------------------------
+
+
+class LLMProvider(str, Enum):
+    """Operator-selectable LLM evaluation provider.
+
+    Lowercase values for env-var ergonomics; distinct from internal
+    ``LLMProviderName`` (which is uppercase for compatibility with WI-52).
+    """
+
+    ANTHROPIC = "anthropic"
+    DEEPSEEK = "deepseek"
+
+
+class LLMProviderSelectionReason(str, Enum):
+    """Typed reason for which provider was selected."""
+
+    CONFIGURED = "configured"
+    FALLBACK = "fallback"
+
+
+class LLMProviderConfigErrorReason(str, Enum):
+    """Typed reasons a provider configuration is invalid at startup."""
+
+    MISSING_API_KEY = "missing_api_key"
+    UNKNOWN_PROVIDER = "unknown_provider"
+    MALFORMED_BASE_URL = "malformed_base_url"
+
+
+class LLMProviderConfig(BaseModel):
+    """Resolved provider configuration with runtime-usable fields.
+
+    Validated at config-load time; secret values are stripped before
+    serialisation so this model never leaks keys.
+    """
+
+    model_config = {"frozen": True}
+
+    provider: LLMProvider
+    api_key_value: SecretStr = Field(..., min_length=1)
+    base_url: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    max_tokens: int = Field(default=4096, gt=0)
+    max_retries: int = Field(default=2, ge=0)
+
+    @field_validator("base_url")
+    @classmethod
+    def _require_valid_scheme_and_host(cls, v: str) -> str:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(v.strip())
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError(
+                f"Invalid base_url scheme '{parsed.scheme}'; must be http or https"
+            )
+        if not parsed.netloc:
+            raise ValueError("base_url must include a host")
+        return v
+
+
+class LLMProviderRuntimeContext(BaseModel):
+    """Provider runtime context emitted in audit records and logs.
+
+    Secret-free — only provider name, model name, and base URL host.
+    """
+
+    model_config = {"frozen": True}
+
+    provider: str = Field(..., min_length=1)
+    model_name: str = Field(..., min_length=1)
+    base_url_host: str = Field(..., min_length=1)
+
+    @field_validator("base_url_host")
+    @classmethod
+    def _host_only(cls, v: str) -> str:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(v if "://" in v else f"https://{v}")
+        return parsed.netloc or v
+
+
+class LLMProviderUsage(BaseModel):
+    """Provider usage record with Decimal-native cost accounting.
+
+    All cost/token-price fields are Decimal; float is rejected at boundary.
+    When usage fields are missing or malformed, conservative configured
+    defaults are used and ``is_estimated`` is set to ``True``.
+    """
+
+    model_config = {"frozen": True}
+
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+    estimated_cost_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    is_estimated: bool = Field(
+        default=False,
+        description="True when usage fields were missing/malformed and fallback was used",
+    )
+
+    @field_validator("estimated_cost_usd", mode="before")
+    @classmethod
+    def _reject_float_cost(cls, v: object) -> Decimal:
+        if isinstance(v, float):
+            raise ValueError("Float cost values are forbidden; use Decimal")
+        if isinstance(v, Decimal):
+            return v
+        return Decimal(str(v))
+
+
+class LLMProviderMetadata(BaseModel):
+    """Provider metadata for audit/log records.
+
+    Secret-free — provider name, model name, and base URL host only.
+    """
+
+    model_config = {"frozen": True}
+
+    provider: str = Field(..., min_length=1)
+    model_name: str = Field(..., min_length=1)
+    base_url_host: str = Field(..., min_length=1)
+
+    @field_validator("base_url_host")
+    @classmethod
+    def _host_only(cls, v: str) -> str:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(v if "://" in v else f"https://{v}")
+        return parsed.netloc or v
+
+
+class LLMProviderSelectionDecision(BaseModel):
+    """Records the provider selection decision for audit trail."""
+
+    model_config = {"frozen": True}
+
+    selected_provider: LLMProvider
+    reason: LLMProviderSelectionReason
+
+
+class LLMProviderConfigError(BaseModel):
+    """Typed configuration error emitted when provider config is invalid."""
+
+    model_config = {"frozen": True}
+
+    reason: LLMProviderConfigErrorReason
+    message: str = Field(..., min_length=1)
 
 
 # ---------------------------------------------------------------------------

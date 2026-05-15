@@ -18,6 +18,8 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from web3 import Web3
 
+from src.schemas.llm import LLMProvider
+
 logger = structlog.get_logger(__name__)
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
@@ -463,6 +465,90 @@ class AppConfig(BaseSettings):
         description="Estimated cost per output token in USD",
     )
 
+    # --- WI-54: Configurable DeepSeek Provider ---
+    llm_provider: str = Field(
+        default="anthropic",
+        description="LLM evaluation provider: anthropic or deepseek",
+    )
+    deepseek_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="API key for DeepSeek V4 Pro (required when llm_provider=deepseek)",
+    )
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com/anthropic",
+        description="DeepSeek Anthropic-compatible endpoint base URL",
+    )
+    deepseek_model: str = Field(
+        default="deepseek-v4-pro",
+        description="DeepSeek model identifier",
+    )
+    deepseek_max_tokens: int = Field(
+        default=4096,
+        description="Max output tokens per DeepSeek call",
+    )
+    deepseek_max_retries: int = Field(
+        default=2,
+        description="Max retries on malformed DeepSeek responses",
+    )
+
+    # --- WI-53: Market Eligibility Preflight ---
+    enable_market_discovery_preflight: bool = Field(
+        default=False,
+        description="Enable read-only preflight checks before market activation",
+    )
+    market_discovery_preflight_timeout_ms: Decimal = Field(
+        default=Decimal("5000"),
+        ge=0,
+        description="Timeout in milliseconds for a single candidate preflight check",
+    )
+    market_discovery_max_preflight_candidates: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum number of candidates to evaluate per discovery cycle",
+    )
+    preflight_quarantine_duration_seconds: Decimal = Field(
+        default=Decimal("300"),
+        ge=0,
+        description="Seconds a market stays in quarantine after repeated preflight failures",
+    )
+    preflight_max_spread_pct: Decimal = Field(
+        default=Decimal("0.05"),
+        ge=0,
+        description="Maximum bid-ask spread allowed by preflight (5%)",
+    )
+
+    # --- WI-53: Market Evaluation Deduplication ---
+    enable_market_evaluation_dedupe: bool = Field(
+        default=False,
+        description="Enable per-market deduplication of evaluation contexts",
+    )
+    dedupe_min_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("30"),
+        ge=0,
+        description="Minimum seconds between evaluations of the same market",
+    )
+    dedupe_midpoint_delta: Decimal = Field(
+        default=Decimal("0.01"),
+        ge=0,
+        description="Minimum midpoint change to trigger a new evaluation (1pp)",
+    )
+    dedupe_spread_delta: Decimal = Field(
+        default=Decimal("0.005"),
+        ge=0,
+        description="Minimum spread change to trigger a new evaluation (0.5pp)",
+    )
+
+    # --- WI-53: Prompt Queue Backpressure ---
+    prompt_queue_maxsize: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum number of prompts allowed in the queue",
+    )
+    prompt_queue_coalesce_by_market: bool = Field(
+        default=True,
+        description="When queue is full, coalesce by market instead of dropping",
+    )
+
     @field_validator(
         "llm_daily_cost_limit_usd",
         "llm_market_cooldown_seconds",
@@ -477,6 +563,40 @@ class AppConfig(BaseSettings):
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))
+
+    @model_validator(mode="after")
+    def _validate_llm_provider_config(self) -> "AppConfig":
+        """Validate WI-54 provider configuration at config-load time.
+
+        - Unknown ``llm_provider`` → typed failure.
+        - DeepSeek selected and key missing → typed failure.
+        """
+        raw_provider = self.llm_provider.strip().lower()
+        known = {m.value for m in LLMProvider}
+        if raw_provider not in known:
+            raise ValueError(
+                f"Unsupported llm_provider '{self.llm_provider}'. "
+                f"Must be one of {sorted(known)}."
+            )
+
+        selected = LLMProvider(raw_provider)
+
+        if selected == LLMProvider.DEEPSEEK:
+            key = self.deepseek_api_key.get_secret_value().strip()
+            if not key:
+                raise ValueError(
+                    "llm_provider=deepseek requires deepseek_api_key to be set."
+                )
+
+            from urllib.parse import urlparse
+
+            parsed = urlparse(self.deepseek_base_url.strip())
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError(
+                    f"deepseek_base_url is malformed: '{self.deepseek_base_url}'."
+                )
+
+        return self
 
     # --- Validators ---
 
@@ -533,6 +653,12 @@ class AppConfig(BaseSettings):
         "ws_reconnect_jitter_pct",
         "ws_pong_timeout_seconds",
         "readiness_grace_window_seconds",
+        "market_discovery_preflight_timeout_ms",
+        "preflight_quarantine_duration_seconds",
+        "preflight_max_spread_pct",
+        "dedupe_min_evaluation_interval_sec",
+        "dedupe_midpoint_delta",
+        "dedupe_spread_delta",
         mode="before",
     )
     @classmethod
