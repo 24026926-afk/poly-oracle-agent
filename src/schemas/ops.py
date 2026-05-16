@@ -1489,3 +1489,246 @@ class IncidentReplayReport(BaseModel):
                 "status SUCCESS requires at least one replay line; use EMPTY_WINDOW for zero-event reports"
             )
         return self
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WI-59 — Dashboard Activity Feed
+#
+# Read-only presentation schemas for the operator-facing Streamlit
+# dashboard activity timeline and "what is the bot doing right now?"
+# current-state panel. These types compose the WI-56 operational event
+# ledger and the WI-57 deterministic narrative layer into a bounded,
+# secret-safe feed for the dashboard. They never persist, never mutate,
+# and never bypass the Gatekeeper.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class DashboardActivityFeedStatus(str, Enum):
+    """Outcome status of a dashboard activity feed fetch."""
+
+    SUCCESS = "SUCCESS"
+    EMPTY_WINDOW = "EMPTY_WINDOW"
+    DATABASE_UNAVAILABLE = "DATABASE_UNAVAILABLE"
+    MISSING_TABLE = "MISSING_TABLE"
+    TRUNCATED = "TRUNCATED"
+
+
+class DashboardActivityFeedFailureReason(str, Enum):
+    """Typed failure reasons for non-success feed outcomes."""
+
+    MISSING_TABLE = "MISSING_TABLE"
+    DATABASE_UNREACHABLE = "DATABASE_UNREACHABLE"
+    RESULT_TRUNCATED = "RESULT_TRUNCATED"
+    FORBIDDEN_CONTENT = "FORBIDDEN_CONTENT"
+
+
+class DashboardActivityFeedFilter(BaseModel):
+    """Typed filter for the dashboard activity feed.
+
+    Every filter field is an optional list of typed enum values. Free-form
+    strings are rejected at the schema boundary. Filters are independent
+    and combinable; combined filters intersect.
+    """
+
+    model_config = {"frozen": True}
+
+    severities: Optional[list[OperationalEventSeverity]] = Field(
+        default=None,
+        description="Filter to one or more typed severities (independent).",
+    )
+    sources: Optional[list[OperationalEventSource]] = Field(
+        default=None,
+        description="Filter to one or more typed source components (independent).",
+    )
+    event_types: Optional[list[OperationalEventType]] = Field(
+        default=None,
+        description="Filter to one or more typed event types (independent).",
+    )
+    reason_codes: Optional[list[OperationalEventReasonCode]] = Field(
+        default=None,
+        description="Filter to one or more typed reason codes (independent).",
+    )
+
+    def is_empty(self) -> bool:
+        """True when no filter narrows the result set."""
+        return (
+            not self.severities
+            and not self.sources
+            and not self.event_types
+            and not self.reason_codes
+        )
+
+
+class DashboardActivityFeedItem(BaseModel):
+    """One typed, secret-safe row of the dashboard activity timeline.
+
+    The row never carries the raw payload, raw reasoning, raw provider
+    response, token IDs, condition IDs, wallet addresses, or unbounded
+    text. The ``summary`` is the deterministic WI-57 narrative summary
+    after secret-scan validation.
+    """
+
+    model_config = {"frozen": True}
+
+    event_id: str = Field(..., min_length=1, max_length=64)
+    event_type: OperationalEventType
+    severity: OperationalEventSeverity
+    source: OperationalEventSource
+    reason_code: OperationalEventReasonCode
+    template_key: NarrativeTemplateKey
+    narrative_status: NarrativeRenderStatus
+    summary: str = Field(..., min_length=1, max_length=1024)
+    continuation_state: Optional[str] = Field(default=None, max_length=32)
+    dry_run: Optional[bool] = Field(default=None)
+    timestamp_utc: datetime = Field(..., description="UTC event creation time.")
+
+    @field_validator("summary")
+    @classmethod
+    def _scan_summary_for_forbidden(cls, value: str) -> str:
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"summary contains forbidden content: {violations}")
+        return value
+
+    @field_validator("timestamp_utc")
+    @classmethod
+    def _require_tzaware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp_utc must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @field_validator("continuation_state")
+    @classmethod
+    def _validate_continuation_state(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if value not in {"continued", "skipped", "degraded", "stopped"}:
+            raise ValueError(
+                "continuation_state must be one of: continued, skipped, degraded, stopped"
+            )
+        return value
+
+
+class DashboardCurrentState(BaseModel):
+    """Bounded, typed "what is the bot doing right now?" panel state.
+
+    Each field summarizes the latest persisted typed event for its
+    category. Fields are ``None`` when no recent typed event supports
+    that category. ``overall_state`` is one of the WI-57 continuation
+    states or ``unknown``. All summaries are secret-safe.
+    """
+
+    model_config = {"frozen": True}
+
+    lifecycle_summary: Optional[str] = Field(default=None, max_length=512)
+    readiness_summary: Optional[str] = Field(default=None, max_length=512)
+    websocket_summary: Optional[str] = Field(default=None, max_length=512)
+    llm_summary: Optional[str] = Field(default=None, max_length=512)
+    decision_summary: Optional[str] = Field(default=None, max_length=512)
+    execution_summary: Optional[str] = Field(default=None, max_length=512)
+    circuit_breaker_summary: Optional[str] = Field(default=None, max_length=512)
+    overall_state: str = Field(
+        default="unknown",
+        max_length=16,
+        description="continued / skipped / degraded / stopped / unknown",
+    )
+    timestamp_utc: datetime = Field(
+        ...,
+        description="UTC timestamp when this state snapshot was derived.",
+    )
+
+    @field_validator(
+        "lifecycle_summary",
+        "readiness_summary",
+        "websocket_summary",
+        "llm_summary",
+        "decision_summary",
+        "execution_summary",
+        "circuit_breaker_summary",
+    )
+    @classmethod
+    def _scan_summary_for_forbidden(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"summary contains forbidden content: {violations}")
+        return value
+
+    @field_validator("overall_state")
+    @classmethod
+    def _validate_overall_state(cls, value: str) -> str:
+        allowed = {"continued", "skipped", "degraded", "stopped", "unknown"}
+        if value not in allowed:
+            raise ValueError(
+                f"overall_state must be one of {sorted(allowed)}; got {value!r}"
+            )
+        return value
+
+    @field_validator("timestamp_utc")
+    @classmethod
+    def _require_tzaware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp_utc must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class DashboardActivityFeedResult(BaseModel):
+    """Typed result of fetching the dashboard activity feed.
+
+    SUCCESS requires at least one item AND a non-None current_state.
+    EMPTY_WINDOW renders an empty timeline and may have ``current_state=None``.
+    Non-success non-empty statuses (DATABASE_UNAVAILABLE, MISSING_TABLE,
+    TRUNCATED) require a typed ``failure_reason``.
+    """
+
+    model_config = {"frozen": True}
+
+    status: DashboardActivityFeedStatus
+    items: list[DashboardActivityFeedItem] = Field(default_factory=list)
+    current_state: Optional[DashboardCurrentState] = None
+    failure_reason: Optional[DashboardActivityFeedFailureReason] = None
+    message: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Short, secret-safe explanation for non-success outcomes.",
+    )
+    has_more: bool = Field(
+        default=False,
+        description="True when more matching rows were available beyond the limit.",
+    )
+
+    @field_validator("message")
+    @classmethod
+    def _scan_message_for_forbidden(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"message contains forbidden content: {violations}")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_status_consistency(self) -> "DashboardActivityFeedResult":
+        non_success = {
+            DashboardActivityFeedStatus.DATABASE_UNAVAILABLE,
+            DashboardActivityFeedStatus.MISSING_TABLE,
+            DashboardActivityFeedStatus.TRUNCATED,
+        }
+        if self.status in non_success and self.failure_reason is None:
+            raise ValueError(
+                f"status {self.status.value} requires a failure_reason"
+            )
+        if self.status == DashboardActivityFeedStatus.SUCCESS and not self.items:
+            raise ValueError(
+                "status SUCCESS requires at least one feed item; "
+                "use EMPTY_WINDOW for zero-event feeds"
+            )
+        if (
+            self.status == DashboardActivityFeedStatus.SUCCESS
+            and self.current_state is None
+        ):
+            raise ValueError(
+                "status SUCCESS requires a current_state derived from recent events"
+            )
+        return self
