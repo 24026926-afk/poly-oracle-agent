@@ -13,6 +13,18 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.observability.dashboard_activity_feed import (
+    DEFAULT_ACTIVITY_LIMIT,
+    derive_current_state,
+    fetch_activity_feed as _fetch_activity_feed_impl,
+    format_activity_row_html,
+)
+from src.schemas.ops import (
+    DashboardActivityFeedFilter,
+    DashboardActivityFeedResult,
+    DashboardActivityFeedStatus,
+)
+
 
 st.set_page_config(
     page_title="Poly-Oracle Command Center",
@@ -990,6 +1002,30 @@ def fetch_market_watch() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def fetch_activity_feed(
+    *,
+    limit: int = DEFAULT_ACTIVITY_LIMIT,
+    filter: DashboardActivityFeedFilter | None = None,
+) -> DashboardActivityFeedResult:
+    """Read the WI-56 operational event ledger and return a typed activity feed.
+
+    Wraps the read-only activity feed service so the dashboard module
+    binds to the dashboard's resolved ``DB_PATH``. The function is
+    intentionally synchronous because Streamlit's runtime is sync and
+    the existing dashboard read pattern (sqlite ``mode=ro`` URI) is
+    preserved.
+    """
+    return _fetch_activity_feed_impl(DB_PATH, limit=limit, filter=filter)
+
+
+@st.cache_data(ttl=30)
+def fetch_activity_feed_cached(
+    limit: int = DEFAULT_ACTIVITY_LIMIT,
+) -> DashboardActivityFeedResult:
+    """Streamlit-cached wrapper around ``fetch_activity_feed``."""
+    return fetch_activity_feed(limit=limit)
+
+
 @st.cache_data(ttl=30)
 def fetch_pnl_timeseries() -> tuple[pd.DataFrame, bool]:
     tables = set(fetch_table_names())
@@ -1621,6 +1657,134 @@ def render_market_watch() -> None:
     )
 
 
+def render_current_state_panel(result: DashboardActivityFeedResult) -> None:
+    """Render the WI-59 'What is the bot doing right now?' panel."""
+    st.markdown(
+        """
+        <div class="section-stack">
+            <div class="section-kicker">Runtime narrative</div>
+            <section class="section-shell">
+                <div class="section-head">
+                    <div>
+                        <h2 class="section-title">What is the bot doing right now?</h2>
+                        <p class="section-caption">Latest typed lifecycle, readiness, ingestion, evaluation, decision, execution, and alert state.</p>
+                    </div>
+                    <div class="section-meta">read only / typed events / wi-57 narratives</div>
+                </div>
+            </section>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    state = result.current_state
+    if state is None:
+        render_empty_state(
+            "Runtime state is unknown.",
+            "No operational events have been recorded yet, so the dashboard cannot infer current state.",
+        )
+        return
+
+    rows: list[tuple[str, str | None]] = [
+        ("Lifecycle", state.lifecycle_summary),
+        ("Readiness", state.readiness_summary),
+        ("WebSocket", state.websocket_summary),
+        ("LLM / provider", state.llm_summary),
+        ("Decision", state.decision_summary),
+        ("Execution", state.execution_summary),
+        ("Circuit breaker", state.circuit_breaker_summary),
+    ]
+    body_rows = ""
+    for label, value in rows:
+        text = value if value else "n/a"
+        body_rows += (
+            "<tr>"
+            f'<td style="padding:8px 12px;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.07em">{escape(label)}</td>'
+            f'<td style="padding:8px 12px;color:#ccc;font-size:12px">{escape(text)}</td>'
+            "</tr>"
+        )
+    overall = escape(state.overall_state)
+    body_html = f"""
+    <div class="table-shell">
+        <div class="table-scroll">
+            <table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08);color:#555;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Category</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Latest</th>
+                    </tr>
+                </thead>
+                <tbody>{body_rows}</tbody>
+            </table>
+        </div>
+    </div>
+    <div class="metrics-note">Overall: {overall}.</div>
+    """
+    st.markdown(body_html, unsafe_allow_html=True)
+
+
+def render_activity_timeline(result: DashboardActivityFeedResult) -> None:
+    """Render the WI-59 activity timeline section."""
+    st.markdown(
+        """
+        <div class="section-stack">
+            <div class="section-kicker">Operational ledger</div>
+            <section class="section-shell">
+                <div class="section-head">
+                    <div>
+                        <h2 class="section-title">Activity timeline</h2>
+                        <p class="section-caption">Recent typed runtime events, rendered with deterministic plain-English summaries.</p>
+                    </div>
+                    <div class="section-meta">recent first / bounded window / secret safe</div>
+                </div>
+            </section>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if result.status == DashboardActivityFeedStatus.MISSING_TABLE:
+        render_empty_state(
+            "Operational event ledger is unavailable.",
+            "The operational_events table is not provisioned in this deployment yet. Older or freshly provisioned environments will show no timeline.",
+        )
+        return
+    if result.status == DashboardActivityFeedStatus.DATABASE_UNAVAILABLE:
+        render_empty_state(
+            "Operational event ledger is unreachable.",
+            "The dashboard could not reach the read-only ledger database. Check the deployment health.",
+        )
+        return
+    if result.status == DashboardActivityFeedStatus.EMPTY_WINDOW or not result.items:
+        render_empty_state(
+            "No recent operational activity.",
+            "The ledger exists but has no rows in the recent window yet. The agent may be idle or freshly started.",
+        )
+        return
+
+    rows_html = "".join(format_activity_row_html(item) for item in result.items)
+    table_html = f"""
+    <div class="table-shell">
+        <div class="table-scroll">
+            <table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px;color:#ccc;font-variant-numeric:tabular-nums">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08);color:#555;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Timestamp (UTC)</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Severity</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Source</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Event / Reason</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Summary</th>
+                    </tr>
+                </thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+    </div>
+    <div class="chart-note">Showing {len(result.items)} recent events.</div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
 THEME_RULE_COUNT = inject_terminal_theme()
 REFRESHED_AT = datetime.now()
 SYSTEM_VITALS = get_system_vitals()
@@ -1635,6 +1799,15 @@ with left_col:
 
 with right_col:
     render_metrics(fetch_metrics())
+
+ACTIVITY_FEED_RESULT = fetch_activity_feed_cached()
+
+state_left, state_right = st.columns([1, 1], gap="large")
+with state_left:
+    render_current_state_panel(ACTIVITY_FEED_RESULT)
+
+with state_right:
+    render_activity_timeline(ACTIVITY_FEED_RESULT)
 
 lower_left, lower_right = st.columns([1.08, 0.92], gap="large")
 
