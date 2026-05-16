@@ -52,6 +52,8 @@ Where `XX` = zero-padded number (01, 02 ... 99)
 
 ## 📚 Mandatory Context Hydration
 Before answering any architectural or coding question, silently read:
+- `~/documents/integration_task/03_Daily/[TODAY].md` ← Today's daily note to know what we are doing
+- `~/documents/integration_task/03_Daily/[YESTERDAY].md` ← Yesterday's daily note to check pending items
 - `STATE.md` (in `poly-oracle-agent/`) ← Current system state and progress
 - `README.md` (in `poly-oracle-agent/`) ← Stack, commands, and operating model
 - `docs/PRD-v*.md` (in `poly-oracle-agent/`) ← Current Phase scope and acceptance criteria
@@ -201,7 +203,7 @@ Format:
 
 ## 🎯 Session Template
 STEP 0: Read AGENTS.md
-STEP 1: Read STATE.md, README.md, PRD-v*.md, business_logic_WI-XX-*.md
+STEP 1: Read today's and yesterday's daily notes, STATE.md, README.md, PRD-v*.md, business_logic_WI-XX-*.md
 STEP 2: Read prompt_WI-XX-*.md
 STEP 3: Enter Plan Mode — propose atomic steps before touching any file
 STEP 4: Await approval → execute one step → test → report

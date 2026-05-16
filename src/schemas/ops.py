@@ -1245,3 +1245,247 @@ class NarrativeRenderResult(BaseModel):
         if self.status == NarrativeRenderStatus.FAILED and self.failure_reason is None:
             raise ValueError("FAILED status requires a failure_reason")
         return self
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WI-58 — Incident Replay CLI
+#
+# Read-only presentation schemas for the operator-facing incident replay
+# surface. These types compose the WI-56 operational event ledger and the
+# WI-57 deterministic narrative layer into a bounded, secret-safe replay
+# report. They never persist, never mutate, and never bypass the
+# Gatekeeper.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class IncidentReplayStatus(str, Enum):
+    """Outcome status of a single incident replay invocation."""
+
+    SUCCESS = "SUCCESS"
+    EMPTY_WINDOW = "EMPTY_WINDOW"
+    INVALID_WINDOW = "INVALID_WINDOW"
+    INVALID_TIMESTAMP = "INVALID_TIMESTAMP"
+    INVALID_FILTER = "INVALID_FILTER"
+    REPOSITORY_FAILURE = "REPOSITORY_FAILURE"
+    DATABASE_UNAVAILABLE = "DATABASE_UNAVAILABLE"
+    TRUNCATED = "TRUNCATED"
+
+
+class IncidentReplayFailureReason(str, Enum):
+    """Typed failure reasons for non-success replay outcomes."""
+
+    FROM_AFTER_TO = "FROM_AFTER_TO"
+    MALFORMED_TIMESTAMP = "MALFORMED_TIMESTAMP"
+    NAIVE_TIMESTAMP = "NAIVE_TIMESTAMP"
+    UNKNOWN_ENUM_VALUE = "UNKNOWN_ENUM_VALUE"
+    LIMIT_OUT_OF_RANGE = "LIMIT_OUT_OF_RANGE"
+    REPOSITORY_ERROR = "REPOSITORY_ERROR"
+    MISSING_EVENT_TABLE = "MISSING_EVENT_TABLE"
+    DATABASE_UNREACHABLE = "DATABASE_UNREACHABLE"
+    FORBIDDEN_CONTENT = "FORBIDDEN_CONTENT"
+    RESULT_TRUNCATED = "RESULT_TRUNCATED"
+
+
+class IncidentReplayFilter(BaseModel):
+    """Typed filter for incident replay.
+
+    Every filter field is an optional list of typed enum values. Free-form
+    strings are rejected at the schema boundary. Filters are independent
+    and combinable; combined filters intersect.
+    """
+
+    model_config = {"frozen": True}
+
+    severities: Optional[list[OperationalEventSeverity]] = Field(
+        default=None,
+        description="Filter to one or more typed severities (independent).",
+    )
+    sources: Optional[list[OperationalEventSource]] = Field(
+        default=None,
+        description="Filter to one or more typed source components (independent).",
+    )
+    event_types: Optional[list[OperationalEventType]] = Field(
+        default=None,
+        description="Filter to one or more typed event types (independent).",
+    )
+    reason_codes: Optional[list[OperationalEventReasonCode]] = Field(
+        default=None,
+        description="Filter to one or more typed reason codes (independent).",
+    )
+
+    def is_empty(self) -> bool:
+        """True when no filter narrows the result set."""
+        return (
+            not self.severities
+            and not self.sources
+            and not self.event_types
+            and not self.reason_codes
+        )
+
+
+class IncidentReplayRequest(BaseModel):
+    """Bounded UTC time window request for incident replay.
+
+    ``from_utc`` and ``to_utc`` must be timezone-aware and normalized to
+    UTC. ``from_utc`` must be earlier than or equal to ``to_utc``.
+    """
+
+    model_config = {"frozen": True}
+
+    from_utc: datetime = Field(..., description="Window start (timezone-aware UTC).")
+    to_utc: datetime = Field(..., description="Window end (timezone-aware UTC).")
+    filter: IncidentReplayFilter = Field(
+        default_factory=IncidentReplayFilter,
+        description="Typed replay filter.",
+    )
+    limit: int = Field(
+        default=1000, ge=1, le=1000,
+        description="Maximum replay lines to return; matches repository window cap.",
+    )
+
+    @field_validator("from_utc", "to_utc")
+    @classmethod
+    def _require_tzaware_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> "IncidentReplayRequest":
+        if self.from_utc > self.to_utc:
+            raise ValueError("from_utc must be earlier than or equal to to_utc")
+        return self
+
+
+class IncidentReplayLine(BaseModel):
+    """One typed, secret-safe line of replay output.
+
+    The line never carries the raw payload, raw reasoning, raw provider
+    response, token IDs, condition IDs, wallet addresses, or unbounded
+    text. The ``summary`` is the deterministic WI-57 narrative summary
+    after secret-scan validation.
+    """
+
+    model_config = {"frozen": True}
+
+    event_id: str = Field(..., min_length=1, max_length=64)
+    event_type: OperationalEventType
+    severity: OperationalEventSeverity
+    source: OperationalEventSource
+    reason_code: OperationalEventReasonCode
+    template_key: NarrativeTemplateKey
+    narrative_status: NarrativeRenderStatus
+    summary: str = Field(..., min_length=1, max_length=1024)
+    continuation_state: Optional[str] = Field(default=None, max_length=32)
+    dry_run: Optional[bool] = Field(default=None)
+    timestamp_utc: datetime = Field(..., description="UTC event creation time.")
+
+    @field_validator("summary")
+    @classmethod
+    def _scan_summary_for_forbidden(cls, value: str) -> str:
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"summary contains forbidden content: {violations}")
+        return value
+
+    @field_validator("timestamp_utc")
+    @classmethod
+    def _require_tzaware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp_utc must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class IncidentReplaySummary(BaseModel):
+    """Bounded, typed aggregate counts for a replay window.
+
+    Counts are derived from typed event fields only. ``markets_seen`` is
+    a bounded count of typed market-discovery / market-rejection events
+    and contains no token IDs, condition IDs, or raw market names.
+    """
+
+    model_config = {"frozen": True}
+
+    total_events: int = Field(default=0, ge=0)
+    warnings: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    markets_seen: int = Field(default=0, ge=0)
+    decisions_by_action: dict[str, int] = Field(default_factory=dict)
+    skips_by_reason: dict[str, int] = Field(default_factory=dict)
+    llm_calls: int = Field(default=0, ge=0)
+    budget_blocks: int = Field(default=0, ge=0)
+    cooldown_blocks: int = Field(default=0, ge=0)
+    provider_failures: int = Field(default=0, ge=0)
+    readiness_changes: int = Field(default=0, ge=0)
+
+    @field_validator("decisions_by_action")
+    @classmethod
+    def _validate_decisions_keys(cls, value: dict[str, int]) -> dict[str, int]:
+        # Only typed aggregate actions are allowed; reject any free-form text.
+        allowed = {"BUY", "HOLD", "SKIP"}
+        for key in value:
+            if key not in allowed:
+                raise ValueError(
+                    f"decisions_by_action key must be typed action (BUY/HOLD/SKIP); got {key!r}"
+                )
+        return value
+
+    @field_validator("skips_by_reason")
+    @classmethod
+    def _validate_skip_keys(cls, value: dict[str, int]) -> dict[str, int]:
+        # Skip-reason keys must be stable typed reason-code values.
+        allowed = {code.value for code in OperationalEventReasonCode}
+        for key in value:
+            if key not in allowed:
+                raise ValueError(
+                    f"skips_by_reason key must be typed OperationalEventReasonCode value; got {key!r}"
+                )
+        return value
+
+
+class IncidentReplayReport(BaseModel):
+    """Top-level typed report for a single incident replay invocation."""
+
+    model_config = {"frozen": True}
+
+    status: IncidentReplayStatus
+    request: IncidentReplayRequest
+    lines: list[IncidentReplayLine] = Field(default_factory=list)
+    summary: IncidentReplaySummary = Field(default_factory=IncidentReplaySummary)
+    failure_reason: Optional[IncidentReplayFailureReason] = None
+    message: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Short, secret-safe explanation for non-success outcomes.",
+    )
+    has_more: bool = Field(
+        default=False,
+        description="True when the repository indicated more matching rows were available.",
+    )
+
+    @field_validator("message")
+    @classmethod
+    def _scan_message_for_forbidden(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"message contains forbidden content: {violations}")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_status_consistency(self) -> "IncidentReplayReport":
+        non_success = {
+            IncidentReplayStatus.INVALID_WINDOW,
+            IncidentReplayStatus.INVALID_TIMESTAMP,
+            IncidentReplayStatus.INVALID_FILTER,
+            IncidentReplayStatus.REPOSITORY_FAILURE,
+            IncidentReplayStatus.DATABASE_UNAVAILABLE,
+        }
+        if self.status in non_success and self.failure_reason is None:
+            raise ValueError(f"status {self.status.value} requires a failure_reason")
+        if self.status == IncidentReplayStatus.SUCCESS and not self.lines:
+            raise ValueError(
+                "status SUCCESS requires at least one replay line; use EMPTY_WINDOW for zero-event reports"
+            )
+        return self
