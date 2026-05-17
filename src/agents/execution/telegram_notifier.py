@@ -61,6 +61,21 @@ class TelegramNotifier:
         if sent:
             self._log.info("telegram.message_sent", event_type="execution")
 
+    async def try_send_execution_event(self, summary: str, dry_run: bool) -> bool:
+        """Send a free-form execution summary and report typed success.
+
+        Mirrors :meth:`send_execution_event` but propagates the underlying
+        ``_send`` boolean so callers (e.g. the WI-60 daily digest) can
+        record a typed delivery outcome instead of assuming success.
+        Failures are still swallowed at the HTTP boundary; this method
+        never raises.
+        """
+        text = f"[DRY RUN] {summary}" if dry_run else summary
+        sent = await self._send(text)
+        if sent:
+            self._log.info("telegram.message_sent", event_type="execution")
+        return bool(sent)
+
     async def _send(self, text: str) -> None:
         """Send a single Telegram message and swallow all failures."""
         url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"

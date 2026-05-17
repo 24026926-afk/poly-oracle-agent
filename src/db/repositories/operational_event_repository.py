@@ -162,16 +162,20 @@ class OperationalEventRepository:
         stmt = select(OperationalEvent).order_by(OperationalEvent.created_at_utc.desc())
         if conditions:
             stmt = stmt.where(*conditions)
-        stmt = stmt.limit(query.limit)
+        stmt = stmt.offset(query.offset).limit(query.limit)
         result = await self._session.execute(stmt)
         models = list(result.scalars().all())
 
         events = [_model_to_record(m) for m in models]
 
+        # has_more accounts for the offset cursor so callers paginating
+        # through a large window terminate correctly on the last page.
+        # Equivalent to the legacy ``total_count > limit`` semantics when
+        # offset == 0.
         return OperationalEventReadWindow(
             events=events,
             start_time_utc=query.start_time_utc,
             end_time_utc=query.end_time_utc,
             total_count=total_count,
-            has_more=total_count > query.limit,
+            has_more=(query.offset + len(events)) < total_count,
         )

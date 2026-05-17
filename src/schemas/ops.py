@@ -909,6 +909,11 @@ class OperationalEventQuery(BaseModel):
         default=None, description="Include events at or before this UTC time"
     )
     limit: int = Field(default=100, ge=1, le=1000, description="Maximum records to return")
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Number of matching records to skip before returning results (pagination cursor)",
+    )
 
 
 class OperationalEventReadWindow(BaseModel):
@@ -1730,5 +1735,444 @@ class DashboardActivityFeedResult(BaseModel):
         ):
             raise ValueError(
                 "status SUCCESS requires a current_state derived from recent events"
+            )
+        return self
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WI-60 — Daily Operations Digest
+#
+# Typed schemas for a deterministic daily operator digest produced over
+# the WI-56 operational event ledger, WI-57 narrative layer, WI-58 replay
+# summary patterns, and WI-59 dashboard current-state semantics. The
+# digest writes to ``03_Daily/YYYY-MM-DD-bot.md`` and never overwrites
+# manual notes at ``03_Daily/YYYY-MM-DD.md``. It never persists events,
+# never modifies LLMEvaluationResponse, and never bypasses the
+# Gatekeeper.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class DailyOpsDigestStatus(str, Enum):
+    """Outcome status of a single daily ops digest invocation."""
+
+    SUCCESS = "SUCCESS"
+    EMPTY_WINDOW = "EMPTY_WINDOW"
+    DATABASE_UNAVAILABLE = "DATABASE_UNAVAILABLE"
+    MISSING_TABLE = "MISSING_TABLE"
+    REPOSITORY_FAILURE = "REPOSITORY_FAILURE"
+    PATH_FAILURE = "PATH_FAILURE"
+    FORBIDDEN_CONTENT = "FORBIDDEN_CONTENT"
+    INVALID_REQUEST = "INVALID_REQUEST"
+    # Fail-closed status for windows that exceed the bounded event-read
+    # budget. Partial aggregates would silently undercount, so the digest
+    # refuses to write rather than emit incomplete totals.
+    READ_CAP_REACHED = "READ_CAP_REACHED"
+
+
+class DailyOpsDigestFailureReason(str, Enum):
+    """Typed failure reasons for non-success digest outcomes."""
+
+    DATABASE_UNREACHABLE = "DATABASE_UNREACHABLE"
+    MISSING_TABLE = "MISSING_TABLE"
+    REPOSITORY_ERROR = "REPOSITORY_ERROR"
+    PATH_OUTSIDE_DAILY = "PATH_OUTSIDE_DAILY"
+    MANUAL_NOTE_WOULD_OVERWRITE = "MANUAL_NOTE_WOULD_OVERWRITE"
+    INVALID_FILENAME = "INVALID_FILENAME"
+    FORBIDDEN_CONTENT = "FORBIDDEN_CONTENT"
+    INVALID_DATE = "INVALID_DATE"
+    READ_CAP_REACHED = "READ_CAP_REACHED"
+
+
+class DailyOpsDigestWindow(BaseModel):
+    """Bounded UTC time window for digest computation.
+
+    ``from_utc`` and ``to_utc`` must be timezone-aware. ``from_utc`` must
+    be earlier than or equal to ``to_utc``.
+    """
+
+    model_config = {"frozen": True}
+
+    from_utc: datetime = Field(..., description="Window start (timezone-aware UTC).")
+    to_utc: datetime = Field(..., description="Window end (timezone-aware UTC).")
+
+    @field_validator("from_utc", "to_utc")
+    @classmethod
+    def _require_tzaware_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> "DailyOpsDigestWindow":
+        if self.from_utc > self.to_utc:
+            raise ValueError("from_utc must be earlier than or equal to to_utc")
+        return self
+
+
+class DailyOpsDigestRequest(BaseModel):
+    """Request envelope for daily digest generation.
+
+    ``digest_date_utc`` identifies the calendar date for which to produce
+    a digest. The service derives the daily window ``[00:00, 24:00)`` UTC
+    from this date unless an explicit ``window`` is provided.
+    """
+
+    model_config = {"frozen": True}
+
+    digest_date_utc: datetime = Field(
+        ..., description="Digest date (timezone-aware UTC). Hour/minute ignored."
+    )
+    window: Optional[DailyOpsDigestWindow] = Field(
+        default=None,
+        description="Explicit UTC window; when None the daily window is derived.",
+    )
+    output_path: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description=(
+            "Optional output path override. Must end with "
+            "'YYYY-MM-DD-bot.md' and reside under the configured daily notes "
+            "directory; otherwise the service fails closed."
+        ),
+    )
+    daily_notes_dir: str = Field(
+        default="03_Daily",
+        max_length=128,
+        description="Relative or absolute path to the vault daily notes directory.",
+    )
+    enable_telegram: bool = Field(
+        default=False,
+        description=(
+            "Operator-requested Telegram delivery. The service still requires "
+            "Telegram alerts to be enabled at config level before sending."
+        ),
+    )
+
+    @field_validator("digest_date_utc")
+    @classmethod
+    def _require_tzaware_date(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("digest_date_utc must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class DailyOpsDigestRunSummary(BaseModel):
+    """Typed run-lifecycle summary for the digest window.
+
+    Run status is one of:
+
+    * ``completed`` — matched START and SHUTDOWN events.
+    * ``partial`` — START observed but no SHUTDOWN within window.
+    * ``no_run`` — no lifecycle events observed.
+    * ``unknown`` — typed evidence is insufficient.
+    """
+
+    model_config = {"frozen": True}
+
+    start_utc: Optional[datetime] = None
+    stop_utc: Optional[datetime] = None
+    uptime_seconds: Optional[int] = Field(default=None, ge=0)
+    run_status: str = Field(default="unknown", max_length=16)
+    active_provider: Optional[str] = Field(default=None, max_length=64)
+    dry_run: Optional[bool] = None
+    latest_readiness: Optional[str] = Field(default=None, max_length=16)
+    markets_seen: int = Field(default=0, ge=0)
+    markets_rejected: int = Field(default=0, ge=0)
+
+    @field_validator("start_utc", "stop_utc")
+    @classmethod
+    def _validate_tzaware(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @field_validator("run_status")
+    @classmethod
+    def _validate_run_status(cls, value: str) -> str:
+        allowed = {"completed", "partial", "no_run", "unknown"}
+        if value not in allowed:
+            raise ValueError(
+                f"run_status must be one of {sorted(allowed)}; got {value!r}"
+            )
+        return value
+
+    @field_validator("active_provider", "latest_readiness")
+    @classmethod
+    def _scan_low_card_fields(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"field contains forbidden content: {violations}")
+        return value
+
+
+class DailyOpsDigestDecisionSummary(BaseModel):
+    """Decisions and skips, counted from typed reason codes only."""
+
+    model_config = {"frozen": True}
+
+    accepted_buy: int = Field(default=0, ge=0)
+    accepted_hold: int = Field(default=0, ge=0)
+    skipped_low_conf: int = Field(default=0, ge=0)
+    skipped_low_ev: int = Field(default=0, ge=0)
+    skipped_high_spread: int = Field(default=0, ge=0)
+    skipped_exposure: int = Field(default=0, ge=0)
+    skipped_ttr: int = Field(default=0, ge=0)
+
+
+class DailyOpsDigestLLMSummary(BaseModel):
+    """LLM activity counts and Decimal-only estimated spend."""
+
+    model_config = {"frozen": True}
+
+    llm_calls: int = Field(default=0, ge=0)
+    budget_blocks: int = Field(default=0, ge=0)
+    cooldown_blocks: int = Field(default=0, ge=0)
+    provider_failures: int = Field(default=0, ge=0)
+    estimated_spend_usd: Optional[Decimal] = Field(
+        default=None,
+        description=(
+            "Sum of Decimal-backed provider cost evidence. None when no "
+            "cost data exists; never fabricated zero."
+        ),
+    )
+
+    @field_validator("estimated_spend_usd", mode="before")
+    @classmethod
+    def _reject_float_in_spend(cls, value: object) -> Optional[Decimal]:
+        if value is None:
+            return None
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+
+class DailyOpsDigestPnLSummary(BaseModel):
+    """Paper PnL summary derived from repository-backed Decimal columns."""
+
+    model_config = {"frozen": True}
+
+    realized_pnl: Optional[Decimal] = Field(
+        default=None,
+        description="Sum of repository-backed realized PnL within window.",
+    )
+    unrealized_pnl: Optional[Decimal] = Field(
+        default=None,
+        description="Sum of repository-backed unrealized PnL; None when not derivable.",
+    )
+    gas_and_fees: Optional[Decimal] = Field(
+        default=None,
+        description="Sum of repository-backed gas + CLOB fees within window.",
+    )
+    closed_position_count: int = Field(default=0, ge=0)
+    open_position_count: int = Field(default=0, ge=0)
+
+    @field_validator(
+        "realized_pnl", "unrealized_pnl", "gas_and_fees", mode="before"
+    )
+    @classmethod
+    def _reject_float_in_pnl(cls, value: object) -> Optional[Decimal]:
+        if value is None:
+            return None
+        if isinstance(value, float):
+            raise ValueError("Float financial values are forbidden; use Decimal")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+
+class DailyOpsDigestEventHighlight(BaseModel):
+    """One typed, secret-safe operational event highlight for the digest."""
+
+    model_config = {"frozen": True}
+
+    event_id: str = Field(..., min_length=1, max_length=64)
+    event_type: OperationalEventType
+    severity: OperationalEventSeverity
+    reason_code: OperationalEventReasonCode
+    summary: str = Field(..., min_length=1, max_length=1024)
+    timestamp_utc: datetime = Field(..., description="UTC event timestamp.")
+
+    @field_validator("summary")
+    @classmethod
+    def _scan_summary_for_forbidden(cls, value: str) -> str:
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"summary contains forbidden content: {violations}")
+        return value
+
+    @field_validator("timestamp_utc")
+    @classmethod
+    def _require_tzaware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp_utc must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class DailyOpsDigestOperatorCheck(BaseModel):
+    """Deterministic next-action recommendation for the operator."""
+
+    model_config = {"frozen": True}
+
+    category: str = Field(..., min_length=1, max_length=32)
+    message: str = Field(..., min_length=1, max_length=512)
+    severity: OperationalEventSeverity
+
+    @field_validator("category")
+    @classmethod
+    def _validate_category(cls, value: str) -> str:
+        allowed = {
+            "lifecycle",
+            "readiness",
+            "websocket",
+            "llm",
+            "budget",
+            "cooldown",
+            "provider",
+            "decision",
+            "execution",
+            "circuit_breaker",
+            "general",
+        }
+        if value not in allowed:
+            raise ValueError(
+                f"category must be one of {sorted(allowed)}; got {value!r}"
+            )
+        return value
+
+    @field_validator("message")
+    @classmethod
+    def _scan_message_for_forbidden(cls, value: str) -> str:
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"message contains forbidden content: {violations}")
+        return value
+
+
+class DailyOpsDigestTelegramSummary(BaseModel):
+    """Short, secret-safe Telegram digest summary.
+
+    ``text`` is deterministic, secret-safe, and bounded. When ``enabled``
+    is False the summary is treated as not-applicable and never sent.
+    """
+
+    model_config = {"frozen": True}
+
+    enabled: bool = Field(default=False)
+    text: Optional[str] = Field(default=None, max_length=1024)
+
+    @field_validator("text")
+    @classmethod
+    def _scan_text_for_forbidden(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"text contains forbidden content: {violations}")
+        return value
+
+
+class DailyOpsDigestTelegramResult(BaseModel):
+    """Typed outcome of optional Telegram digest delivery."""
+
+    model_config = {"frozen": True}
+
+    status: Literal["sent", "disabled", "skipped", "failed"] = Field(
+        default="disabled",
+        description="sent/disabled/skipped/failed delivery status.",
+    )
+    sent_at_utc: Optional[datetime] = None
+    failure_reason: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("sent_at_utc")
+    @classmethod
+    def _validate_tzaware(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            raise ValueError("sent_at_utc must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @field_validator("failure_reason")
+    @classmethod
+    def _scan_failure_reason(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(
+                f"failure_reason contains forbidden content: {violations}"
+            )
+        return value
+
+
+class DailyOpsDigestWriteResult(BaseModel):
+    """Typed outcome of writing the digest file."""
+
+    model_config = {"frozen": True}
+
+    path: str = Field(..., min_length=1, max_length=512)
+    written: bool
+    bytes_written: int = Field(default=0, ge=0)
+
+
+class DailyOpsDigestReport(BaseModel):
+    """Top-level typed report for a single daily ops digest invocation."""
+
+    model_config = {"frozen": True}
+
+    status: DailyOpsDigestStatus
+    request: DailyOpsDigestRequest
+    run_summary: Optional[DailyOpsDigestRunSummary] = None
+    decision_summary: Optional[DailyOpsDigestDecisionSummary] = None
+    llm_summary: Optional[DailyOpsDigestLLMSummary] = None
+    pnl_summary: Optional[DailyOpsDigestPnLSummary] = None
+    top_events: list[DailyOpsDigestEventHighlight] = Field(default_factory=list)
+    unresolved_warnings: list[DailyOpsDigestEventHighlight] = Field(
+        default_factory=list
+    )
+    unresolved_errors: list[DailyOpsDigestEventHighlight] = Field(
+        default_factory=list
+    )
+    operator_checks: list[DailyOpsDigestOperatorCheck] = Field(default_factory=list)
+    telegram_result: DailyOpsDigestTelegramResult
+    write_result: DailyOpsDigestWriteResult
+    failure_reason: Optional[DailyOpsDigestFailureReason] = None
+    message: Optional[str] = Field(default=None, max_length=256)
+
+    @field_validator("message")
+    @classmethod
+    def _scan_message_for_forbidden(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        violations = _scan_event_payload(value)
+        if violations:
+            raise ValueError(f"message contains forbidden content: {violations}")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_status_consistency(self) -> "DailyOpsDigestReport":
+        non_success_failures = {
+            DailyOpsDigestStatus.DATABASE_UNAVAILABLE,
+            DailyOpsDigestStatus.MISSING_TABLE,
+            DailyOpsDigestStatus.REPOSITORY_FAILURE,
+            DailyOpsDigestStatus.PATH_FAILURE,
+            DailyOpsDigestStatus.FORBIDDEN_CONTENT,
+            DailyOpsDigestStatus.INVALID_REQUEST,
+            DailyOpsDigestStatus.READ_CAP_REACHED,
+        }
+        if self.status in non_success_failures and self.failure_reason is None:
+            raise ValueError(
+                f"status {self.status.value} requires a failure_reason"
+            )
+        if self.status == DailyOpsDigestStatus.SUCCESS and self.run_summary is None:
+            raise ValueError(
+                "status SUCCESS requires a run_summary derived from typed events; "
+                "use EMPTY_WINDOW for zero-event days"
             )
         return self

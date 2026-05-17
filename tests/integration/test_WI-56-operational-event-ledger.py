@@ -309,6 +309,33 @@ async def test_read_window_has_more_flag(async_session):
 
 
 @pytest.mark.asyncio
+async def test_read_window_offset_pages_through_all_records(async_session):
+    """Offset cursor lets callers paginate the full window deterministically."""
+    repo = OperationalEventRepository(async_session)
+    for _ in range(5):
+        await repo.append(_make_create())
+    await async_session.flush()
+
+    page_one = await repo.read_window(OperationalEventQuery(limit=2, offset=0))
+    page_two = await repo.read_window(OperationalEventQuery(limit=2, offset=2))
+    page_three = await repo.read_window(OperationalEventQuery(limit=2, offset=4))
+
+    # Pages are disjoint and cover the full set in deterministic id order.
+    ids = (
+        [e.id for e in page_one.events]
+        + [e.id for e in page_two.events]
+        + [e.id for e in page_three.events]
+    )
+    assert len(ids) == 5
+    assert len(set(ids)) == 5
+
+    # has_more accounts for the cursor, not just total_count > limit.
+    assert page_one.has_more is True
+    assert page_two.has_more is True
+    assert page_three.has_more is False
+
+
+@pytest.mark.asyncio
 async def test_event_payload_is_secret_free_in_db(async_session):
     """Persisted events in the database do not contain raw secrets."""
     repo = OperationalEventRepository(async_session)
