@@ -1,9 +1,26 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-17
-**Version:** 0.16.4
-**Status:** Phase 16 COMPLETE — Operator Clarity and Runtime Audit Trail
+**Version:** 0.16.5
+**Status:** Phase 16 COMPLETE — hotfix pending commit (Grok eligibility expansion)
 **Active WI:** none
+
+## Post-Phase 16 Hotfix — Grok Sentiment Eligibility Expansion (2026-05-17)
+
+**Trigger:** Live paper-trading run showed `grok_sentiment SKIPPED_CATEGORY` for all monitored
+markets. Root cause: `_GROK_ELIGIBLE` in `claude_client.py` only allowed `CRYPTO` and `POLITICS`;
+markets classified as `ELECTIONS`, `GEOPOLITICS`, `FINANCE`, `TECH`, `IRAN`, `ECONOMY` were
+silently skipped with neutral fallback.
+
+**Changes (uncommitted on develop):**
+- `src/schemas/llm.py` — added authoritative `GROK_ELIGIBLE_CATEGORIES` frozenset
+  (CRYPTO, POLITICS, ELECTIONS, GEOPOLITICS, FINANCE, TECH, IRAN, ECONOMY)
+- `src/agents/evaluation/claude_client.py` — imports shared constant, removes local `_GROK_ELIGIBLE`,
+  adds `market_category_resolved` debug log with `market_key_hash` + `grok_eligible` flag
+- `src/agents/evaluation/grok_client.py` — imports shared constant, guard aligned to prevent drift
+
+**Regression:** 2296 passed, coverage 93% — no regressions introduced.
+**Next:** MAAP + commit on develop → PR to main.
 
 ---
 

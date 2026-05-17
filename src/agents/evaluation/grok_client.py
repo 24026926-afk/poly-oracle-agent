@@ -27,6 +27,7 @@ import structlog
 from pydantic import SecretStr, ValidationError
 
 from src.schemas.llm import (
+    GROK_ELIGIBLE_CATEGORIES,
     GrokFailureReason,
     GrokLiveConfig,
     GrokRequestEnvelope,
@@ -160,7 +161,7 @@ class GrokClient:
             )
             return NEUTRAL_SENTIMENT
 
-        if market_category not in (MarketCategory.CRYPTO, MarketCategory.POLITICS):
+        if market_category not in GROK_ELIGIBLE_CATEGORIES:
             self.last_failure_reason = GrokFailureReason.LIVE_DISABLED
             logger.info(
                 "grok_sentiment_category_skipped",

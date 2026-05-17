@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
 from src.schemas.llm import (
+    GROK_ELIGIBLE_CATEGORIES,
     LLMProvider,
     LLMProviderName,
     LLMProviderMetadata,
@@ -50,13 +51,6 @@ from src.db.models import AgentDecisionLog
 from src.db.repositories.decision_repo import DecisionRepository
 
 logger = structlog.get_logger(__name__)
-
-_GROK_ELIGIBLE: frozenset[MarketCategory] = frozenset(
-    {
-        MarketCategory.CRYPTO,
-        MarketCategory.POLITICS,
-    }
-)
 
 _CHAIN_BUDGET: float = (
     2.0  # shared wall-clock budget (seconds) across the evaluation chain
@@ -454,36 +448,45 @@ class ClaudeClient:
 
     async def _route_market(self, item: Dict[str, Any]) -> MarketCategory:
         """Layer 0: classify market from Gamma category, then keyword fallback."""
-        category = _coerce_market_category(item.get("category"))
-        if category is not None:
-            return category
-
         condition_id = item.get("condition_id", "")
-        title = item.get("title") or item.get("question", "")
-        raw_tags = item.get("tags", [])
-        tags = " ".join(str(tag) for tag in raw_tags if tag is not None)
-        text = f"{condition_id} {title} {tags}".lower()
+        category = _coerce_market_category(item.get("category"))
 
-        fallback_order = [
-            MarketCategory.CRYPTO,
-            MarketCategory.POLITICS,
-            MarketCategory.ELECTIONS,
-            MarketCategory.SPORTS,
-            MarketCategory.ESPORTS,
-            MarketCategory.IRAN,
-            MarketCategory.FINANCE,
-            MarketCategory.GEOPOLITICS,
-            MarketCategory.TECH,
-            MarketCategory.CULTURE,
-            MarketCategory.ECONOMY,
-            MarketCategory.WEATHER,
-            MarketCategory.MENTIONS,
-        ]
-        for fallback_category in fallback_order:
-            keywords = _ROUTING_TABLE[fallback_category]
-            if any(_keyword_matches(text, keyword) for keyword in keywords):
-                return fallback_category
-        return MarketCategory.CULTURE
+        if category is None:
+            title = item.get("title") or item.get("question", "")
+            raw_tags = item.get("tags", [])
+            tags = " ".join(str(tag) for tag in raw_tags if tag is not None)
+            text = f"{condition_id} {title} {tags}".lower()
+
+            fallback_order = [
+                MarketCategory.CRYPTO,
+                MarketCategory.POLITICS,
+                MarketCategory.ELECTIONS,
+                MarketCategory.SPORTS,
+                MarketCategory.ESPORTS,
+                MarketCategory.IRAN,
+                MarketCategory.FINANCE,
+                MarketCategory.GEOPOLITICS,
+                MarketCategory.TECH,
+                MarketCategory.CULTURE,
+                MarketCategory.ECONOMY,
+                MarketCategory.WEATHER,
+                MarketCategory.MENTIONS,
+            ]
+            for fallback_category in fallback_order:
+                keywords = _ROUTING_TABLE[fallback_category]
+                if any(_keyword_matches(text, keyword) for keyword in keywords):
+                    category = fallback_category
+                    break
+            else:
+                category = MarketCategory.CULTURE
+
+        logger.debug(
+            "market_category_resolved",
+            market_key_hash=_hash_market_key(condition_id) if condition_id else None,
+            category=category.value,
+            grok_eligible=category in GROK_ELIGIBLE_CATEGORIES,
+        )
+        return category
 
     def _log_sentiment(
         self,
@@ -516,7 +519,7 @@ class ClaudeClient:
         - non-eligible categories -> neutral fallback immediately (skip Grok).
         - Any failure -> neutral fallback; never stalls the pipeline.
         """
-        if category not in _GROK_ELIGIBLE:
+        if category not in GROK_ELIGIBLE_CATEGORIES:
             self._log_sentiment(
                 status="SKIPPED",
                 reason="SKIPPED_CATEGORY",

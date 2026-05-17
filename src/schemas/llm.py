@@ -85,6 +85,23 @@ class MarketCategory(str, Enum):
     ELECTIONS = "ELECTIONS"
 
 
+# Categories where X/Twitter discourse provides actionable Grok sentiment signal.
+# This is the authoritative eligibility set — both ClaudeClient and GrokClient
+# must import from here to avoid drift.
+GROK_ELIGIBLE_CATEGORIES: frozenset["MarketCategory"] = frozenset(
+    {
+        MarketCategory.CRYPTO,
+        MarketCategory.POLITICS,
+        MarketCategory.ELECTIONS,
+        MarketCategory.GEOPOLITICS,
+        MarketCategory.FINANCE,
+        MarketCategory.TECH,
+        MarketCategory.IRAN,
+        MarketCategory.ECONOMY,
+    }
+)
+
+
 class ReflectionVerdict(str, Enum):
     APPROVED = "APPROVED"
     ADJUSTED = "ADJUSTED"
