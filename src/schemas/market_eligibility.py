@@ -28,9 +28,7 @@ def _utc_now() -> datetime:
 def _reject_float_for_financial(value: Any, field_name: str) -> Decimal:
     """Centralised float-rejection for financial fields."""
     if isinstance(value, float):
-        raise ValueError(
-            f"Float values are forbidden for '{field_name}'; use Decimal"
-        )
+        raise ValueError(f"Float values are forbidden for '{field_name}'; use Decimal")
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))

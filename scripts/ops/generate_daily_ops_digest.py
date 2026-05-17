@@ -261,10 +261,7 @@ def _build_request(args: argparse.Namespace) -> DailyOpsDigestRequest:
             )
         # Both bounds must fall on the same UTC calendar day so the
         # filename derived from --date stays unambiguous.
-        if (
-            from_dt.date() != digest_date.date()
-            or to_dt.date() != digest_date.date()
-        ):
+        if from_dt.date() != digest_date.date() or to_dt.date() != digest_date.date():
             raise _CLIInputError(
                 DailyOpsDigestFailureReason.INVALID_DATE,
                 "--from-utc and --to-utc must fall on the same UTC day as --date",

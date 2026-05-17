@@ -10,10 +10,9 @@ All financial comparisons use Decimal.  No float is permitted.
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -115,13 +114,21 @@ class TestMarketEligibilitySkipReasonEnum:
     """Typed skip reasons for preflight failures."""
 
     def test_skip_reason_missing_token_context(self):
-        assert MarketEligibilitySkipReason.MISSING_TOKEN_CONTEXT.value == "MISSING_TOKEN_CONTEXT"
+        assert (
+            MarketEligibilitySkipReason.MISSING_TOKEN_CONTEXT.value
+            == "MISSING_TOKEN_CONTEXT"
+        )
 
     def test_skip_reason_order_book_unavailable(self):
-        assert MarketEligibilitySkipReason.ORDER_BOOK_UNAVAILABLE.value == "ORDER_BOOK_UNAVAILABLE"
+        assert (
+            MarketEligibilitySkipReason.ORDER_BOOK_UNAVAILABLE.value
+            == "ORDER_BOOK_UNAVAILABLE"
+        )
 
     def test_skip_reason_non_positive_quote(self):
-        assert MarketEligibilitySkipReason.NON_POSITIVE_QUOTE.value == "NON_POSITIVE_QUOTE"
+        assert (
+            MarketEligibilitySkipReason.NON_POSITIVE_QUOTE.value == "NON_POSITIVE_QUOTE"
+        )
 
     def test_skip_reason_crossed_book(self):
         assert MarketEligibilitySkipReason.CROSSED_BOOK.value == "CROSSED_BOOK"
@@ -130,7 +137,9 @@ class TestMarketEligibilitySkipReasonEnum:
         assert MarketEligibilitySkipReason.SPREAD_TOO_WIDE.value == "SPREAD_TOO_WIDE"
 
     def test_skip_reason_preflight_timeout(self):
-        assert MarketEligibilitySkipReason.PREFLIGHT_TIMEOUT.value == "PREFLIGHT_TIMEOUT"
+        assert (
+            MarketEligibilitySkipReason.PREFLIGHT_TIMEOUT.value == "PREFLIGHT_TIMEOUT"
+        )
 
 
 # ===================================================================
@@ -177,7 +186,10 @@ class TestMarketQuarantineReasonEnum:
     """Quarantine reason enumeration."""
 
     def test_quarantine_reason_repeated_preflight_failure(self):
-        assert MarketQuarantineReason.REPEATED_PREFLIGHT_FAILURE.value == "REPEATED_PREFLIGHT_FAILURE"
+        assert (
+            MarketQuarantineReason.REPEATED_PREFLIGHT_FAILURE.value
+            == "REPEATED_PREFLIGHT_FAILURE"
+        )
 
 
 # ===================================================================
@@ -272,7 +284,10 @@ class TestMarketEvaluationDedupeReasonEnum:
         assert MarketEvaluationDedupeReason.UNCHANGED_STATE.value == "UNCHANGED_STATE"
 
     def test_dedupe_reason_insufficient_elapsed_time(self):
-        assert MarketEvaluationDedupeReason.INSUFFICIENT_ELAPSED_TIME.value == "INSUFFICIENT_ELAPSED_TIME"
+        assert (
+            MarketEvaluationDedupeReason.INSUFFICIENT_ELAPSED_TIME.value
+            == "INSUFFICIENT_ELAPSED_TIME"
+        )
 
     def test_dedupe_reason_midpoint_moved(self):
         assert MarketEvaluationDedupeReason.MIDPOINT_MOVED.value == "MIDPOINT_MOVED"
@@ -369,6 +384,7 @@ _BASE_CONFIG = {
 
 def _make_config(**overrides):
     from src.core.config import AppConfig
+
     base = dict(_BASE_CONFIG)
     base.update(overrides)
     return AppConfig(_env_file=None, **base)
@@ -461,6 +477,7 @@ class TestAppConfigPromptQueueFields:
 def _make_fake_config_preflight(**overrides):
     """FakeConfig for preflight tests."""
     from tests.unit.test_market_discovery import FakeConfig
+
     base = {
         "enable_market_discovery_preflight": True,
         "market_discovery_preflight_timeout_ms": Decimal("5000"),
@@ -476,15 +493,18 @@ def _make_market_metadata(condition_id="c1", token_ids=None):
     """Build a MarketMetadata for testing."""
     from src.schemas.market import MarketMetadata
     from datetime import datetime, timezone, timedelta
+
     end = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-    return MarketMetadata.model_validate({
-        "conditionId": condition_id,
-        "question": "Test?",
-        "clobTokenIds": token_ids if token_ids is not None else ["tok-1", "tok-2"],
-        "endDateIso": end,
-        "active": True,
-        "closed": False,
-    })
+    return MarketMetadata.model_validate(
+        {
+            "conditionId": condition_id,
+            "question": "Test?",
+            "clobTokenIds": token_ids if token_ids is not None else ["tok-1", "tok-2"],
+            "endDateIso": end,
+            "active": True,
+            "closed": False,
+        }
+    )
 
 
 class TestMarketDiscoveryPreflight:
@@ -495,7 +515,10 @@ class TestMarketDiscoveryPreflight:
         """When preflight is enabled, markets go through preflight checks."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
         from src.agents.execution.polymarket_client import MarketSnapshot
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
         from datetime import datetime, timezone
 
         market = _make_market_metadata()
@@ -523,7 +546,10 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_skips_missing_token_context(self):
         """Market with no token_ids is skipped with MISSING_TOKEN_CONTEXT."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         market = _make_market_metadata(token_ids=[])
         gamma = _make_gamma_stub([market])
@@ -538,7 +564,10 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_skips_order_book_unavailable(self):
         """When order book fetch fails, market is skipped."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         market = _make_market_metadata()
         gamma = _make_gamma_stub([market])
@@ -556,7 +585,10 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_skips_non_positive_quote(self):
         """Zero or negative bid/ask is rejected (client returns None for invalid)."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         market = _make_market_metadata()
         gamma = _make_gamma_stub([market])
@@ -576,7 +608,10 @@ class TestMarketDiscoveryPreflight:
         """Bid >= ask is rejected as crossed book."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
         from src.agents.execution.polymarket_client import MarketSnapshot
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
         from datetime import datetime, timezone
 
         market = _make_market_metadata()
@@ -604,7 +639,10 @@ class TestMarketDiscoveryPreflight:
         """Spread above config threshold is rejected."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
         from src.agents.execution.polymarket_client import MarketSnapshot
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
         from datetime import datetime, timezone
 
         market = _make_market_metadata()
@@ -632,7 +670,10 @@ class TestMarketDiscoveryPreflight:
         """Spread comparison uses Decimal, not float."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
         from src.agents.execution.polymarket_client import MarketSnapshot
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
         from datetime import datetime, timezone
 
         market = _make_market_metadata()
@@ -659,12 +700,17 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_timeout_rejects_candidate(self):
         """Timeout on order book lookup rejects candidate."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         market = _make_market_metadata()
         gamma = _make_gamma_stub([market])
         tracker = _make_tracker_stub()
-        config = _make_fake_config_preflight(market_discovery_preflight_timeout_ms=Decimal("1"))
+        config = _make_fake_config_preflight(
+            market_discovery_preflight_timeout_ms=Decimal("1")
+        )
 
         async def slow_fetch_order_book(*args, **kwargs):
             await asyncio.sleep(10)
@@ -681,12 +727,17 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_bounded_candidate_count(self):
         """Only market_discovery_max_preflight_candidates are evaluated."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         markets = [_make_market_metadata(condition_id=f"c{i}") for i in range(20)]
         gamma = _make_gamma_stub(markets)
         tracker = _make_tracker_stub()
-        config = _make_fake_config_preflight(market_discovery_max_preflight_candidates=5)
+        config = _make_fake_config_preflight(
+            market_discovery_max_preflight_candidates=5
+        )
 
         engine = MarketDiscoveryEngine(gamma, tracker, config)
         result = await engine.discover()
@@ -697,7 +748,10 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_no_activation_when_all_fail(self):
         """When all candidates fail preflight, no market is activated."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         markets = [
             _make_market_metadata(condition_id="c1", token_ids=[]),
@@ -715,7 +769,10 @@ class TestMarketDiscoveryPreflight:
     async def test_preflight_disabled_passthrough(self):
         """When preflight is disabled, discovery works as before."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         market = _make_market_metadata()
         gamma = _make_gamma_stub([market])
@@ -752,7 +809,6 @@ class TestMarketQuarantine:
     async def test_quarantine_expiry_allows_recheck(self):
         """After quarantine expires, market can be checked again."""
         from src.agents.ingestion.market_quarantine import MarketQuarantineManager
-        from datetime import timedelta
 
         config = _make_config(preflight_quarantine_duration_seconds=Decimal("0.001"))
         manager = MarketQuarantineManager(config, failure_threshold=2)
@@ -806,6 +862,7 @@ class TestDataAggregatorDedupe:
     def _make_aggregator(self, dedupe_enabled=False, **kwargs):
         """Build a DataAggregator with dedupe configured."""
         from src.agents.context.aggregator import DataAggregator
+
         in_q = asyncio.Queue()
         out_q = asyncio.Queue()
         agg = DataAggregator(in_q, out_q, "c1")
@@ -1057,7 +1114,10 @@ class TestCompatibility:
     async def test_preflight_disabled_compatible(self):
         """When preflight is disabled, discovery works as before."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from tests.unit.test_market_discovery import _make_gamma_stub, _make_tracker_stub
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
 
         market = _make_market_metadata()
         gamma = _make_gamma_stub([market])
@@ -1164,7 +1224,11 @@ class TestPreflightDedupeBackpressureMetrics:
     @pytest.mark.asyncio
     async def test_preflight_pass_fail_counter(self):
         """Metrics registry supports preflight pass/fail counters."""
-        from src.observability.metrics import MetricsRegistry, DecisionMetricEvent, DecisionLabel
+        from src.observability.metrics import (
+            MetricsRegistry,
+            DecisionMetricEvent,
+            DecisionLabel,
+        )
 
         registry = MetricsRegistry()
         await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
@@ -1186,7 +1250,11 @@ class TestPreflightDedupeBackpressureMetrics:
     @pytest.mark.asyncio
     async def test_emitted_contexts_counter(self):
         """Emitted contexts are tracked via decision counter."""
-        from src.observability.metrics import MetricsRegistry, DecisionMetricEvent, DecisionLabel
+        from src.observability.metrics import (
+            MetricsRegistry,
+            DecisionMetricEvent,
+            DecisionLabel,
+        )
 
         registry = MetricsRegistry()
         await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.HOLD))
@@ -1196,7 +1264,11 @@ class TestPreflightDedupeBackpressureMetrics:
     @pytest.mark.asyncio
     async def test_deduped_contexts_counter(self):
         """Deduped contexts can be tracked via decision SKIP counter."""
-        from src.observability.metrics import MetricsRegistry, DecisionMetricEvent, DecisionLabel
+        from src.observability.metrics import (
+            MetricsRegistry,
+            DecisionMetricEvent,
+            DecisionLabel,
+        )
 
         registry = MetricsRegistry()
         await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.SKIP))
@@ -1207,7 +1279,11 @@ class TestPreflightDedupeBackpressureMetrics:
     @pytest.mark.asyncio
     async def test_dropped_stale_contexts_counter(self):
         """Dropped stale contexts tracked via decision SKIP counter."""
-        from src.observability.metrics import MetricsRegistry, DecisionMetricEvent, DecisionLabel
+        from src.observability.metrics import (
+            MetricsRegistry,
+            DecisionMetricEvent,
+            DecisionLabel,
+        )
 
         registry = MetricsRegistry()
         await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.SKIP))
@@ -1217,7 +1293,11 @@ class TestPreflightDedupeBackpressureMetrics:
     @pytest.mark.asyncio
     async def test_coalesced_contexts_counter(self):
         """Coalesced contexts tracked via decision counter."""
-        from src.observability.metrics import MetricsRegistry, DecisionMetricEvent, DecisionLabel
+        from src.observability.metrics import (
+            MetricsRegistry,
+            DecisionMetricEvent,
+            DecisionLabel,
+        )
 
         registry = MetricsRegistry()
         await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.HOLD))

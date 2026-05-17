@@ -23,7 +23,7 @@ Constraints:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Optional
 
 import structlog
@@ -43,7 +43,6 @@ from src.schemas.ops import (
     IncidentReplayStatus,
     IncidentReplaySummary,
     NarrativeRenderResult,
-    NarrativeRenderStatus,
     NarrativeTemplateKey,
     OperationalEventQuery,
     OperationalEventReadWindow,
@@ -402,9 +401,7 @@ def format_report_lines(report: IncidentReplayReport) -> list[str]:
         if filt.event_types:
             out.append("  event_type: " + ",".join(t.value for t in filt.event_types))
         if filt.reason_codes:
-            out.append(
-                "  reason_code: " + ",".join(r.value for r in filt.reason_codes)
-            )
+            out.append("  reason_code: " + ",".join(r.value for r in filt.reason_codes))
     out.append(f"status: {report.status.value}")
     if report.failure_reason is not None:
         out.append(f"failure_reason: {report.failure_reason.value}")
@@ -417,7 +414,9 @@ def format_report_lines(report: IncidentReplayReport) -> list[str]:
     else:
         for line in report.lines:
             dry = (
-                "" if line.dry_run is None else f" [dry_run={str(line.dry_run).lower()}]"
+                ""
+                if line.dry_run is None
+                else f" [dry_run={str(line.dry_run).lower()}]"
             )
             out.append(
                 f"{line.timestamp_utc.isoformat()} "

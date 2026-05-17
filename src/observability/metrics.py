@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -103,9 +103,7 @@ class MetricLabelSet(BaseModel):
     def _reject_forbidden_keys(cls, v: dict[str, str]) -> dict[str, str]:
         for key in v:
             if key.lower() in _FORBIDDEN_LABEL_KEYS:
-                raise ValueError(
-                    f"Forbidden high-cardinality label key: '{key}'"
-                )
+                raise ValueError(f"Forbidden high-cardinality label key: '{key}'")
         return v
 
     @field_validator("labels")
@@ -115,9 +113,7 @@ class MetricLabelSet(BaseModel):
             lower_val = value.lower()
             for pattern in _FORBIDDEN_LABEL_VALUE_PATTERNS:
                 if lower_val.startswith(pattern):
-                    raise ValueError(
-                        "Forbidden label value pattern detected"
-                    )
+                    raise ValueError("Forbidden label value pattern detected")
         return v
 
 
@@ -173,9 +169,7 @@ class DecisionMetricEvent(BaseModel):
                     f"Unknown decision action: '{v}'. "
                     f"Must be one of {[d.value for d in DecisionLabel]}"
                 )
-        raise ValueError(
-            f"Cannot coerce to DecisionLabel: {type(v).__name__}"
-        )
+        raise ValueError(f"Cannot coerce to DecisionLabel: {type(v).__name__}")
 
 
 class ExecutionMetricEvent(BaseModel):
@@ -196,9 +190,7 @@ class ExecutionMetricEvent(BaseModel):
                     f"Unknown execution action: '{v}'. "
                     f"Must be one of {[a.value for a in ExecutionAction]}"
                 )
-        raise ValueError(
-            f"Cannot coerce to ExecutionAction: {type(v).__name__}"
-        )
+        raise ValueError(f"Cannot coerce to ExecutionAction: {type(v).__name__}")
 
 
 class LatencyMetricEvent(BaseModel):
@@ -234,9 +226,7 @@ class LatencyMetricEvent(BaseModel):
 class BacktestReadinessMetric(BaseModel):
     """Gauge representing the latest WI-44 live-readiness verdict."""
 
-    verdict: BacktestVerdictLabel = Field(
-        default=BacktestVerdictLabel.UNKNOWN
-    )
+    verdict: BacktestVerdictLabel = Field(default=BacktestVerdictLabel.UNKNOWN)
 
 
 # ── Metrics Registry ──────────────────────────────────────────────────────
@@ -480,7 +470,9 @@ class MetricsRegistry:
         async with self._lock:
             if name_total in self._counters:
                 total_counter = self._counters[name_total]
-                total_counter[""] = total_counter.get("", Decimal("0")) + event.value_seconds
+                total_counter[""] = (
+                    total_counter.get("", Decimal("0")) + event.value_seconds
+                )
                 count_counter = self._counters[name_count]
                 count_counter[""] = count_counter.get("", Decimal("0")) + Decimal("1")
 
@@ -768,9 +760,7 @@ class MetricsRegistry:
                                 name=name,
                                 help_text=help_text,
                                 type=MetricType.GAUGE,
-                                labels=MetricLabelSet(
-                                    labels={"verdict": "UNKNOWN"}
-                                ),
+                                labels=MetricLabelSet(labels={"verdict": "UNKNOWN"}),
                                 value=Decimal("0"),
                             )
                         )
@@ -857,14 +847,10 @@ def _deserialize_labels(label_key: str) -> dict[str, str]:
     return result
 
 
-def _format_metric_line(
-    name: str, labels: dict[str, str], value: Decimal
-) -> str:
+def _format_metric_line(name: str, labels: dict[str, str], value: Decimal) -> str:
     """Format a single Prometheus metric line."""
     if labels:
-        label_parts = ",".join(
-            f'{k}="{v}"' for k, v in sorted(labels.items())
-        )
+        label_parts = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
         label_str = f"{{{label_parts}}}"
     else:
         label_str = ""

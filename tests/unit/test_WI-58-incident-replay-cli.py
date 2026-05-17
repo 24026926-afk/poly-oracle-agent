@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
-import pytest_asyncio
 from pydantic import ValidationError
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -88,8 +87,14 @@ _cli = _load_cli_module()
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _utc(year: int = 2026, month: int = 5, day: int = 15, hour: int = 0,
-         minute: int = 0, second: int = 0) -> datetime:
+def _utc(
+    year: int = 2026,
+    month: int = 5,
+    day: int = 15,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
+) -> datetime:
     return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
 
 
@@ -256,9 +261,16 @@ def test_incident_replay_summary_counts_shape() -> None:
         readiness_changes=1,
     )
     for attr in (
-        "total_events", "warnings", "errors", "markets_seen",
-        "decisions_by_action", "skips_by_reason", "llm_calls",
-        "budget_blocks", "cooldown_blocks", "provider_failures",
+        "total_events",
+        "warnings",
+        "errors",
+        "markets_seen",
+        "decisions_by_action",
+        "skips_by_reason",
+        "llm_calls",
+        "budget_blocks",
+        "cooldown_blocks",
+        "provider_failures",
         "readiness_changes",
     ):
         assert hasattr(s, attr)
@@ -297,17 +309,28 @@ def test_incident_replay_report_schema_composition() -> None:
 
 def test_incident_replay_status_and_failure_reason_enums() -> None:
     expected_statuses = {
-        "SUCCESS", "EMPTY_WINDOW", "INVALID_WINDOW",
-        "INVALID_TIMESTAMP", "INVALID_FILTER",
-        "REPOSITORY_FAILURE", "DATABASE_UNAVAILABLE", "TRUNCATED",
+        "SUCCESS",
+        "EMPTY_WINDOW",
+        "INVALID_WINDOW",
+        "INVALID_TIMESTAMP",
+        "INVALID_FILTER",
+        "REPOSITORY_FAILURE",
+        "DATABASE_UNAVAILABLE",
+        "TRUNCATED",
     }
     actual = {member.value for member in IncidentReplayStatus}
     assert expected_statuses.issubset(actual)
 
     expected_failures = {
-        "FROM_AFTER_TO", "MALFORMED_TIMESTAMP", "NAIVE_TIMESTAMP",
-        "UNKNOWN_ENUM_VALUE", "REPOSITORY_ERROR", "MISSING_EVENT_TABLE",
-        "DATABASE_UNREACHABLE", "FORBIDDEN_CONTENT", "RESULT_TRUNCATED",
+        "FROM_AFTER_TO",
+        "MALFORMED_TIMESTAMP",
+        "NAIVE_TIMESTAMP",
+        "UNKNOWN_ENUM_VALUE",
+        "REPOSITORY_ERROR",
+        "MISSING_EVENT_TABLE",
+        "DATABASE_UNREACHABLE",
+        "FORBIDDEN_CONTENT",
+        "RESULT_TRUNCATED",
     }
     actual_failures = {member.value for member in IncidentReplayFailureReason}
     assert expected_failures.issubset(actual_failures)
@@ -335,7 +358,9 @@ def test_from_equal_to_is_valid_zero_or_minimal_window() -> None:
 
 
 def test_malformed_timestamp_returns_invalid_timestamp() -> None:
-    rc = _cli.main(["--from", "not-a-date", "--to", "2026-05-15T01:00:00Z"], session_factory=None)
+    rc = _cli.main(
+        ["--from", "not-a-date", "--to", "2026-05-15T01:00:00Z"], session_factory=None
+    )
     assert rc == _cli.EXIT_INVALID_INPUT
 
 
@@ -388,11 +413,15 @@ async def test_severity_filter_independent(db_session_factory) -> None:
         reason_code=OperationalEventReasonCode.READY,
         timestamp_utc=_utc(hour=2),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        severities=[OperationalEventSeverity.WARNING],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            severities=[OperationalEventSeverity.WARNING],
+        )
+    )
     report = await run_replay(req, db_session_factory)
-    assert all(line.severity == OperationalEventSeverity.WARNING for line in report.lines)
+    assert all(
+        line.severity == OperationalEventSeverity.WARNING for line in report.lines
+    )
     assert len(report.lines) == 1
 
 
@@ -414,11 +443,15 @@ async def test_source_filter_independent(db_session_factory) -> None:
         reason_code=OperationalEventReasonCode.PROVIDER_CALL_STARTED,
         timestamp_utc=_utc(hour=2),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        sources=[OperationalEventSource.EVALUATION],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            sources=[OperationalEventSource.EVALUATION],
+        )
+    )
     report = await run_replay(req, db_session_factory)
-    assert all(line.source == OperationalEventSource.EVALUATION for line in report.lines)
+    assert all(
+        line.source == OperationalEventSource.EVALUATION for line in report.lines
+    )
     assert len(report.lines) == 1
 
 
@@ -440,11 +473,16 @@ async def test_event_type_filter_independent(db_session_factory) -> None:
         reason_code=OperationalEventReasonCode.PROVIDER_CALL_FAILED,
         timestamp_utc=_utc(hour=2),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        event_types=[OperationalEventType.PROVIDER_FAILURE],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            event_types=[OperationalEventType.PROVIDER_FAILURE],
+        )
+    )
     report = await run_replay(req, db_session_factory)
-    assert all(line.event_type == OperationalEventType.PROVIDER_FAILURE for line in report.lines)
+    assert all(
+        line.event_type == OperationalEventType.PROVIDER_FAILURE
+        for line in report.lines
+    )
     assert len(report.lines) == 1
 
 
@@ -466,9 +504,11 @@ async def test_reason_code_filter_independent(db_session_factory) -> None:
         reason_code=OperationalEventReasonCode.DECISION_SKIP_LOW_EV,
         timestamp_utc=_utc(hour=2),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        reason_codes=[OperationalEventReasonCode.DECISION_SKIP_LOW_CONF],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            reason_codes=[OperationalEventReasonCode.DECISION_SKIP_LOW_CONF],
+        )
+    )
     report = await run_replay(req, db_session_factory)
     assert all(
         line.reason_code == OperationalEventReasonCode.DECISION_SKIP_LOW_CONF
@@ -495,10 +535,12 @@ async def test_filters_combined_intersect(db_session_factory) -> None:
         reason_code=OperationalEventReasonCode.DECISION_SKIP_LOW_CONF,
         timestamp_utc=_utc(hour=2),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        severities=[OperationalEventSeverity.WARNING],
-        event_types=[OperationalEventType.DECISION_SKIPPED],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            severities=[OperationalEventSeverity.WARNING],
+            event_types=[OperationalEventType.DECISION_SKIPPED],
+        )
+    )
     report = await run_replay(req, db_session_factory)
     assert len(report.lines) == 1
     assert report.lines[0].severity == OperationalEventSeverity.WARNING
@@ -507,9 +549,12 @@ async def test_filters_combined_intersect(db_session_factory) -> None:
 def test_invalid_enum_filter_value_returns_invalid_filter() -> None:
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--severity", "definitely-not-a-severity",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--severity",
+            "definitely-not-a-severity",
         ],
         session_factory=None,
     )
@@ -517,7 +562,9 @@ def test_invalid_enum_filter_value_returns_invalid_filter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_contradictory_filters_produce_zero_event_report(db_session_factory) -> None:
+async def test_contradictory_filters_produce_zero_event_report(
+    db_session_factory,
+) -> None:
     await _append_event(
         db_session_factory,
         event_type=OperationalEventType.LLM_CALL_STARTED,
@@ -526,11 +573,13 @@ async def test_contradictory_filters_produce_zero_event_report(db_session_factor
         reason_code=OperationalEventReasonCode.PROVIDER_CALL_STARTED,
         timestamp_utc=_utc(hour=1),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        # Combination cannot match — LLM_CALL_STARTED never has WS_ESTABLISHED reason.
-        event_types=[OperationalEventType.LLM_CALL_STARTED],
-        reason_codes=[OperationalEventReasonCode.WS_ESTABLISHED],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            # Combination cannot match — LLM_CALL_STARTED never has WS_ESTABLISHED reason.
+            event_types=[OperationalEventType.LLM_CALL_STARTED],
+            reason_codes=[OperationalEventReasonCode.WS_ESTABLISHED],
+        )
+    )
     report = await run_replay(req, db_session_factory)
     assert report.status == IncidentReplayStatus.EMPTY_WINDOW
     assert report.lines == []
@@ -544,7 +593,8 @@ async def test_contradictory_filters_produce_zero_event_report(db_session_factor
 
 @pytest.mark.asyncio
 async def test_replay_reads_through_operational_event_repository(
-    db_session_factory, monkeypatch,
+    db_session_factory,
+    monkeypatch,
 ) -> None:
     calls: list = []
     real_read_window = OperationalEventRepository.read_window
@@ -662,7 +712,8 @@ async def test_replay_ordering_is_deterministic_for_duplicate_timestamps(
 
 @pytest.mark.asyncio
 async def test_replay_lines_use_wi57_narrative_renderer(
-    db_session_factory, monkeypatch,
+    db_session_factory,
+    monkeypatch,
 ) -> None:
     seen: list = []
     real_render = replay_mod.render_event
@@ -832,9 +883,21 @@ async def test_summary_markets_seen_uses_typed_bounded_count_only(
     db_session_factory,
 ) -> None:
     for hour, etype, rcode in (
-        (1, OperationalEventType.MARKET_DISCOVERED, OperationalEventReasonCode.MARKET_FOUND),
-        (2, OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_INELIGIBLE),
-        (3, OperationalEventType.MARKET_QUARANTINE, OperationalEventReasonCode.MARKET_QUARANTINED),
+        (
+            1,
+            OperationalEventType.MARKET_DISCOVERED,
+            OperationalEventReasonCode.MARKET_FOUND,
+        ),
+        (
+            2,
+            OperationalEventType.MARKET_REJECTED,
+            OperationalEventReasonCode.MARKET_INELIGIBLE,
+        ),
+        (
+            3,
+            OperationalEventType.MARKET_QUARANTINE,
+            OperationalEventReasonCode.MARKET_QUARANTINED,
+        ),
     ):
         await _append_event(
             db_session_factory,
@@ -1018,9 +1081,11 @@ async def test_filtered_zero_result_window_produces_valid_zero_event_report(
         reason_code=OperationalEventReasonCode.STARTUP,
         timestamp_utc=_utc(hour=1),
     )
-    req = _default_request(filter_=IncidentReplayFilter(
-        severities=[OperationalEventSeverity.CRITICAL],
-    ))
+    req = _default_request(
+        filter_=IncidentReplayFilter(
+            severities=[OperationalEventSeverity.CRITICAL],
+        )
+    )
     report = await run_replay(req, db_session_factory)
     assert report.status == IncidentReplayStatus.EMPTY_WINDOW
     # Active filters survive in the report request.
@@ -1149,9 +1214,12 @@ def test_cli_exits_non_zero_on_invalid_timestamp() -> None:
 def test_cli_exits_non_zero_on_invalid_filter() -> None:
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--reason-code", "definitely-not-a-reason-code",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--reason-code",
+            "definitely-not-a-reason-code",
         ],
         session_factory=None,
     )
@@ -1160,7 +1228,8 @@ def test_cli_exits_non_zero_on_invalid_filter() -> None:
 
 @pytest.mark.asyncio
 async def test_cli_exits_non_zero_on_repository_failure(
-    db_session_factory, monkeypatch,
+    db_session_factory,
+    monkeypatch,
 ) -> None:
     from sqlalchemy.exc import SQLAlchemyError
 
@@ -1177,7 +1246,8 @@ async def test_cli_exits_non_zero_on_repository_failure(
 
 @pytest.mark.asyncio
 async def test_cli_handles_missing_operational_events_table_safely(
-    db_session_factory, monkeypatch,
+    db_session_factory,
+    monkeypatch,
 ) -> None:
     from sqlalchemy.exc import OperationalError
 
@@ -1202,7 +1272,9 @@ async def test_cli_handles_missing_operational_events_table_safely(
 def test_cli_does_not_import_any_llm_client() -> None:
     text = _CLI_PATH.read_text()
     for forbidden in (
-        "anthropic", "deepseek", "grok",
+        "anthropic",
+        "deepseek",
+        "grok",
         "from src.agents.evaluation.claude_client",
         "from src.agents.evaluation.deepseek_client",
         "from src.agents.evaluation.grok_client",
@@ -1233,7 +1305,9 @@ def test_cli_does_not_modify_operational_events() -> None:
     text = _CLI_PATH.read_text()
     service_text = Path(replay_mod.__file__).read_text()
     for forbidden in (
-        "repo.append(", "repository.append(", ".batch_append(",
+        "repo.append(",
+        "repository.append(",
+        ".batch_append(",
         "INSERT INTO operational_events",
         "DELETE FROM operational_events",
         "UPDATE operational_events",
@@ -1248,8 +1322,11 @@ def test_llm_evaluation_response_schema_unchanged_by_wi58() -> None:
     # The terminal Gatekeeper schema must not learn presentation fields.
     fields = LLMEvaluationResponse.model_fields
     forbidden_fields = {
-        "narrative", "operational_narrative", "decision_narrative",
-        "incident_replay_line", "replay_summary",
+        "narrative",
+        "operational_narrative",
+        "decision_narrative",
+        "incident_replay_line",
+        "replay_summary",
     }
     assert forbidden_fields.isdisjoint(fields.keys())
 
@@ -1320,9 +1397,7 @@ def test_replay_metrics_and_logs_use_low_cardinality_labels_only() -> None:
     service_text = Path(replay_mod.__file__).read_text()
     # Structured log calls in the replay path only emit typed enum values
     # (event_type.value / reason_code.value) — never raw payload text.
-    log_lines = [
-        line for line in service_text.splitlines() if "logger." in line
-    ]
+    log_lines = [line for line in service_text.splitlines() if "logger." in line]
     for line in log_lines:
         if "payload" in line.lower() and "payload_json" not in line:
             pytest.fail(f"replay log line emits payload text: {line!r}")
@@ -1335,7 +1410,8 @@ def test_replay_metrics_and_logs_use_low_cardinality_labels_only() -> None:
 
 @pytest.mark.asyncio
 async def test_large_window_is_bounded_with_typed_truncation_indicator(
-    db_session_factory, monkeypatch,
+    db_session_factory,
+    monkeypatch,
 ) -> None:
     from src.schemas.ops import OperationalEventReadWindow, OperationalEventRecord
 
@@ -1382,9 +1458,12 @@ def test_invalid_filter_value_does_not_leak_secret_shaped_input(capsys) -> None:
     secret_shaped = "sk-" + "a" * 40
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--severity", secret_shaped,
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--severity",
+            secret_shaped,
         ],
         session_factory=None,
     )
@@ -1403,9 +1482,12 @@ def test_argparse_does_not_leak_secret_shaped_invalid_input(capsys) -> None:
     # Non-int --limit value that previously triggered argparse's raw echo.
     rc_limit = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--limit", secret_shaped,
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--limit",
+            secret_shaped,
         ],
         session_factory=None,
     )
@@ -1417,9 +1499,12 @@ def test_argparse_does_not_leak_secret_shaped_invalid_input(capsys) -> None:
     # raw tokens here, not single-quoted).
     rc_unknown = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--unknown-flag", secret_shaped,
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--unknown-flag",
+            secret_shaped,
         ],
         session_factory=None,
     )
@@ -1434,9 +1519,12 @@ def test_invalid_limit_fails_closed_with_non_zero_exit(capsys) -> None:
     request that proceeds to the database."""
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--limit", "0",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--limit",
+            "0",
         ],
         session_factory=None,
     )
@@ -1446,9 +1534,12 @@ def test_invalid_limit_fails_closed_with_non_zero_exit(capsys) -> None:
 
     rc_high = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--limit", "1001",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--limit",
+            "1001",
         ],
         session_factory=None,
     )
@@ -1460,6 +1551,11 @@ def test_incident_replay_runbook_exists() -> None:
     assert runbook.exists()
     text = runbook.read_text()
     for keyword in (
-        "--from", "--to", "filter", "empty", "invalid", "incident",
+        "--from",
+        "--to",
+        "filter",
+        "empty",
+        "invalid",
+        "incident",
     ):
         assert keyword.lower() in text.lower()

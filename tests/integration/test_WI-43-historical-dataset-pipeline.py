@@ -10,7 +10,6 @@ output using mock HTTP responses.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -80,8 +79,10 @@ async def test_builder_produces_loader_compatible_fixture_dataset(tmp_path):
             ]
         return []
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", side_effect=_mock_snapshots):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", side_effect=_mock_snapshots),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=output_dir,
@@ -108,13 +109,12 @@ async def test_builder_produces_loader_compatible_fixture_dataset(tmp_path):
     assert manifest_data["market_count"] == 2
 
     # Validate snapshot files exist and are readable by BacktestDataLoader
-    from src.backtest_runner import BacktestDataLoader
-    from src.schemas.execution import BacktestConfig
     from decimal import Decimal
 
     # Verify each snapshot file
     snapshot_files = sorted(
-        f for f in output_dir.glob("*.json")
+        f
+        for f in output_dir.glob("*.json")
         if f.name != "manifest.json" and not f.name.endswith("_outcomes.json")
     )
     assert len(snapshot_files) > 0, "Expected at least one snapshot file"
@@ -178,8 +178,10 @@ async def test_builder_integration_with_backtest_data_loader(tmp_path):
         },
     ]
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=output_dir,

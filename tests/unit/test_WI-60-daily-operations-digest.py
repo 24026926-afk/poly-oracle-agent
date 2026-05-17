@@ -17,15 +17,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
 import pytest
-import pytest_asyncio
 from pydantic import ValidationError
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -35,8 +33,6 @@ from src.db.repositories.operational_event_repository import (
     OperationalEventRepository,
 )
 from src.schemas.ops import (
-    NarrativeRenderStatus,
-    NarrativeTemplateKey,
     OperationalEventCreate,
     OperationalEventPayload,
     OperationalEventPersistenceStatus,
@@ -65,14 +61,15 @@ try:
         DailyOpsDigestWindow,
         DailyOpsDigestWriteResult,
     )
+
     _DIGEST_SCHEMAS_AVAILABLE = True
 except ImportError:
     _DIGEST_SCHEMAS_AVAILABLE = False
 
 # WI-60 digest service — may not exist during red phase
 try:
-    from src.observability import daily_ops_digest as digest_mod
     from src.observability.daily_ops_digest import generate_digest
+
     _DIGEST_SERVICE_AVAILABLE = True
 except ImportError:
     _DIGEST_SERVICE_AVAILABLE = False
@@ -219,7 +216,9 @@ def test_daily_ops_digest_run_summary_partial_run() -> None:
 
 def test_daily_ops_digest_decision_summary_schema_exists() -> None:
     if not _DIGEST_SCHEMAS_AVAILABLE:
-        raise NotImplementedError("DailyOpsDigestDecisionSummary schema not implemented")
+        raise NotImplementedError(
+            "DailyOpsDigestDecisionSummary schema not implemented"
+        )
     summary = DailyOpsDigestDecisionSummary(
         accepted_buy=1,
         accepted_hold=2,
@@ -311,7 +310,9 @@ def test_daily_ops_digest_operator_check_schema_exists() -> None:
 
 def test_daily_ops_digest_telegram_summary_schema_exists() -> None:
     if not _DIGEST_SCHEMAS_AVAILABLE:
-        raise NotImplementedError("DailyOpsDigestTelegramSummary schema not implemented")
+        raise NotImplementedError(
+            "DailyOpsDigestTelegramSummary schema not implemented"
+        )
     summary = DailyOpsDigestTelegramSummary(
         enabled=True,
         text="Daily digest: 3 decisions, 1 warning.",
@@ -452,6 +453,7 @@ def test_generate_digest_signature_accepts_request_and_session_factory() -> None
     if not _DIGEST_SERVICE_AVAILABLE:
         raise NotImplementedError("generate_digest not implemented")
     import inspect
+
     sig = inspect.signature(generate_digest)
     assert "request" in sig.parameters
     assert "session_factory" in sig.parameters
@@ -473,6 +475,7 @@ def test_cli_accepts_date_argument() -> None:
         raise NotImplementedError("generate_daily_ops_digest.py CLI not implemented")
     assert hasattr(_cli, "main")
     import inspect
+
     sig = inspect.signature(_cli.main)
     assert any(p in sig.parameters for p in ("date", "digest_date"))
 
@@ -612,10 +615,14 @@ async def test_digest_output_is_deterministic_for_same_input(
 
     req = _make_request(daily_notes_dir=str(daily_root))
 
-    report1 = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
+    report1 = await generate_digest(
+        req, db_session_factory, daily_notes_root=daily_root
+    )
     text1 = Path(report1.write_result.path).read_text()
 
-    report2 = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
+    report2 = await generate_digest(
+        req, db_session_factory, daily_notes_root=daily_root
+    )
     text2 = Path(report2.write_result.path).read_text()
 
     assert report1.status == DailyOpsDigestStatus.SUCCESS
@@ -647,7 +654,7 @@ async def test_digest_does_not_overwrite_manual_daily_notes(
     )
 
     req = _make_request(daily_notes_dir=str(daily_root))
-    report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
+    await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
 
     # Bot digest written; manual note untouched.
     bot_path = daily_root / "2026-05-15-bot.md"
@@ -700,8 +707,7 @@ async def test_digest_path_rejects_manual_note_filename(
     report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
     assert report.status == DailyOpsDigestStatus.PATH_FAILURE
     assert (
-        report.failure_reason
-        == DailyOpsDigestFailureReason.MANUAL_NOTE_WOULD_OVERWRITE
+        report.failure_reason == DailyOpsDigestFailureReason.MANUAL_NOTE_WOULD_OVERWRITE
     )
     assert report.write_result.written is False
     assert not manual_path.exists()
@@ -767,7 +773,9 @@ async def test_digest_decimal_formatting_for_spend_and_pnl(
 
     # Insert an LLM_CALL_STARTED event with a Decimal-compatible spend
     # field in the raw payload JSON.
-    raw_payload = json.dumps({"estimated_cost_usd": "0.0125", "provider_name": "anthropic"})
+    raw_payload = json.dumps(
+        {"estimated_cost_usd": "0.0125", "provider_name": "anthropic"}
+    )
     await _insert_raw_row(
         db_session_factory,
         event_type=OperationalEventType.LLM_CALL_STARTED,
@@ -790,9 +798,7 @@ async def test_digest_decimal_formatting_for_spend_and_pnl(
 
 
 @pytest.mark.asyncio
-async def test_digest_decimal_rejects_float_spend(
-    db_session_factory, tmp_path
-) -> None:
+async def test_digest_decimal_rejects_float_spend(db_session_factory, tmp_path) -> None:
     """A float estimated_cost_usd in payload is dropped, never summed as float."""
     from src.observability.daily_ops_digest import generate_digest
     from src.schemas.ops import DailyOpsDigestStatus
@@ -843,7 +849,7 @@ async def test_digest_redacts_forbidden_content_before_write(
     daily_root = tmp_path / "03_Daily"
     daily_root.mkdir()
     req = _make_request(daily_notes_dir=str(daily_root))
-    report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
+    await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
 
     bot_path = daily_root / "2026-05-15-bot.md"
     text = bot_path.read_text()
@@ -1067,9 +1073,7 @@ def test_cli_status_to_exit_code_mapping() -> None:
     from src.schemas.ops import DailyOpsDigestStatus
 
     assert _cli._status_to_exit_code(DailyOpsDigestStatus.SUCCESS) == _cli.EXIT_OK
-    assert (
-        _cli._status_to_exit_code(DailyOpsDigestStatus.EMPTY_WINDOW) == _cli.EXIT_OK
-    )
+    assert _cli._status_to_exit_code(DailyOpsDigestStatus.EMPTY_WINDOW) == _cli.EXIT_OK
     assert (
         _cli._status_to_exit_code(DailyOpsDigestStatus.PATH_FAILURE)
         == _cli.EXIT_INVALID_INPUT
@@ -1385,9 +1389,7 @@ async def test_digest_records_without_start_yield_unknown_not_no_run(
 
 
 @pytest.mark.asyncio
-async def test_digest_zero_records_yields_no_run(
-    db_session_factory, tmp_path
-) -> None:
+async def test_digest_zero_records_yields_no_run(db_session_factory, tmp_path) -> None:
     """Zero records in the window yields run_status=no_run via EMPTY_WINDOW."""
     from src.observability.daily_ops_digest import generate_digest
     from src.schemas.ops import DailyOpsDigestStatus

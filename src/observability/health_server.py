@@ -42,10 +42,7 @@ class HealthServer:
         host: str = "127.0.0.1",
         port: int = 8080,
         *,
-        get_ws_health: Callable[
-            [], Awaitable[RuntimeHealthSnapshot]
-        ]
-        | None = None,
+        get_ws_health: Callable[[], Awaitable[RuntimeHealthSnapshot]] | None = None,
         check_db: Callable[[], Awaitable[bool]] | None = None,
         readiness_grace_window_seconds: float = 30.0,
         dry_run: bool = True,
@@ -107,9 +104,7 @@ class HealthServer:
     ) -> None:
         """Parse HTTP request line and route to handler."""
         try:
-            request_line = await asyncio.wait_for(
-                reader.readline(), timeout=5.0
-            )
+            request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
         except asyncio.TimeoutError:
             writer.close()
             return
@@ -176,15 +171,12 @@ class HealthServer:
                 ws_health = runtime.ws_health if runtime else None
                 if ws_health is not None:
                     ws_state = ws_health.connection_state
-                    ws_connected = (
-                        ws_state == WebSocketConnectionState.CONNECTED
-                    )
+                    ws_connected = ws_state == WebSocketConnectionState.CONNECTED
                     # Grace window: if recently disconnected and DB is ok, still ready
                     if (
                         not ws_connected
                         and db_ok
-                        and ws_state
-                        == WebSocketConnectionState.DISCONNECTED
+                        and ws_state == WebSocketConnectionState.DISCONNECTED
                         and ws_health.last_pong_received_at_utc is not None
                     ):
                         delta = (
@@ -205,8 +197,7 @@ class HealthServer:
         # Determine readiness
         # WI-56: ledger degraded forces DEGRADED even if everything else is ok
         ledger_ok = not (
-            runtime is not None
-            and getattr(runtime, "ledger_degraded", False)
+            runtime is not None and getattr(runtime, "ledger_degraded", False)
         )
 
         if db_ok and ws_ok and ledger_ok:

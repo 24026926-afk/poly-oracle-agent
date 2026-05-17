@@ -16,7 +16,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from src.schemas.llm import LLMEvaluationResponse
 from src.schemas.ops import (
@@ -39,7 +39,6 @@ from src.schemas.ops import (
 from src.observability import operational_narratives as narratives_mod
 from src.observability.operational_narratives import (
     render_event,
-    render_window,
 )
 from src.db.repositories.operational_event_repository import (
     OperationalEventRepository,
@@ -118,7 +117,12 @@ def test_narrative_schemas_exist_in_ops_module():
 
 
 def test_narrative_schemas_are_distinct_from_llm_evaluation_response():
-    for cls in (OperationalNarrative, DecisionNarrative, RuntimeNarrative, NarrativeRenderResult):
+    for cls in (
+        OperationalNarrative,
+        DecisionNarrative,
+        RuntimeNarrative,
+        NarrativeRenderResult,
+    ):
         assert not issubclass(cls, LLMEvaluationResponse)
 
 
@@ -133,7 +137,9 @@ def test_llm_evaluation_response_has_no_presentation_fields():
     }
     field_names = set(LLMEvaluationResponse.model_fields.keys())
     leaked = field_names & forbidden
-    assert leaked == set(), f"LLMEvaluationResponse leaked presentation fields: {leaked}"
+    assert leaked == set(), (
+        f"LLMEvaluationResponse leaked presentation fields: {leaked}"
+    )
 
 
 def test_narrative_render_result_schema_typed():
@@ -211,7 +217,10 @@ def test_runtime_narrative_rendering_does_not_call_any_llm():
     started = [p.start() for p in patches]
     try:
         result = render_event(rec)
-        assert result.status in {NarrativeRenderStatus.SUCCESS, NarrativeRenderStatus.FALLBACK}
+        assert result.status in {
+            NarrativeRenderStatus.SUCCESS,
+            NarrativeRenderStatus.FALLBACK,
+        }
         for mock in started:
             assert mock.call_count == 0
     finally:
@@ -378,10 +387,22 @@ def test_provider_failure_renders_safe_summary(reason_code):
 @pytest.mark.parametrize(
     "event_type,reason_code",
     [
-        (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_INELIGIBLE),
-        (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_NOT_FOUND),
-        (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_COOLDOWN),
-        (OperationalEventType.MARKET_QUARANTINE, OperationalEventReasonCode.MARKET_QUARANTINED),
+        (
+            OperationalEventType.MARKET_REJECTED,
+            OperationalEventReasonCode.MARKET_INELIGIBLE,
+        ),
+        (
+            OperationalEventType.MARKET_REJECTED,
+            OperationalEventReasonCode.MARKET_NOT_FOUND,
+        ),
+        (
+            OperationalEventType.MARKET_REJECTED,
+            OperationalEventReasonCode.MARKET_COOLDOWN,
+        ),
+        (
+            OperationalEventType.MARKET_QUARANTINE,
+            OperationalEventReasonCode.MARKET_QUARANTINED,
+        ),
     ],
 )
 def test_market_rejection_or_quarantine_renders_summary(event_type, reason_code):
@@ -498,8 +519,14 @@ def test_dry_run_execution_narrative_explicitly_states_no_live_signing_or_broadc
     "event_type,reason_code",
     [
         (OperationalEventType.CIRCUIT_BREAKER_OPEN, OperationalEventReasonCode.CB_OPEN),
-        (OperationalEventType.CIRCUIT_BREAKER_CLOSED, OperationalEventReasonCode.CB_CLOSED),
-        (OperationalEventType.CIRCUIT_BREAKER_CLOSED, OperationalEventReasonCode.CB_OVERRIDE),
+        (
+            OperationalEventType.CIRCUIT_BREAKER_CLOSED,
+            OperationalEventReasonCode.CB_CLOSED,
+        ),
+        (
+            OperationalEventType.CIRCUIT_BREAKER_CLOSED,
+            OperationalEventReasonCode.CB_OVERRIDE,
+        ),
     ],
 )
 def test_circuit_breaker_transitions_render_summary(event_type, reason_code):
@@ -553,7 +580,9 @@ def test_alert_outcome_narratives_omit_telegram_identifiers_and_tokens(reason_co
         (OperationalEventReasonCode.ERROR_UNHANDLED, "degraded"),
     ],
 )
-def test_recovery_narratives_omit_raw_exception_text(reason_code, expected_continuation):
+def test_recovery_narratives_omit_raw_exception_text(
+    reason_code, expected_continuation
+):
     rec = _make_record(
         event_type=OperationalEventType.ERROR_RECOVERED,
         reason_code=reason_code,
@@ -856,23 +885,31 @@ def test_narrative_module_does_not_expose_repository_write_or_delete_methods():
             continue
         lower = name.lower()
         for forbidden in ("write", "update", "delete", "persist", "insert", "save"):
-            assert forbidden not in lower, f"Narrative module exposes forbidden API: {name}"
+            assert forbidden not in lower, (
+                f"Narrative module exposes forbidden API: {name}"
+            )
 
 
 def test_operational_event_repository_unchanged_for_write_or_delete_methods():
     members = {n for n in dir(OperationalEventRepository) if not n.startswith("_")}
     forbidden = {"update", "delete", "remove", "purge", "truncate", "modify"}
     overlap = members & forbidden
-    assert overlap == set(), f"OperationalEventRepository gained forbidden methods: {overlap}"
+    assert overlap == set(), (
+        f"OperationalEventRepository gained forbidden methods: {overlap}"
+    )
 
 
 def test_narrative_repository_helper_is_read_only_if_present():
     # If any read-only helper exists, it must operate over read_window only.
-    public = [n for n in dir(narratives_mod) if not n.startswith("_") and callable(getattr(narratives_mod, n))]
+    public = [
+        n
+        for n in dir(narratives_mod)
+        if not n.startswith("_") and callable(getattr(narratives_mod, n))
+    ]
     for name in public:
         fn = getattr(narratives_mod, name)
         try:
-            sig = inspect.signature(fn)
+            inspect.signature(fn)
         except (TypeError, ValueError):
             continue
         for forbidden in ("write", "append", "persist", "save"):
@@ -927,9 +964,7 @@ def test_narrative_layer_does_not_invoke_execution_router_or_signer():
     body_src = "\n".join(
         _ast.unparse(node)
         for node in tree.body
-        if not (
-            isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Constant)
-        )
+        if not (isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Constant))
     )
     for token in ("ExecutionRouter", "WalletSigner", "signer.sign", "broadcast("):
         assert token not in body_src

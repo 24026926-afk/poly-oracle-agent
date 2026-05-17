@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -59,8 +59,12 @@ class ComposeServiceStatus(BaseModel):
 
     service_name: str = Field(..., description="Compose service name")
     running: bool = Field(..., description="True if container state is 'running'")
-    restart_count: int = Field(default=0, ge=0, description="Container restart count since start")
-    exit_code: Optional[int] = Field(default=None, description="Last exit code if not running")
+    restart_count: int = Field(
+        default=0, ge=0, description="Container restart count since start"
+    )
+    exit_code: Optional[int] = Field(
+        default=None, description="Last exit code if not running"
+    )
 
 
 class HTTPProbeResult(BaseModel):
@@ -70,10 +74,16 @@ class HTTPProbeResult(BaseModel):
 
     endpoint: str = Field(..., description="URL path probed (e.g. /healthz)")
     check: DeploymentCheckStatus
-    status_code: Optional[int] = Field(default=None, description="HTTP status code returned")
-    latency_ms: Optional[float] = Field(default=None, description="Round-trip latency in milliseconds")
+    status_code: Optional[int] = Field(
+        default=None, description="HTTP status code returned"
+    )
+    latency_ms: Optional[float] = Field(
+        default=None, description="Round-trip latency in milliseconds"
+    )
     failure_reason: Optional[DeploymentFailureReason] = None
-    detail: Optional[str] = Field(default=None, description="Human-readable detail for failures")
+    detail: Optional[str] = Field(
+        default=None, description="Human-readable detail for failures"
+    )
 
 
 class DryRunGuardResult(BaseModel):
@@ -97,8 +107,12 @@ class MetricsInspectionResult(BaseModel):
     model_config = {"frozen": True}
 
     check: DeploymentCheckStatus
-    content_type_valid: bool = Field(default=False, description="True if Content-Type is text/plain")
-    prometheus_format_valid: bool = Field(default=False, description="True if parseable Prometheus text")
+    content_type_valid: bool = Field(
+        default=False, description="True if Content-Type is text/plain"
+    )
+    prometheus_format_valid: bool = Field(
+        default=False, description="True if parseable Prometheus text"
+    )
     forbidden_labels_found: list[str] = Field(
         default_factory=list,
         description="List of forbidden label names detected in output",
@@ -131,8 +145,12 @@ class DeploymentValidationReport(BaseModel):
         ..., description="PASS only if all mandatory probes pass"
     )
     probes: list[DeploymentProbeResult] = Field(default_factory=list)
-    exit_code: int = Field(default=0, description="Recommended process exit code (0=pass, non-zero=fail)")
-    dry_run_verified: bool = Field(default=False, description="True if DRY_RUN=true was confirmed")
+    exit_code: int = Field(
+        default=0, description="Recommended process exit code (0=pass, non-zero=fail)"
+    )
+    dry_run_verified: bool = Field(
+        default=False, description="True if DRY_RUN=true was confirmed"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -153,13 +171,17 @@ class DashboardRuntimeConfig(BaseModel):
 
     model_config = {"frozen": True}
 
-    profile_enabled: bool = Field(default=False, description="True when the dashboard Compose profile is active")
+    profile_enabled: bool = Field(
+        default=False, description="True when the dashboard Compose profile is active"
+    )
     service_name: str = Field(default="dashboard", description="Compose service name")
     bind_host: str = Field(
         default="127.0.0.1",
         description="Streamlit --server.address; 0.0.0.0 allowed in containers where port publishing enforces loopback restriction",
     )
-    bind_port: int = Field(default=8501, ge=1, le=65535, description="Streamlit listen port")
+    bind_port: int = Field(
+        default=8501, ge=1, le=65535, description="Streamlit listen port"
+    )
 
     @field_validator("bind_host")
     @classmethod
@@ -167,7 +189,9 @@ class DashboardRuntimeConfig(BaseModel):
         """Reject empty or wildcard-IPv6 binds. 0.0.0.0 is allowed for container networking."""
         stripped = value.strip()
         if stripped in ("", "::"):
-            raise ValueError("bind_host must be a concrete IP, not empty or IPv6 wildcard")
+            raise ValueError(
+                "bind_host must be a concrete IP, not empty or IPv6 wildcard"
+            )
         return stripped
 
 
@@ -176,9 +200,17 @@ class DashboardDatabaseTarget(BaseModel):
 
     model_config = {"frozen": True}
 
-    path: str = Field(default="/data/poly_oracle.db", min_length=1, description="Filesystem path to the SQLite database")
-    read_only: bool = Field(default=True, description="Whether the connection must be read-only")
-    access_mode: DashboardAccessMode = Field(default=DashboardAccessMode.LOCAL, description="Deployment access mode")
+    path: str = Field(
+        default="/data/poly_oracle.db",
+        min_length=1,
+        description="Filesystem path to the SQLite database",
+    )
+    read_only: bool = Field(
+        default=True, description="Whether the connection must be read-only"
+    )
+    access_mode: DashboardAccessMode = Field(
+        default=DashboardAccessMode.LOCAL, description="Deployment access mode"
+    )
 
     @model_validator(mode="after")
     def _validate_deployed_read_only(self) -> "DashboardDatabaseTarget":
@@ -193,11 +225,29 @@ class DashboardTunnelSpec(BaseModel):
 
     model_config = {"frozen": True}
 
-    local_port: int = Field(default=8501, ge=1, le=65535, description="Local port to bind on operator machine")
-    remote_host: str = Field(default="127.0.0.1", min_length=1, description="Remote host (loopback on Droplet)")
-    remote_port: int = Field(default=8501, ge=1, le=65535, description="Remote port Streamlit is listening on")
-    ssh_user: str = Field(default="deploy", min_length=1, description="SSH user on the Droplet")
-    droplet_ip: str = Field(default="", description="Droplet public IP (empty = must be configured)")
+    local_port: int = Field(
+        default=8501,
+        ge=1,
+        le=65535,
+        description="Local port to bind on operator machine",
+    )
+    remote_host: str = Field(
+        default="127.0.0.1",
+        min_length=1,
+        description="Remote host (loopback on Droplet)",
+    )
+    remote_port: int = Field(
+        default=8501,
+        ge=1,
+        le=65535,
+        description="Remote port Streamlit is listening on",
+    )
+    ssh_user: str = Field(
+        default="deploy", min_length=1, description="SSH user on the Droplet"
+    )
+    droplet_ip: str = Field(
+        default="", description="Droplet public IP (empty = must be configured)"
+    )
 
     @field_validator("remote_host")
     @classmethod
@@ -205,7 +255,9 @@ class DashboardTunnelSpec(BaseModel):
         """Reject wildcard remote host binds."""
         stripped = value.strip()
         if stripped == "0.0.0.0":
-            raise ValueError("remote_host must not be 0.0.0.0 (public exposure prohibited)")
+            raise ValueError(
+                "remote_host must not be 0.0.0.0 (public exposure prohibited)"
+            )
         if stripped == "":
             raise ValueError("remote_host must not be empty")
         return stripped
@@ -216,11 +268,19 @@ class DashboardReadOnlyCheck(BaseModel):
 
     model_config = {"frozen": True}
 
-    passed: bool = Field(..., description="True if read-only connection was established without writes")
-    reason: str = Field(default="", description="Human-readable explanation of the check result")
-    write_attempted: bool = Field(default=False, description="True if a write was attempted and blocked")
+    passed: bool = Field(
+        ..., description="True if read-only connection was established without writes"
+    )
+    reason: str = Field(
+        default="", description="Human-readable explanation of the check result"
+    )
+    write_attempted: bool = Field(
+        default=False, description="True if a write was attempted and blocked"
+    )
     db_path: str = Field(default="", description="The database path that was checked")
-    uri_mode: bool = Field(default=False, description="True if URI mode=ro was used for the connection")
+    uri_mode: bool = Field(
+        default=False, description="True if URI mode=ro was used for the connection"
+    )
 
 
 class DashboardExposureCheck(BaseModel):
@@ -244,11 +304,19 @@ class DashboardAccessValidationReport(BaseModel):
 
     model_config = {"frozen": True}
 
-    read_only_check: DashboardReadOnlyCheck = Field(..., description="Read-only SQLite enforcement result")
-    exposure_check: DashboardExposureCheck = Field(..., description="Secret-free output scan result")
-    tunnel_spec: Optional[DashboardTunnelSpec] = Field(default=None, description="SSH tunnel config if applicable")
+    read_only_check: DashboardReadOnlyCheck = Field(
+        ..., description="Read-only SQLite enforcement result"
+    )
+    exposure_check: DashboardExposureCheck = Field(
+        ..., description="Secret-free output scan result"
+    )
+    tunnel_spec: Optional[DashboardTunnelSpec] = Field(
+        default=None, description="SSH tunnel config if applicable"
+    )
     overall_pass: bool = Field(..., description="True only if all checks pass")
-    summary: str = Field(default="", description="Human-readable summary of the validation outcome")
+    summary: str = Field(
+        default="", description="Human-readable summary of the validation outcome"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -400,7 +468,9 @@ class OperationalAlertState(BaseModel):
         description="True when the alertable condition is currently observed",
     )
 
-    def is_within_cooldown(self, cooldown_seconds: float, now: Optional[datetime] = None) -> bool:
+    def is_within_cooldown(
+        self, cooldown_seconds: float, now: Optional[datetime] = None
+    ) -> bool:
         """Return True if the last dispatch was within the cooldown window."""
         if self.last_dispatched_at_utc is None:
             return False
@@ -735,7 +805,9 @@ class OperationalEventPayload(BaseModel):
 
     @field_validator("provider_name", "ready_state", "decision_action")
     @classmethod
-    def _reject_large_strings_in_small_fields(cls, value: Optional[str]) -> Optional[str]:
+    def _reject_large_strings_in_small_fields(
+        cls, value: Optional[str]
+    ) -> Optional[str]:
         if value is None:
             return value
         violations = _scan_event_payload(value)
@@ -771,7 +843,9 @@ class OperationalEventRecord(BaseModel):
 
     model_config = {"frozen": True}
 
-    id: str = Field(..., min_length=1, max_length=64, description="Unique event identifier")
+    id: str = Field(
+        ..., min_length=1, max_length=64, description="Unique event identifier"
+    )
     event_type: OperationalEventType
     severity: OperationalEventSeverity
     source: OperationalEventSource
@@ -823,13 +897,17 @@ class OperationalEventAppendResult(BaseModel):
 
     model_config = {"frozen": True}
 
-    accepted: bool = Field(..., description="True if the event was accepted into the queue")
+    accepted: bool = Field(
+        ..., description="True if the event was accepted into the queue"
+    )
     reason: Optional[str] = Field(
         default=None,
         max_length=256,
         description="Reason for rejection (e.g. queue_full) if not accepted",
     )
-    queue_depth: int = Field(default=0, ge=0, description="Current queue depth after append")
+    queue_depth: int = Field(
+        default=0, ge=0, description="Current queue depth after append"
+    )
 
 
 class OperationalEventFlushResult(BaseModel):
@@ -857,10 +935,16 @@ class OperationalEventQueueState(BaseModel):
 
     model_config = {"frozen": True}
 
-    current_depth: int = Field(default=0, ge=0, description="Number of events currently queued")
+    current_depth: int = Field(
+        default=0, ge=0, description="Number of events currently queued"
+    )
     max_capacity: int = Field(default=0, ge=0, description="Maximum queue capacity")
-    dropped_total: int = Field(default=0, ge=0, description="Total events dropped since start")
-    overflow: bool = Field(default=False, description="True if queue has overflowed at least once")
+    dropped_total: int = Field(
+        default=0, ge=0, description="Total events dropped since start"
+    )
+    overflow: bool = Field(
+        default=False, description="True if queue has overflowed at least once"
+    )
     last_overflow_at_utc: Optional[datetime] = Field(
         default=None, description="UTC timestamp of last overflow event"
     )
@@ -871,13 +955,18 @@ class OperationalEventQueuePolicy(BaseModel):
 
     model_config = {"frozen": True}
 
-    max_size: int = Field(default=1000, ge=10, le=100000, description="Maximum queue capacity")
+    max_size: int = Field(
+        default=1000, ge=10, le=100000, description="Maximum queue capacity"
+    )
     overflow_behavior: Literal["drop_oldest", "drop_newest", "drop_diagnostic"] = Field(
         default="drop_oldest",
         description="Overflow strategy: drop_oldest, drop_newest, or drop_diagnostic",
     )
     critical_severities: list[OperationalEventSeverity] = Field(
-        default_factory=lambda: [OperationalEventSeverity.CRITICAL, OperationalEventSeverity.ERROR],
+        default_factory=lambda: [
+            OperationalEventSeverity.CRITICAL,
+            OperationalEventSeverity.ERROR,
+        ],
         description="Severities that are never dropped during overflow",
     )
 
@@ -908,7 +997,9 @@ class OperationalEventQuery(BaseModel):
     end_time_utc: Optional[datetime] = Field(
         default=None, description="Include events at or before this UTC time"
     )
-    limit: int = Field(default=100, ge=1, le=1000, description="Maximum records to return")
+    limit: int = Field(
+        default=100, ge=1, le=1000, description="Maximum records to return"
+    )
     offset: int = Field(
         default=0,
         ge=0,
@@ -924,7 +1015,9 @@ class OperationalEventReadWindow(BaseModel):
     events: list[OperationalEventRecord] = Field(default_factory=list)
     start_time_utc: Optional[datetime] = Field(default=None)
     end_time_utc: Optional[datetime] = Field(default=None)
-    total_count: int = Field(default=0, ge=0, description="Total matching records in the window")
+    total_count: int = Field(
+        default=0, ge=0, description="Total matching records in the window"
+    )
     has_more: bool = Field(
         default=False, description="True if more records exist beyond this window"
     )
@@ -1099,7 +1192,9 @@ class OperationalNarrative(BaseModel):
     reason_code: OperationalEventReasonCode
     template_key: NarrativeTemplateKey
     summary: str = Field(
-        ..., min_length=1, max_length=1024,
+        ...,
+        min_length=1,
+        max_length=1024,
         description="Deterministic plain-English operator summary",
     )
     continuation_state: Optional[str] = Field(
@@ -1173,7 +1268,9 @@ class DecisionNarrative(BaseModel):
             return value
         violations = _scan_event_payload(value)
         if violations:
-            raise ValueError(f"decision_action contains forbidden content: {violations}")
+            raise ValueError(
+                f"decision_action contains forbidden content: {violations}"
+            )
         return value
 
     @field_validator("continuation_state")
@@ -1344,7 +1441,9 @@ class IncidentReplayRequest(BaseModel):
         description="Typed replay filter.",
     )
     limit: int = Field(
-        default=1000, ge=1, le=1000,
+        default=1000,
+        ge=1,
+        le=1000,
         description="Maximum replay lines to return; matches repository window cap.",
     )
 
@@ -1721,9 +1820,7 @@ class DashboardActivityFeedResult(BaseModel):
             DashboardActivityFeedStatus.TRUNCATED,
         }
         if self.status in non_success and self.failure_reason is None:
-            raise ValueError(
-                f"status {self.status.value} requires a failure_reason"
-            )
+            raise ValueError(f"status {self.status.value} requires a failure_reason")
         if self.status == DashboardActivityFeedStatus.SUCCESS and not self.items:
             raise ValueError(
                 "status SUCCESS requires at least one feed item; "
@@ -1972,9 +2069,7 @@ class DailyOpsDigestPnLSummary(BaseModel):
     closed_position_count: int = Field(default=0, ge=0)
     open_position_count: int = Field(default=0, ge=0)
 
-    @field_validator(
-        "realized_pnl", "unrealized_pnl", "gas_and_fees", mode="before"
-    )
+    @field_validator("realized_pnl", "unrealized_pnl", "gas_and_fees", mode="before")
     @classmethod
     def _reject_float_in_pnl(cls, value: object) -> Optional[Decimal]:
         if value is None:
@@ -2105,9 +2200,7 @@ class DailyOpsDigestTelegramResult(BaseModel):
             return value
         violations = _scan_event_payload(value)
         if violations:
-            raise ValueError(
-                f"failure_reason contains forbidden content: {violations}"
-            )
+            raise ValueError(f"failure_reason contains forbidden content: {violations}")
         return value
 
 
@@ -2136,9 +2229,7 @@ class DailyOpsDigestReport(BaseModel):
     unresolved_warnings: list[DailyOpsDigestEventHighlight] = Field(
         default_factory=list
     )
-    unresolved_errors: list[DailyOpsDigestEventHighlight] = Field(
-        default_factory=list
-    )
+    unresolved_errors: list[DailyOpsDigestEventHighlight] = Field(default_factory=list)
     operator_checks: list[DailyOpsDigestOperatorCheck] = Field(default_factory=list)
     telegram_result: DailyOpsDigestTelegramResult
     write_result: DailyOpsDigestWriteResult
@@ -2167,9 +2258,7 @@ class DailyOpsDigestReport(BaseModel):
             DailyOpsDigestStatus.READ_CAP_REACHED,
         }
         if self.status in non_success_failures and self.failure_reason is None:
-            raise ValueError(
-                f"status {self.status.value} requires a failure_reason"
-            )
+            raise ValueError(f"status {self.status.value} requires a failure_reason")
         if self.status == DailyOpsDigestStatus.SUCCESS and self.run_summary is None:
             raise ValueError(
                 "status SUCCESS requires a run_summary derived from typed events; "

@@ -13,15 +13,9 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
-
-from src.schemas.market_eligibility import (
-    MarketEligibilityStatus,
-    MarketEligibilitySkipReason,
-    PromptQueueBackpressureReason,
-)
 
 
 # ===================================================================
@@ -32,6 +26,7 @@ from src.schemas.market_eligibility import (
 def _make_config(**overrides):
     """Build a real AppConfig for integration tests."""
     from src.core.config import AppConfig
+
     base = {
         "anthropic_api_key": "sk-test-key",
         "polygon_rpc_url": "https://rpc.ankr.com/polygon",
@@ -46,15 +41,18 @@ def _make_config(**overrides):
 def _make_market_metadata(condition_id="c1", token_ids=None):
     """Build a MarketMetadata for testing."""
     from src.schemas.market import MarketMetadata
+
     end = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-    return MarketMetadata.model_validate({
-        "conditionId": condition_id,
-        "question": "Test?",
-        "clobTokenIds": token_ids if token_ids is not None else ["tok-1", "tok-2"],
-        "endDateIso": end,
-        "active": True,
-        "closed": False,
-    })
+    return MarketMetadata.model_validate(
+        {
+            "conditionId": condition_id,
+            "question": "Test?",
+            "clobTokenIds": token_ids if token_ids is not None else ["tok-1", "tok-2"],
+            "endDateIso": end,
+            "active": True,
+            "closed": False,
+        }
+    )
 
 
 # ===================================================================
@@ -69,8 +67,6 @@ class TestPreflightIntegration:
     async def test_preflight_wired_with_polymarket_client(self):
         """MarketDiscoveryEngine uses polymarket_client for preflight."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
-        from src.agents.ingestion.rest_client import GammaRESTClient
-        from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
         from src.observability.metrics import MetricsRegistry
 
         market = _make_market_metadata()

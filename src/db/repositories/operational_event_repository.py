@@ -9,9 +9,7 @@ No public update or delete methods are provided.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,7 +120,9 @@ class OperationalEventRepository:
             records=records,
         )
 
-    async def read_window(self, query: OperationalEventQuery) -> OperationalEventReadWindow:
+    async def read_window(
+        self, query: OperationalEventQuery
+    ) -> OperationalEventReadWindow:
         """Read operational events matching the query within the given time window.
 
         Returns a bounded result window; pagination is handled via the

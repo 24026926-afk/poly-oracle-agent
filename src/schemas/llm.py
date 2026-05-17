@@ -149,6 +149,7 @@ class SentimentResponse(BaseModel):
 # WI-45: Grok Live Sentiment typed models
 # ---------------------------------------------------------------------------
 
+
 class GrokFailureReason(str, Enum):  # noqa: H312 (intentional str mixin)
     """Typed failure reasons for Grok sentiment fallback audit trail."""
 
@@ -353,9 +354,7 @@ class LLMUsageRecord(BaseModel):
         default=False,
         description="True when usage fields were missing/malformed and fallback was used",
     )
-    timestamp_utc: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("estimated_cost_usd", mode="before")
     @classmethod

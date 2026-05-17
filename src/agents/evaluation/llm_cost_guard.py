@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import time
-from collections.abc import MutableMapping
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -29,9 +27,7 @@ from src.core.config import AppConfig
 from src.schemas.llm import (
     LLMProviderName,
     LLMUsageRecord,
-    LLMBudgetConfig,
     LLMBudgetWindow,
-    LLMBudgetState,
     LLMBudgetDecision,
     LLMBudgetBlockReason,
     MarketCognitiveState,
@@ -103,31 +99,49 @@ class LLMBudgetGuard:
             # WI-52: Zero limits = no calls allowed (fail closed)
             hourly_limit = self._config.llm_hourly_call_limit
             if hourly_limit == 0:
-                return self._block(LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED, call_type
+                )
             if self._global_window.hourly_calls >= hourly_limit:
-                return self._block(LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED, call_type
+                )
 
             daily_limit = self._config.llm_daily_call_limit
             if daily_limit == 0:
-                return self._block(LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED, call_type
+                )
             if self._global_window.daily_calls >= daily_limit:
-                return self._block(LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED, call_type
+                )
 
             token_limit = self._config.llm_daily_token_limit
             if token_limit == 0:
-                return self._block(LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type
+                )
             if self._total_tokens_consumed >= token_limit:
-                return self._block(LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type
+                )
 
             cost_limit = self._config.llm_daily_cost_limit_usd
             if cost_limit == 0:
-                return self._block(LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type
+                )
             if self._total_cost_usd >= cost_limit:
-                return self._block(LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type
+                )
 
             per_market_limit = self._config.llm_market_hourly_call_limit
             if per_market_limit == 0:
-                return self._block(LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED, call_type
+                )
             if market_key is not None:
                 market_calls = self._per_market_hourly.get(market_key, 0)
                 if market_calls >= per_market_limit:
@@ -141,13 +155,22 @@ class LLMBudgetGuard:
             cost_per_input = Decimal(str(self._config.llm_cost_per_input_token_usd))
             cost_per_output = Decimal(str(self._config.llm_cost_per_output_token_usd))
             reserved_tokens = fallback
-            reserved_cost = (cost_per_input * (fallback // 2)) + (cost_per_output * (fallback - fallback // 2))
+            reserved_cost = (cost_per_input * (fallback // 2)) + (
+                cost_per_output * (fallback - fallback // 2)
+            )
 
             # Check if reserving this call would exceed token/cost limits
-            if token_limit > 0 and (self._total_tokens_consumed + reserved_tokens) > token_limit:
-                return self._block(LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type)
+            if (
+                token_limit > 0
+                and (self._total_tokens_consumed + reserved_tokens) > token_limit
+            ):
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type
+                )
             if cost_limit > 0 and (self._total_cost_usd + reserved_cost) > cost_limit:
-                return self._block(LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type)
+                return self._block(
+                    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type
+                )
 
             self._global_window = LLMBudgetWindow(
                 hourly_calls=self._global_window.hourly_calls + 1,
@@ -231,7 +254,9 @@ class LLMBudgetGuard:
 
             # Adjust reserved budget: subtract fallback reservation, add actual
             reserved_tokens = fallback
-            reserved_cost = (cost_per_input * (fallback // 2)) + (cost_per_output * (fallback - fallback // 2))
+            reserved_cost = (cost_per_input * (fallback // 2)) + (
+                cost_per_output * (fallback - fallback // 2)
+            )
             token_delta = total_tokens - reserved_tokens
             cost_delta = actual_cost - reserved_cost
 
@@ -262,7 +287,9 @@ class LLMBudgetGuard:
 
             # Emit metrics (fire-and-forget)
             if self._metrics is not None:
-                asyncio.ensure_future(self._emit_usage_metrics(total_tokens, actual_cost))
+                asyncio.ensure_future(
+                    self._emit_usage_metrics(total_tokens, actual_cost)
+                )
 
             return usage
 
@@ -307,10 +334,9 @@ class LLMBudgetGuard:
         now = datetime.now(timezone.utc)
 
         # Refresh hourly window
-        if (
-            self._hourly_window_start is None
-            or (now - self._hourly_window_start) >= timedelta(hours=1)
-        ):
+        if self._hourly_window_start is None or (
+            now - self._hourly_window_start
+        ) >= timedelta(hours=1):
             self._hourly_window_start = now
             self._global_window = LLMBudgetWindow(
                 daily_calls=self._global_window.daily_calls,
@@ -320,10 +346,9 @@ class LLMBudgetGuard:
             self._per_market_hourly.clear()
 
         # Refresh daily window
-        if (
-            self._daily_window_start is None
-            or (now - self._daily_window_start) >= timedelta(days=1)
-        ):
+        if self._daily_window_start is None or (
+            now - self._daily_window_start
+        ) >= timedelta(days=1):
             self._daily_window_start = now
             self._global_window = LLMBudgetWindow(
                 hourly_calls=self._global_window.hourly_calls,
@@ -347,7 +372,9 @@ class LLMBudgetGuard:
             asyncio.ensure_future(
                 self._metrics.record_llm_budget_block(reason=reason.value)
             )
-        return LLMBudgetDecision(allowed=False, block_reason=reason, call_type=call_type)
+        return LLMBudgetDecision(
+            allowed=False, block_reason=reason, call_type=call_type
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -372,9 +399,7 @@ class MarketCognitiveCircuitBreaker:
 
     # -- Public API -------------------------------------------------------
 
-    async def check_cooldown(
-        self, market_key: str
-    ) -> MarketCooldownDecision:
+    async def check_cooldown(self, market_key: str) -> MarketCooldownDecision:
         """Return whether a market is currently in cooldown."""
         async with self._lock:
             state = self._states.get(market_key)
@@ -402,13 +427,12 @@ class MarketCognitiveCircuitBreaker:
             # Emit active cooldown count gauge on every check
             if self._metrics is not None:
                 count = sum(
-                    1 for s in self._states.values()
+                    1
+                    for s in self._states.values()
                     if s.cooldown_active_until_utc is not None
                     and now < s.cooldown_active_until_utc
                 )
-                asyncio.ensure_future(
-                    self._metrics.set_active_cooldown_count(count)
-                )
+                asyncio.ensure_future(self._metrics.set_active_cooldown_count(count))
 
             return decision
 
@@ -473,15 +497,30 @@ class MarketCognitiveCircuitBreaker:
 
             cooldown_reason: Optional[MarketCooldownReason] = None
 
-            if outcome_type == "hold" and state.consecutive_non_actionable >= hold_threshold:
+            if (
+                outcome_type == "hold"
+                and state.consecutive_non_actionable >= hold_threshold
+            ):
                 cooldown_reason = MarketCooldownReason.REPEATED_HOLD
-            elif outcome_type == "skip" and state.consecutive_non_actionable >= hold_threshold:
+            elif (
+                outcome_type == "skip"
+                and state.consecutive_non_actionable >= hold_threshold
+            ):
                 cooldown_reason = MarketCooldownReason.REPEATED_SKIP
-            elif outcome_type == "low_confidence" and state.consecutive_non_actionable >= hold_threshold:
+            elif (
+                outcome_type == "low_confidence"
+                and state.consecutive_non_actionable >= hold_threshold
+            ):
                 cooldown_reason = MarketCooldownReason.REPEATED_LOW_CONFIDENCE
-            elif outcome_type == "invalid_json" and state.consecutive_invalid >= invalid_threshold:
+            elif (
+                outcome_type == "invalid_json"
+                and state.consecutive_invalid >= invalid_threshold
+            ):
                 cooldown_reason = MarketCooldownReason.REPEATED_INVALID_JSON
-            elif outcome_type == "provider_error" and state.consecutive_invalid >= invalid_threshold:
+            elif (
+                outcome_type == "provider_error"
+                and state.consecutive_invalid >= invalid_threshold
+            ):
                 cooldown_reason = MarketCooldownReason.REPEATED_PROVIDER_ERROR
 
             if cooldown_reason is not None:
@@ -500,9 +539,7 @@ class MarketCognitiveCircuitBreaker:
 
                 # Emit cooldown block metric
                 if self._metrics is not None:
-                    asyncio.ensure_future(
-                        self._metrics.record_llm_cooldown_block()
-                    )
+                    asyncio.ensure_future(self._metrics.record_llm_cooldown_block())
 
     async def reset_market(self, market_key: str) -> None:
         """Reset cognitive state for a market (e.g. after cooldown expiry or material change)."""
@@ -531,8 +568,6 @@ class MarketCognitiveCircuitBreaker:
 
             # Emit active cooldown count metric
             if self._metrics is not None:
-                asyncio.ensure_future(
-                    self._metrics.set_active_cooldown_count(count)
-                )
+                asyncio.ensure_future(self._metrics.set_active_cooldown_count(count))
 
             return count

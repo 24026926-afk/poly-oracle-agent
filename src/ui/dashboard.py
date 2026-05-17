@@ -15,7 +15,7 @@ import streamlit as st
 
 from src.observability.dashboard_activity_feed import (
     DEFAULT_ACTIVITY_LIMIT,
-    derive_current_state,
+    derive_current_state,  # noqa: F401 - re-exported dashboard helper
     fetch_activity_feed as _fetch_activity_feed_impl,
     format_activity_row_html,
 )
@@ -50,6 +50,7 @@ def _resolve_db_uri() -> str:
     """
     db_abs = DB_PATH.resolve()
     return f"file:{db_abs}?mode=ro"
+
 
 SURFACE_BASE = "#0D0D0D"
 SURFACE_PANEL = "#111111"
@@ -823,7 +824,9 @@ def fetch_metrics() -> dict[str, object]:
                               AND COALESCE(closed_at_utc, recorded_at_utc) >= datetime('now', '-1 day')
                             """
                         ).fetchone()
-                        metrics["pnl_delta"] = to_decimal(pnl_delta[0] if pnl_delta else ZERO)
+                        metrics["pnl_delta"] = to_decimal(
+                            pnl_delta[0] if pnl_delta else ZERO
+                        )
 
                         exposure_delta = conn.execute(
                             """
@@ -876,7 +879,9 @@ def fetch_metrics() -> dict[str, object]:
                 row = conn.execute("SELECT COUNT(*) FROM decisions").fetchone()
                 metrics["total_decisions"] = int(row[0] or 0) if row else 0
             elif "agent_decision_logs" in tables:
-                row = conn.execute("SELECT COUNT(*) FROM agent_decision_logs").fetchone()
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM agent_decision_logs"
+                ).fetchone()
                 metrics["total_decisions"] = int(row[0] or 0) if row else 0
     except Exception:
         pass
@@ -1045,8 +1050,12 @@ def fetch_pnl_timeseries() -> tuple[pd.DataFrame, bool]:
                     conn,
                 )
             if not pnl_df.empty:
-                pnl_df["timestamp"] = pd.to_datetime(pnl_df["timestamp"], errors="coerce")
-                pnl_df["pnl_usdc"] = pd.to_numeric(pnl_df["pnl_usdc"], errors="coerce").fillna(0)
+                pnl_df["timestamp"] = pd.to_datetime(
+                    pnl_df["timestamp"], errors="coerce"
+                )
+                pnl_df["pnl_usdc"] = pd.to_numeric(
+                    pnl_df["pnl_usdc"], errors="coerce"
+                ).fillna(0)
                 pnl_df["pnl_usdc"] = pnl_df["pnl_usdc"].cumsum()
                 return pnl_df.dropna(subset=["timestamp"]), False
         except Exception:
@@ -1066,7 +1075,9 @@ def fetch_pnl_timeseries() -> tuple[pd.DataFrame, bool]:
     return mock_df, True
 
 
-def format_delta_tag(value: Decimal, kind: str, tone_override: str | None = None) -> str:
+def format_delta_tag(
+    value: Decimal, kind: str, tone_override: str | None = None
+) -> str:
     if kind == "currency":
         text = f"{value:+,.2f} USDC"
     elif kind == "percentage_points":
@@ -1108,7 +1119,9 @@ def build_metric_card(
 
 def render_terminal_header(vitals: dict[str, object], refreshed_at: datetime) -> None:
     status_value = str(vitals.get("db_connection", "OFFLINE"))
-    status_class = "status-dot-online" if status_value == "ONLINE" else "status-dot-error"
+    status_class = (
+        "status-dot-online" if status_value == "ONLINE" else "status-dot-error"
+    )
     latency_ms = vitals.get("latency_ms")
     latency_label = f"{latency_ms:.2f} ms" if isinstance(latency_ms, float) else "n/a"
 
@@ -1152,7 +1165,7 @@ def render_terminal_header(vitals: dict[str, object], refreshed_at: datetime) ->
                     <div class="rail-row">
                         <span class="rail-key">Refreshed</span>
                         <span>:</span>
-                        <span class="rail-value">{escape(refreshed_at.strftime('%Y-%m-%d %H:%M:%S'))}</span>
+                        <span class="rail-value">{escape(refreshed_at.strftime("%Y-%m-%d %H:%M:%S"))}</span>
                     </div>
                     <div class="rail-row">
                         <span class="rail-key">Database</span>
@@ -1196,7 +1209,7 @@ def render_sidebar(vitals: dict[str, object], refreshed_at: datetime) -> None:
                 <div class="vital-row">
                     <span class="vital-key">refresh</span>
                     <span>:</span>
-                    <span class="vital-value">{escape(refreshed_at.strftime('%H:%M:%S'))}</span>
+                    <span class="vital-value">{escape(refreshed_at.strftime("%H:%M:%S"))}</span>
                 </div>
                 <div class="vital-row">
                     <span class="vital-key">db file</span>
@@ -1254,7 +1267,9 @@ def render_metrics(metrics: dict[str, object]) -> None:
                 label="open exposure",
                 value=format_usdc(exposure),
                 value_tone="neutral",
-                delta_html=format_delta_tag(exposure_delta, "currency", tone_override="neutral"),
+                delta_html=format_delta_tag(
+                    exposure_delta, "currency", tone_override="neutral"
+                ),
                 hint="Live capital currently deployed across open positions.",
                 meta="fresh open flow",
             ),
@@ -1553,13 +1568,15 @@ def render_decision_table() -> None:
     )
     if "expected_value" in normalized_df.columns:
         normalized_df["expected_value_pct"] = (
-            pd.to_numeric(normalized_df["expected_value"], errors="coerce").fillna(0) * 100
+            pd.to_numeric(normalized_df["expected_value"], errors="coerce").fillna(0)
+            * 100
         )
     else:
         normalized_df["expected_value_pct"] = 0.0
     if "kelly_fraction" in normalized_df.columns:
         normalized_df["kelly_pct"] = (
-            pd.to_numeric(normalized_df["kelly_fraction"], errors="coerce").fillna(0) * 100
+            pd.to_numeric(normalized_df["kelly_fraction"], errors="coerce").fillna(0)
+            * 100
         )
     else:
         normalized_df["kelly_pct"] = 0.0
@@ -1583,7 +1600,9 @@ def render_decision_table() -> None:
             "kelly_pct": "kelly",
         }
     )
-    display_df["confidence"] = display_df["confidence"].map(lambda value: f"{value:.2f}%")
+    display_df["confidence"] = display_df["confidence"].map(
+        lambda value: f"{value:.2f}%"
+    )
     display_df["ev"] = display_df["ev"].map(lambda value: f"{value:.2f}%")
     display_df["kelly"] = display_df["kelly"].map(lambda value: f"{value:.2f}%")
 
@@ -1623,13 +1642,24 @@ def render_market_watch() -> None:
         return
 
     display_df = markets_df.copy()
-    display_df["yes_price"] = pd.to_numeric(display_df.get("yes_price"), errors="coerce").fillna(0)
-    display_df["no_price"] = pd.to_numeric(display_df.get("no_price"), errors="coerce").fillna(0)
-    display_df["volume_24h"] = pd.to_numeric(display_df.get("volume_24h"), errors="coerce").fillna(0)
-    display_df["end_date"] = pd.to_datetime(display_df.get("end_date"), errors="coerce").dt.strftime(
-        "%Y-%m-%d %H:%M:%S"
+    display_df["yes_price"] = pd.to_numeric(
+        display_df.get("yes_price"), errors="coerce"
+    ).fillna(0)
+    display_df["no_price"] = pd.to_numeric(
+        display_df.get("no_price"), errors="coerce"
+    ).fillna(0)
+    display_df["volume_24h"] = pd.to_numeric(
+        display_df.get("volume_24h"), errors="coerce"
+    ).fillna(0)
+    display_df["end_date"] = pd.to_datetime(
+        display_df.get("end_date"), errors="coerce"
+    ).dt.strftime("%Y-%m-%d %H:%M:%S")
+    display_df["status"] = (
+        display_df.get("status", pd.Series(dtype="object"))
+        .fillna("UNKNOWN")
+        .astype(str)
+        .str.upper()
     )
-    display_df["status"] = display_df.get("status", pd.Series(dtype="object")).fillna("UNKNOWN").astype(str).str.upper()
 
     watch_df = display_df[
         [

@@ -39,23 +39,19 @@ from src.schemas.ops import (
 # WI-59 schemas — may not exist during red phase
 try:
     from src.schemas.ops import (
-        DashboardActivityFeedFailureReason,
         DashboardActivityFeedFilter,
-        DashboardActivityFeedItem,
         DashboardActivityFeedResult,
         DashboardActivityFeedStatus,
-        DashboardCurrentState,
     )
+
     _DASHBOARD_SCHEMAS_AVAILABLE = True
 except ImportError:
     _DASHBOARD_SCHEMAS_AVAILABLE = False
 
 # WI-59 dashboard helpers — may not exist during red phase
 try:
-    from src.observability.dashboard_activity_feed import (
-        derive_current_state,
-        fetch_activity_feed_async,
-    )
+    from src.observability.dashboard_activity_feed import fetch_activity_feed_async
+
     _DASHBOARD_HELPERS_AVAILABLE = True
 except ImportError:
     _DASHBOARD_HELPERS_AVAILABLE = False
@@ -355,9 +351,7 @@ async def test_fetch_activity_feed_filter_by_source(db_session_factory) -> None:
     result = await fetch_activity_feed_async(
         db_session_factory,
         limit=10,
-        filter=DashboardActivityFeedFilter(
-            sources=[OperationalEventSource.EVALUATION]
-        ),
+        filter=DashboardActivityFeedFilter(sources=[OperationalEventSource.EVALUATION]),
     )
     assert all(
         item.source == OperationalEventSource.EVALUATION for item in result.items
@@ -422,11 +416,15 @@ async def test_fetch_activity_feed_filter_by_reason_code(db_session_factory) -> 
         ),
     )
     assert len(result.items) == 1
-    assert result.items[0].reason_code == OperationalEventReasonCode.DECISION_SKIP_LOW_CONF
+    assert (
+        result.items[0].reason_code == OperationalEventReasonCode.DECISION_SKIP_LOW_CONF
+    )
 
 
 @pytest.mark.asyncio
-async def test_fetch_activity_feed_combined_filters_intersect(db_session_factory) -> None:
+async def test_fetch_activity_feed_combined_filters_intersect(
+    db_session_factory,
+) -> None:
     """Combined filters intersect (AND)."""
     await _append_event(
         db_session_factory,
@@ -481,7 +479,10 @@ async def test_fetch_activity_feed_malformed_payload_falls_back(
     result = await fetch_activity_feed_async(db_session_factory, limit=10)
     assert len(result.items) == 2
     statuses = {item.narrative_status for item in result.items}
-    assert NarrativeRenderStatus.FALLBACK in statuses or NarrativeRenderStatus.SUCCESS in statuses
+    assert (
+        NarrativeRenderStatus.FALLBACK in statuses
+        or NarrativeRenderStatus.SUCCESS in statuses
+    )
 
 
 @pytest.mark.asyncio

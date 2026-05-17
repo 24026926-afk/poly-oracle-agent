@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -205,7 +204,7 @@ def _parse_iso_utc(value: str, label: str) -> datetime:
         text = text[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(text)
-    except ValueError as exc:  # noqa: B904 — typed error wanted
+    except ValueError:  # noqa: B904 — typed error wanted
         raise _CLIInputError(
             IncidentReplayFailureReason.MALFORMED_TIMESTAMP,
             f"{label} is not a valid ISO-8601 timestamp",
@@ -370,6 +369,7 @@ def _run_until_complete(coro) -> int:
     """
     try:
         import asyncio as _asyncio
+
         _asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
@@ -422,7 +422,9 @@ def main(
         print(f"note: {exc.safe_message}")
         return _status_to_exit_code(status)
 
-    factory = session_factory if session_factory is not None else _default_session_factory()
+    factory = (
+        session_factory if session_factory is not None else _default_session_factory()
+    )
     try:
         return _run_until_complete(_run_async(request, factory))
     except KeyboardInterrupt:

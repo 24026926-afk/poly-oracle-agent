@@ -24,7 +24,6 @@ from src.db.repositories.operational_event_repository import (
 )
 from src.observability.incident_replay import format_report_lines, run_replay
 from src.schemas.ops import (
-    IncidentReplayFilter,
     IncidentReplayRequest,
     IncidentReplayStatus,
     OperationalEventCreate,
@@ -59,39 +58,88 @@ async def _seed_typical_window(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Seed a representative incident sequence into the ledger."""
-    events: list[tuple[OperationalEventType, OperationalEventSeverity,
-                       OperationalEventSource, OperationalEventReasonCode,
-                       datetime, Optional[OperationalEventPayload]]] = [
-        (OperationalEventType.START, OperationalEventSeverity.INFO,
-         OperationalEventSource.ORCHESTRATOR,
-         OperationalEventReasonCode.STARTUP, _utc(hour=0), None),
-        (OperationalEventType.WS_CONNECTED, OperationalEventSeverity.INFO,
-         OperationalEventSource.INGESTION,
-         OperationalEventReasonCode.WS_ESTABLISHED, _utc(hour=0, minute=2), None),
-        (OperationalEventType.LLM_CALL_STARTED, OperationalEventSeverity.INFO,
-         OperationalEventSource.EVALUATION,
-         OperationalEventReasonCode.PROVIDER_CALL_STARTED, _utc(hour=0, minute=5),
-         None),
-        (OperationalEventType.DECISION_ACCEPTED, OperationalEventSeverity.INFO,
-         OperationalEventSource.EVALUATION,
-         OperationalEventReasonCode.DECISION_HOLD, _utc(hour=0, minute=6), None),
-        (OperationalEventType.PROVIDER_FAILURE, OperationalEventSeverity.WARNING,
-         OperationalEventSource.EVALUATION,
-         OperationalEventReasonCode.PROVIDER_CALL_FAILED, _utc(hour=0, minute=8),
-         None),
-        (OperationalEventType.BUDGET_BLOCK, OperationalEventSeverity.WARNING,
-         OperationalEventSource.EVALUATION,
-         OperationalEventReasonCode.BUDGET_HOURLY, _utc(hour=0, minute=10), None),
-        (OperationalEventType.READY_STATE_CHANGED, OperationalEventSeverity.WARNING,
-         OperationalEventSource.ORCHESTRATOR,
-         OperationalEventReasonCode.DEGRADED, _utc(hour=0, minute=12), None),
-        (OperationalEventType.READY_STATE_CHANGED, OperationalEventSeverity.INFO,
-         OperationalEventSource.ORCHESTRATOR,
-         OperationalEventReasonCode.READY, _utc(hour=0, minute=20), None),
-        (OperationalEventType.SHUTDOWN, OperationalEventSeverity.INFO,
-         OperationalEventSource.ORCHESTRATOR,
-         OperationalEventReasonCode.GRACEFUL_SHUTDOWN, _utc(hour=0, minute=30),
-         None),
+    events: list[
+        tuple[
+            OperationalEventType,
+            OperationalEventSeverity,
+            OperationalEventSource,
+            OperationalEventReasonCode,
+            datetime,
+            Optional[OperationalEventPayload],
+        ]
+    ] = [
+        (
+            OperationalEventType.START,
+            OperationalEventSeverity.INFO,
+            OperationalEventSource.ORCHESTRATOR,
+            OperationalEventReasonCode.STARTUP,
+            _utc(hour=0),
+            None,
+        ),
+        (
+            OperationalEventType.WS_CONNECTED,
+            OperationalEventSeverity.INFO,
+            OperationalEventSource.INGESTION,
+            OperationalEventReasonCode.WS_ESTABLISHED,
+            _utc(hour=0, minute=2),
+            None,
+        ),
+        (
+            OperationalEventType.LLM_CALL_STARTED,
+            OperationalEventSeverity.INFO,
+            OperationalEventSource.EVALUATION,
+            OperationalEventReasonCode.PROVIDER_CALL_STARTED,
+            _utc(hour=0, minute=5),
+            None,
+        ),
+        (
+            OperationalEventType.DECISION_ACCEPTED,
+            OperationalEventSeverity.INFO,
+            OperationalEventSource.EVALUATION,
+            OperationalEventReasonCode.DECISION_HOLD,
+            _utc(hour=0, minute=6),
+            None,
+        ),
+        (
+            OperationalEventType.PROVIDER_FAILURE,
+            OperationalEventSeverity.WARNING,
+            OperationalEventSource.EVALUATION,
+            OperationalEventReasonCode.PROVIDER_CALL_FAILED,
+            _utc(hour=0, minute=8),
+            None,
+        ),
+        (
+            OperationalEventType.BUDGET_BLOCK,
+            OperationalEventSeverity.WARNING,
+            OperationalEventSource.EVALUATION,
+            OperationalEventReasonCode.BUDGET_HOURLY,
+            _utc(hour=0, minute=10),
+            None,
+        ),
+        (
+            OperationalEventType.READY_STATE_CHANGED,
+            OperationalEventSeverity.WARNING,
+            OperationalEventSource.ORCHESTRATOR,
+            OperationalEventReasonCode.DEGRADED,
+            _utc(hour=0, minute=12),
+            None,
+        ),
+        (
+            OperationalEventType.READY_STATE_CHANGED,
+            OperationalEventSeverity.INFO,
+            OperationalEventSource.ORCHESTRATOR,
+            OperationalEventReasonCode.READY,
+            _utc(hour=0, minute=20),
+            None,
+        ),
+        (
+            OperationalEventType.SHUTDOWN,
+            OperationalEventSeverity.INFO,
+            OperationalEventSource.ORCHESTRATOR,
+            OperationalEventReasonCode.GRACEFUL_SHUTDOWN,
+            _utc(hour=0, minute=30),
+            None,
+        ),
     ]
     async with session_factory() as session:
         async with session.begin():
@@ -132,13 +180,16 @@ async def test_integration_end_to_end_replay_via_service(db_session_factory) -> 
 
 @pytest.mark.asyncio
 async def test_integration_cli_prints_summary_and_exits_zero(
-    db_session_factory, capsys,
+    db_session_factory,
+    capsys,
 ) -> None:
     await _seed_typical_window(db_session_factory)
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
         ],
         session_factory=db_session_factory,
     )
@@ -153,15 +204,20 @@ async def test_integration_cli_prints_summary_and_exits_zero(
 
 @pytest.mark.asyncio
 async def test_integration_cli_combined_filters_intersect(
-    db_session_factory, capsys,
+    db_session_factory,
+    capsys,
 ) -> None:
     await _seed_typical_window(db_session_factory)
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--severity", "WARNING",
-            "--source", "EVALUATION",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--severity",
+            "WARNING",
+            "--source",
+            "EVALUATION",
         ],
         session_factory=db_session_factory,
     )
@@ -174,12 +230,15 @@ async def test_integration_cli_combined_filters_intersect(
 
 @pytest.mark.asyncio
 async def test_integration_cli_empty_window_exits_zero_with_typed_status(
-    db_session_factory, capsys,
+    db_session_factory,
+    capsys,
 ) -> None:
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
         ],
         session_factory=db_session_factory,
     )
@@ -208,14 +267,18 @@ async def test_integration_report_lines_are_secret_free(
 
 @pytest.mark.asyncio
 async def test_integration_invalid_filter_exits_non_zero(
-    db_session_factory, capsys,
+    db_session_factory,
+    capsys,
 ) -> None:
     await _seed_typical_window(db_session_factory)
     rc = _cli.main(
         [
-            "--from", "2026-05-15T00:00:00Z",
-            "--to", "2026-05-15T01:00:00Z",
-            "--event-type", "NOT_A_REAL_EVENT_TYPE",
+            "--from",
+            "2026-05-15T00:00:00Z",
+            "--to",
+            "2026-05-15T01:00:00Z",
+            "--event-type",
+            "NOT_A_REAL_EVENT_TYPE",
         ],
         session_factory=db_session_factory,
     )

@@ -104,22 +104,34 @@ _TEMPLATE_REGISTRY: dict[
         "A new market was discovered and considered for evaluation.",
         _CONT_CONTINUED,
     ),
-    (OperationalEventType.MARKET_DISCOVERED, OperationalEventReasonCode.MARKET_ELIGIBLE): (
+    (
+        OperationalEventType.MARKET_DISCOVERED,
+        OperationalEventReasonCode.MARKET_ELIGIBLE,
+    ): (
         NarrativeTemplateKey.MARKET_DISCOVERED,
         "A market was confirmed eligible for evaluation.",
         _CONT_CONTINUED,
     ),
-    (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_INELIGIBLE): (
+    (
+        OperationalEventType.MARKET_REJECTED,
+        OperationalEventReasonCode.MARKET_INELIGIBLE,
+    ): (
         NarrativeTemplateKey.MARKET_REJECTED_INELIGIBLE,
         "A market was skipped because it did not meet typed eligibility rules.",
         _CONT_SKIPPED,
     ),
-    (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_NOT_FOUND): (
+    (
+        OperationalEventType.MARKET_REJECTED,
+        OperationalEventReasonCode.MARKET_NOT_FOUND,
+    ): (
         NarrativeTemplateKey.MARKET_REJECTED_NOT_FOUND,
         "A market was skipped because it could not be found upstream.",
         _CONT_SKIPPED,
     ),
-    (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_COOLDOWN): (
+    (
+        OperationalEventType.MARKET_REJECTED,
+        OperationalEventReasonCode.MARKET_COOLDOWN,
+    ): (
         NarrativeTemplateKey.MARKET_REJECTED_COOLDOWN,
         "A market was skipped because it is in a typed cooldown window.",
         _CONT_SKIPPED,
@@ -230,7 +242,10 @@ _TEMPLATE_REGISTRY: dict[
         "An evaluation was accepted with a BUY action.",
         _CONT_CONTINUED,
     ),
-    (OperationalEventType.DECISION_ACCEPTED, OperationalEventReasonCode.DECISION_HOLD): (
+    (
+        OperationalEventType.DECISION_ACCEPTED,
+        OperationalEventReasonCode.DECISION_HOLD,
+    ): (
         NarrativeTemplateKey.DECISION_ACCEPTED_HOLD,
         "An evaluation was accepted with a HOLD action.",
         _CONT_CONTINUED,
@@ -291,7 +306,10 @@ _TEMPLATE_REGISTRY: dict[
         "The cognitive circuit breaker opened; new BUY routing is blocked by the safety gate.",
         _CONT_DEGRADED,
     ),
-    (OperationalEventType.CIRCUIT_BREAKER_CLOSED, OperationalEventReasonCode.CB_CLOSED): (
+    (
+        OperationalEventType.CIRCUIT_BREAKER_CLOSED,
+        OperationalEventReasonCode.CB_CLOSED,
+    ): (
         NarrativeTemplateKey.CIRCUIT_BREAKER_CLOSED,
         "The cognitive circuit breaker closed; trading paths resumed normal eligibility.",
         _CONT_CONTINUED,
@@ -742,19 +760,29 @@ def _augment_summary(
 
     # provider_name (already bounded to ≤ 64 chars and secret-scanned)
     provider = payload.get("provider_name")
-    if isinstance(provider, str) and provider and template_key in {
-        NarrativeTemplateKey.PROVIDER_CALL_FAILED,
-        NarrativeTemplateKey.PROVIDER_RESPONSE_MALFORMED,
-    }:
+    if (
+        isinstance(provider, str)
+        and provider
+        and template_key
+        in {
+            NarrativeTemplateKey.PROVIDER_CALL_FAILED,
+            NarrativeTemplateKey.PROVIDER_RESPONSE_MALFORMED,
+        }
+    ):
         parts.append(f"Provider: {provider}.")
 
     # ready_state (already bounded to ≤ 16 chars)
     ready = payload.get("ready_state")
-    if isinstance(ready, str) and ready and template_key in {
-        NarrativeTemplateKey.READINESS_READY,
-        NarrativeTemplateKey.READINESS_DEGRADED,
-        NarrativeTemplateKey.READINESS_NOT_READY,
-    }:
+    if (
+        isinstance(ready, str)
+        and ready
+        and template_key
+        in {
+            NarrativeTemplateKey.READINESS_READY,
+            NarrativeTemplateKey.READINESS_DEGRADED,
+            NarrativeTemplateKey.READINESS_NOT_READY,
+        }
+    ):
         parts.append(f"State: {ready}.")
 
     # decision_action is intentionally NOT augmented from the payload
@@ -766,7 +794,10 @@ def _augment_summary(
 
     # market_count (bounded int)
     market_count = payload.get("market_count")
-    if isinstance(market_count, int) and template_key == NarrativeTemplateKey.MARKET_DISCOVERED:
+    if (
+        isinstance(market_count, int)
+        and template_key == NarrativeTemplateKey.MARKET_DISCOVERED
+    ):
         parts.append(f"Active markets: {market_count}.")
 
     # dry_run hint (only for execution template — keeps wording stable)

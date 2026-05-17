@@ -51,7 +51,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_operational_events_severity_composite", table_name="operational_events")
+    op.drop_index(
+        "ix_operational_events_severity_composite", table_name="operational_events"
+    )
     op.drop_index("ix_operational_events_event_type", table_name="operational_events")
     op.drop_index("ix_operational_events_created_at", table_name="operational_events")
     op.drop_table("operational_events")

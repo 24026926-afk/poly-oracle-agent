@@ -16,7 +16,6 @@ boundary against the shared in-memory async SQLite engine:
 from __future__ import annotations
 
 import importlib.util
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -24,7 +23,6 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import insert, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,7 +32,6 @@ from src.db.repositories.operational_event_repository import (
 )
 from src.observability.daily_ops_digest import (
     generate_digest,
-    render_digest_markdown,
     render_telegram_text,
 )
 from src.schemas.ops import (
@@ -141,9 +138,7 @@ async def _insert_settled_position(
 
 
 @pytest.mark.asyncio
-async def test_full_lifecycle_digest_generation(
-    db_session_factory, tmp_path
-) -> None:
+async def test_full_lifecycle_digest_generation(db_session_factory, tmp_path) -> None:
     """A typical day produces a SUCCESS digest with completed run and counts."""
     await _append_event(
         db_session_factory,
@@ -354,9 +349,7 @@ async def test_missing_operational_events_table_fails_closed(
 
 
 @pytest.mark.asyncio
-async def test_cli_end_to_end_writes_digest(
-    db_session_factory, tmp_path
-) -> None:
+async def test_cli_end_to_end_writes_digest(db_session_factory, tmp_path) -> None:
     """The CLI run with a real session factory produces a digest and returns 0."""
     await _append_event(
         db_session_factory,
@@ -385,9 +378,7 @@ async def test_cli_end_to_end_writes_digest(
 
 
 @pytest.mark.asyncio
-async def test_cli_telegram_failure_returns_zero(
-    db_session_factory, tmp_path
-) -> None:
+async def test_cli_telegram_failure_returns_zero(db_session_factory, tmp_path) -> None:
     """CLI exit code remains 0 even when telegram delivery fails."""
     await _append_event(
         db_session_factory,
@@ -679,9 +670,7 @@ async def test_digest_aggregates_full_window_when_events_exceed_page_limit(
         digest_date_utc=_utc(hour=0),
         daily_notes_dir=str(daily_root),
     )
-    report = await generate_digest(
-        req, db_session_factory, daily_notes_root=daily_root
-    )
+    report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
 
     assert report.status == DailyOpsDigestStatus.SUCCESS
     assert report.run_summary is not None
@@ -817,9 +806,7 @@ async def test_run_summary_uptime_sums_multiple_typed_lifecycle_pairs(
         digest_date_utc=_utc(hour=0),
         daily_notes_dir=str(daily_root),
     )
-    report = await generate_digest(
-        req, db_session_factory, daily_notes_root=daily_root
-    )
+    report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
 
     assert report.status == DailyOpsDigestStatus.SUCCESS
     assert report.run_summary is not None
@@ -872,9 +859,7 @@ async def test_run_summary_partial_after_completed_cycle_returns_unavailable(
         digest_date_utc=_utc(hour=0),
         daily_notes_dir=str(daily_root),
     )
-    report = await generate_digest(
-        req, db_session_factory, daily_notes_root=daily_root
-    )
+    report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
 
     assert report.status == DailyOpsDigestStatus.SUCCESS
     assert report.run_summary is not None
@@ -1078,9 +1063,7 @@ async def test_digest_fails_closed_when_event_read_cap_is_exceeded(
         digest_date_utc=_utc(hour=0),
         daily_notes_dir=str(daily_root),
     )
-    report = await generate_digest(
-        req, db_session_factory, daily_notes_root=daily_root
-    )
+    report = await generate_digest(req, db_session_factory, daily_notes_root=daily_root)
 
     assert report.status == DailyOpsDigestStatus.READ_CAP_REACHED
     assert report.failure_reason == DailyOpsDigestFailureReason.READ_CAP_REACHED

@@ -6,9 +6,7 @@ labels, counter/gauges, non-blocking semantics, and forbidden sensitive fields.
 """
 
 import asyncio
-from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -26,7 +24,6 @@ from src.observability.metrics import (
     MetricsSnapshot,
     MetricType,
     _format_metric_line,
-    _serialize_labels,
 )
 from src.observability.metrics_server import MetricsServer
 from src.schemas.execution import ExecutionAction
@@ -35,6 +32,7 @@ from src.schemas.execution import ExecutionAction
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema Tests — MetricType
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestMetricTypeEnum:
     """MetricType enum validation."""
@@ -51,6 +49,7 @@ class TestMetricTypeEnum:
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema Tests — MetricLabelSet
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestMetricLabelSet:
     """MetricLabelSet — low-cardinality, no forbidden labels."""
@@ -88,6 +87,7 @@ class TestMetricLabelSet:
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema Tests — MetricSample
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestMetricSample:
     """MetricSample schema validation."""
@@ -144,6 +144,7 @@ class TestMetricSample:
 # Schema Tests — MetricsSnapshot
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestMetricsSnapshot:
     """MetricsSnapshot aggregation and validation."""
 
@@ -192,6 +193,7 @@ class TestMetricsSnapshot:
 # ═══════════════════════════════════════════════════════════════════════════
 # Event Schemas
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestDecisionMetricEvent:
     """DecisionMetricEvent validation."""
@@ -262,6 +264,7 @@ class TestLatencyMetricEvent:
 # BacktestReadinessMetric
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestBacktestReadinessMetric:
     """BacktestReadinessMetric gauge values."""
 
@@ -284,6 +287,7 @@ class TestBacktestReadinessMetric:
 # Prometheus Text Exposition Format
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestPrometheusTextFormat:
     """Valid Prometheus text exposition format generation."""
 
@@ -302,7 +306,7 @@ class TestPrometheusTextFormat:
         registry = MetricsRegistry()
         snap = await registry.snapshot()
         text = registry.render_prometheus(snap)
-        help_lines = [l for l in text.split("\n") if l.startswith("# HELP ")]
+        help_lines = [line for line in text.split("\n") if line.startswith("# HELP ")]
         assert len(help_lines) >= 1
 
     @pytest.mark.asyncio
@@ -311,15 +315,13 @@ class TestPrometheusTextFormat:
         registry = MetricsRegistry()
         snap = await registry.snapshot()
         text = registry.render_prometheus(snap)
-        type_lines = [l for l in text.split("\n") if l.startswith("# TYPE ")]
+        type_lines = [line for line in text.split("\n") if line.startswith("# TYPE ")]
         assert len(type_lines) >= 1
         for line in type_lines:
             assert line.endswith("counter") or line.endswith("gauge")
 
     def test_labels_braces_format(self) -> None:
-        line = _format_metric_line(
-            "test_total", {"decision": "BUY"}, Decimal("1")
-        )
+        line = _format_metric_line("test_total", {"decision": "BUY"}, Decimal("1"))
         assert '{decision="BUY"}' in line
 
     @pytest.mark.asyncio
@@ -346,6 +348,7 @@ class TestPrometheusTextFormat:
 # ═══════════════════════════════════════════════════════════════════════════
 # Required Metrics Counters and Gauges
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestRequiredMetrics:
     """All required counters/gauges are present in the output."""
@@ -435,6 +438,7 @@ class TestRequiredMetrics:
 # Counter and Gauge Increment Behavior
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestCounterBehavior:
     """Counter increment and reset semantics."""
 
@@ -445,10 +449,7 @@ class TestCounterBehavior:
     @pytest.mark.asyncio
     async def test_counter_starts_at_zero(self, registry: MetricsRegistry) -> None:
         snap = await registry.snapshot()
-        found = [
-            s for s in snap.samples
-            if s.name == "poly_agent_decisions_total"
-        ]
+        found = [s for s in snap.samples if s.name == "poly_agent_decisions_total"]
         # Zero-state: may emit a zero sample or skip it — both acceptable
         if found:
             for s in found:
@@ -458,15 +459,9 @@ class TestCounterBehavior:
     async def test_counter_increments_correctly(
         self, registry: MetricsRegistry
     ) -> None:
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.SKIP)
-        )
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.SKIP))
         snap = await registry.snapshot()
         decisions = {
             s.labels.labels.get("decision", ""): s.value
@@ -477,12 +472,8 @@ class TestCounterBehavior:
         assert decisions.get("SKIP") == Decimal("1")
 
     @pytest.mark.asyncio
-    async def test_counter_never_decreases(
-        self, registry: MetricsRegistry
-    ) -> None:
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
+    async def test_counter_never_decreases(self, registry: MetricsRegistry) -> None:
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
         snap1 = await registry.snapshot()
         val1 = sum(
             s.value
@@ -491,9 +482,7 @@ class TestCounterBehavior:
             and s.labels.labels.get("decision") == "BUY"
         )
         # Record more
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
         snap2 = await registry.snapshot()
         val2 = sum(
             s.value
@@ -507,20 +496,16 @@ class TestCounterBehavior:
     async def test_multiple_counters_independent(
         self, registry: MetricsRegistry
     ) -> None:
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
         await registry.record_execution(
             ExecutionMetricEvent(action=ExecutionAction.SKIP)
         )
         snap = await registry.snapshot()
         decision_counters = [
-            s for s in snap.samples
-            if s.name == "poly_agent_decisions_total"
+            s for s in snap.samples if s.name == "poly_agent_decisions_total"
         ]
         exec_counters = [
-            s for s in snap.samples
-            if s.name == "poly_agent_executions_total"
+            s for s in snap.samples if s.name == "poly_agent_executions_total"
         ]
         assert len(decision_counters) > 0
         assert len(exec_counters) > 0
@@ -537,24 +522,16 @@ class TestGaugeBehavior:
     async def test_gauge_initial_value(self, registry: MetricsRegistry) -> None:
         await registry.set_active_market_count(3)
         snap = await registry.snapshot()
-        gauges = [
-            s for s in snap.samples
-            if s.name == "poly_agent_active_market_count"
-        ]
+        gauges = [s for s in snap.samples if s.name == "poly_agent_active_market_count"]
         assert len(gauges) == 1
         assert gauges[0].value == Decimal("3")
 
     @pytest.mark.asyncio
-    async def test_gauge_updates_over_time(
-        self, registry: MetricsRegistry
-    ) -> None:
+    async def test_gauge_updates_over_time(self, registry: MetricsRegistry) -> None:
         await registry.set_active_market_count(1)
         await registry.set_active_market_count(5)
         snap = await registry.snapshot()
-        gauges = [
-            s for s in snap.samples
-            if s.name == "poly_agent_active_market_count"
-        ]
+        gauges = [s for s in snap.samples if s.name == "poly_agent_active_market_count"]
         assert gauges[0].value == Decimal("5")
 
     @pytest.mark.asyncio
@@ -565,8 +542,7 @@ class TestGaugeBehavior:
         await registry.set_heartbeat_age(Decimal("25.0"))
         snap = await registry.snapshot()
         gauges = [
-            s for s in snap.samples
-            if s.name == "poly_agent_heartbeat_age_seconds"
+            s for s in snap.samples if s.name == "poly_agent_heartbeat_age_seconds"
         ]
         assert len(gauges) == 1
         assert gauges[0].value == Decimal("25.0")
@@ -575,6 +551,7 @@ class TestGaugeBehavior:
 # ═══════════════════════════════════════════════════════════════════════════
 # Low-Cardinality Label Enforcement
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestLowCardinalityLabels:
     """Labels must stay low-cardinality — no raw IDs or secrets."""
@@ -587,9 +564,7 @@ class TestLowCardinalityLabels:
     async def test_no_condition_id_in_metric_labels(
         self, registry: MetricsRegistry
     ) -> None:
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
         snap = await registry.snapshot()
         text = registry.render_prometheus(snap)
         # No raw condition_ids in output
@@ -645,9 +620,7 @@ class TestLowCardinalityLabels:
             assert "error_message" not in line.lower()
 
     @pytest.mark.asyncio
-    async def test_no_secret_values_in_output(
-        self, registry: MetricsRegistry
-    ) -> None:
+    async def test_no_secret_values_in_output(self, registry: MetricsRegistry) -> None:
         snap = await registry.snapshot()
         text = registry.render_prometheus(snap)
         # No API-key-like patterns
@@ -661,14 +634,9 @@ class TestLowCardinalityLabels:
     ) -> None:
         """Decision labels only use BUY/HOLD/SKIP."""
         for decision in DecisionLabel:
-            await registry.record_decision(
-                DecisionMetricEvent(decision=decision)
-            )
+            await registry.record_decision(DecisionMetricEvent(decision=decision))
         snap = await registry.snapshot()
-        decisions = [
-            s for s in snap.samples
-            if s.name == "poly_agent_decisions_total"
-        ]
+        decisions = [s for s in snap.samples if s.name == "poly_agent_decisions_total"]
         for s in decisions:
             label_val = s.labels.labels.get("decision", "")
             assert label_val in {"BUY", "HOLD", "SKIP"}
@@ -677,6 +645,7 @@ class TestLowCardinalityLabels:
 # ═══════════════════════════════════════════════════════════════════════════
 # Edge Cases — Zero Decision State
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestZeroStateEdgeCases:
     """Edge cases when no events have occurred."""
@@ -690,42 +659,30 @@ class TestZeroStateEdgeCases:
         self, registry: MetricsRegistry
     ) -> None:
         snap = await registry.snapshot()
-        decisions = [
-            s for s in snap.samples
-            if s.name == "poly_agent_decisions_total"
-        ]
+        decisions = [s for s in snap.samples if s.name == "poly_agent_decisions_total"]
         # Zero-state: may be absent or emit a zero
         for s in decisions:
             assert s.value == Decimal("0")
 
     @pytest.mark.asyncio
-    async def test_no_heartbeat_age_sentinel(
-        self, registry: MetricsRegistry
-    ) -> None:
+    async def test_no_heartbeat_age_sentinel(self, registry: MetricsRegistry) -> None:
         """Heartbeat age gauge is zero or absent when never set."""
         snap = await registry.snapshot()
         gauges = [
-            s for s in snap.samples
-            if s.name == "poly_agent_heartbeat_age_seconds"
+            s for s in snap.samples if s.name == "poly_agent_heartbeat_age_seconds"
         ]
         # Zero-state: may be absent or emit zero
         for g in gauges:
             assert g.value == Decimal("0")
 
     @pytest.mark.asyncio
-    async def test_websocket_never_connected(
-        self, registry: MetricsRegistry
-    ) -> None:
+    async def test_websocket_never_connected(self, registry: MetricsRegistry) -> None:
         """Reconnect/error counters at zero."""
         snap = await registry.snapshot()
         reconnect = [
-            s for s in snap.samples
-            if s.name == "poly_agent_ws_reconnects_total"
+            s for s in snap.samples if s.name == "poly_agent_ws_reconnects_total"
         ]
-        errors = [
-            s for s in snap.samples
-            if s.name == "poly_agent_ws_errors_total"
-        ]
+        errors = [s for s in snap.samples if s.name == "poly_agent_ws_errors_total"]
         # Zero-state: may be absent or emit zero
         for s in reconnect:
             assert s.value == Decimal("0")
@@ -739,8 +696,7 @@ class TestZeroStateEdgeCases:
         """Backtest verdict defaults to UNKNOWN=0 when unavailable."""
         snap = await registry.snapshot()
         verdicts = [
-            s for s in snap.samples
-            if s.name == "poly_agent_backtest_readiness_verdict"
+            s for s in snap.samples if s.name == "poly_agent_backtest_readiness_verdict"
         ]
         assert len(verdicts) == 1
         assert verdicts[0].labels.labels.get("verdict") == "UNKNOWN"
@@ -750,6 +706,7 @@ class TestZeroStateEdgeCases:
 # ═══════════════════════════════════════════════════════════════════════════
 # Unknown Action Normalization
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestUnknownActionNormalization:
     """Unknown decision or execution actions are rejected with clear error."""
@@ -767,6 +724,7 @@ class TestUnknownActionNormalization:
 # Concurrency — Non-Blocking Metric Updates
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestConcurrencySafety:
     """Metrics updates must be non-blocking and safe under concurrent access."""
 
@@ -782,9 +740,7 @@ class TestConcurrencySafety:
         import time
 
         start = time.monotonic()
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
         elapsed = time.monotonic() - start
         assert elapsed < 0.1, f"Metric update took {elapsed:.3f}s"
 
@@ -793,6 +749,7 @@ class TestConcurrencySafety:
         self, registry: MetricsRegistry
     ) -> None:
         """Concurrent updates produce correct final counts."""
+
         async def record_n(n: int) -> None:
             for _ in range(n):
                 await registry.record_decision(
@@ -819,6 +776,7 @@ class TestConcurrencySafety:
         self, registry: MetricsRegistry
     ) -> None:
         """Snapshot can be taken while updates are happening."""
+
         async def update_forever() -> None:
             for _ in range(200):
                 await registry.record_decision(
@@ -834,13 +792,9 @@ class TestConcurrencySafety:
         await asyncio.gather(update_forever(), scrape())
 
     @pytest.mark.asyncio
-    async def test_snapshot_is_consistent(
-        self, registry: MetricsRegistry
-    ) -> None:
+    async def test_snapshot_is_consistent(self, registry: MetricsRegistry) -> None:
         """A snapshot should be internally consistent — no half-updated state."""
-        await registry.record_decision(
-            DecisionMetricEvent(decision=DecisionLabel.BUY)
-        )
+        await registry.record_decision(DecisionMetricEvent(decision=DecisionLabel.BUY))
         await registry.record_execution(
             ExecutionMetricEvent(action=ExecutionAction.EXECUTED)
         )
@@ -857,6 +811,7 @@ class TestConcurrencySafety:
 # Metrics Server — Routes, Lifecycle, Format
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestMetricsServer:
     """Lightweight asyncio metrics HTTP server."""
 
@@ -868,22 +823,17 @@ class TestMetricsServer:
     async def test_get_metrics_returns_200(
         self, registry: MetricsRegistry, unused_tcp_port: int
     ) -> None:
-        import socket
 
         server = MetricsServer(registry, host="127.0.0.1", port=unused_tcp_port)
         await server.start()
         try:
-            reader, writer = await asyncio.open_connection(
-                "127.0.0.1", unused_tcp_port
-            )
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
             try:
                 writer.write(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 await writer.drain()
                 response = b""
                 while True:
-                    chunk = await asyncio.wait_for(
-                        reader.read(4096), timeout=5.0
-                    )
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                     if not chunk:
                         break
                     response += chunk
@@ -899,22 +849,17 @@ class TestMetricsServer:
     async def test_get_metrics_content_type(
         self, registry: MetricsRegistry, unused_tcp_port: int
     ) -> None:
-        import socket
 
         server = MetricsServer(registry, host="127.0.0.1", port=unused_tcp_port)
         await server.start()
         try:
-            reader, writer = await asyncio.open_connection(
-                "127.0.0.1", unused_tcp_port
-            )
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
             try:
                 writer.write(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 await writer.drain()
                 response = b""
                 while True:
-                    chunk = await asyncio.wait_for(
-                        reader.read(4096), timeout=5.0
-                    )
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                     if not chunk:
                         break
                     response += chunk
@@ -967,17 +912,13 @@ class TestMetricsServer:
         server = MetricsServer(registry, host="127.0.0.1", port=unused_tcp_port)
         await server.start()
         try:
-            reader, writer = await asyncio.open_connection(
-                "127.0.0.1", unused_tcp_port
-            )
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
             try:
                 writer.write(b"POST /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 await writer.drain()
                 response = b""
                 while True:
-                    chunk = await asyncio.wait_for(
-                        reader.read(4096), timeout=5.0
-                    )
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                     if not chunk:
                         break
                     response += chunk
@@ -996,17 +937,13 @@ class TestMetricsServer:
         server = MetricsServer(registry, host="127.0.0.1", port=unused_tcp_port)
         await server.start()
         try:
-            reader, writer = await asyncio.open_connection(
-                "127.0.0.1", unused_tcp_port
-            )
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
             try:
                 writer.write(b"GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 await writer.drain()
                 response = b""
                 while True:
-                    chunk = await asyncio.wait_for(
-                        reader.read(4096), timeout=5.0
-                    )
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                     if not chunk:
                         break
                     response += chunk
@@ -1034,17 +971,13 @@ class TestMetricsServer:
         registry.render_prometheus = types.MethodType(broken_render, registry)  # type: ignore[assignment]
         await server.start()
         try:
-            reader, writer = await asyncio.open_connection(
-                "127.0.0.1", unused_tcp_port
-            )
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
             try:
                 writer.write(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 await writer.drain()
                 response = b""
                 while True:
-                    chunk = await asyncio.wait_for(
-                        reader.read(4096), timeout=5.0
-                    )
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                     if not chunk:
                         break
                     response += chunk
@@ -1062,6 +995,7 @@ class TestMetricsServer:
 # Invariant Guard Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestMetricsInvariants:
     """Metrics export cannot weaken trading safety invariants."""
 
@@ -1070,7 +1004,8 @@ class TestMetricsInvariants:
         registry = MetricsRegistry()
         # Registry only has recording/reporting methods
         public_methods = [
-            m for m in dir(registry)
+            m
+            for m in dir(registry)
             if not m.startswith("_") and callable(getattr(registry, m))
         ]
         for method in public_methods:
@@ -1108,9 +1043,15 @@ class TestMetricsInvariants:
         import inspect
 
         source = inspect.getsource(registry.__class__)
-        for forbidden in ["config", "position", "order", "trade"]:
-            # Just check that registry methods don't import/use trading objects
-            pass  # Verified through code review above
+        for forbidden in (
+            "PositionRepository",
+            "ExecutionRouter",
+            "OrderBroadcaster",
+            "TransactionSigner",
+        ):
+            # Metrics may label execution outcomes, but must not import or call
+            # trading-state mutation objects.
+            assert forbidden not in source
 
     def test_no_database_writes_from_metrics(self) -> None:
         """Metrics has no database dependency."""
@@ -1127,6 +1068,7 @@ class TestMetricsInvariants:
 # ═══════════════════════════════════════════════════════════════════════════
 # Fixture: unused TCP port
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.fixture
 def unused_tcp_port() -> int:

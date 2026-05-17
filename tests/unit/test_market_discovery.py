@@ -82,9 +82,15 @@ class FakeConfig:
         self.max_exposure_pct = max_exposure_pct
         self.initial_bankroll_usdc = initial_bankroll_usdc
         self.enable_market_discovery_preflight = enable_market_discovery_preflight
-        self.market_discovery_preflight_timeout_ms = market_discovery_preflight_timeout_ms
-        self.market_discovery_max_preflight_candidates = market_discovery_max_preflight_candidates
-        self.preflight_quarantine_duration_seconds = preflight_quarantine_duration_seconds
+        self.market_discovery_preflight_timeout_ms = (
+            market_discovery_preflight_timeout_ms
+        )
+        self.market_discovery_max_preflight_candidates = (
+            market_discovery_max_preflight_candidates
+        )
+        self.preflight_quarantine_duration_seconds = (
+            preflight_quarantine_duration_seconds
+        )
         self.preflight_max_spread_pct = preflight_max_spread_pct
 
 

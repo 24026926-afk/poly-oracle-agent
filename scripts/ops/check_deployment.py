@@ -19,7 +19,6 @@ import json
 import re
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -31,7 +30,9 @@ _HTTP_TIMEOUT_SEC: float = 5.0
 _SUBPROCESS_TIMEOUT_SEC: float = 15.0
 # Labels that MUST NOT appear in /metrics output
 _FORBIDDEN_LABEL_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(api[_-]?key|apikey|secret|private[_-]?key|wallet[_-]?key)", re.IGNORECASE),
+    re.compile(
+        r"(api[_-]?key|apikey|secret|private[_-]?key|wallet[_-]?key)", re.IGNORECASE
+    ),
     re.compile(r"(token|chat[_-]?id|bot[_-]?token)", re.IGNORECASE),
     re.compile(r"0x[a-fA-F0-9]{40,}"),  # Ethereum addresses
     re.compile(r"\b[a-fA-F0-9]{64}\b"),  # private key hex
@@ -193,20 +194,23 @@ def _check_compose_service() -> dict[str, Any]:
         )
     except subprocess.TimeoutExpired:
         return _make_probe(
-            "compose_service", _CHECK_FAIL,
+            "compose_service",
+            _CHECK_FAIL,
             failure_reason="timeout",
             detail="docker compose ps timed out",
         )
     except FileNotFoundError:
         return _make_probe(
-            "compose_service", _CHECK_FAIL,
+            "compose_service",
+            _CHECK_FAIL,
             failure_reason="compose_plugin_not_installed",
             detail="docker compose not found",
         )
 
     if result.returncode != 0:
         return _make_probe(
-            "compose_service", _CHECK_FAIL,
+            "compose_service",
+            _CHECK_FAIL,
             failure_reason="service_not_running",
             detail=f"docker compose ps failed: {result.stderr.strip()}",
         )
@@ -218,7 +222,8 @@ def _check_compose_service() -> dict[str, Any]:
 
     if not services:
         return _make_probe(
-            "compose_service", _CHECK_FAIL,
+            "compose_service",
+            _CHECK_FAIL,
             failure_reason="service_not_running",
             detail="orchestrator service not found in compose ps output",
         )
@@ -232,20 +237,24 @@ def _check_compose_service() -> dict[str, Any]:
 
         if "restarting" in status_str.lower():
             running = False
-            restart_match = re.search(r"Restarting\s*\((\d+)\)", status_str, re.IGNORECASE)
+            restart_match = re.search(
+                r"Restarting\s*\((\d+)\)", status_str, re.IGNORECASE
+            )
             if restart_match:
                 restart_count = int(restart_match.group(1))
 
         if not running and restart_count > 0:
             return _make_probe(
-                "compose_service", _CHECK_FAIL,
+                "compose_service",
+                _CHECK_FAIL,
                 failure_reason="container_restarting",
                 detail=f"Container restarting (count={restart_count})",
             )
 
         if not running:
             return _make_probe(
-                "compose_service", _CHECK_FAIL,
+                "compose_service",
+                _CHECK_FAIL,
                 failure_reason="service_not_running",
                 detail=f"Container state: {state}",
             )
@@ -253,7 +262,8 @@ def _check_compose_service() -> dict[str, Any]:
         return _make_probe("compose_service", _CHECK_PASS)
 
     return _make_probe(
-        "compose_service", _CHECK_FAIL,
+        "compose_service",
+        _CHECK_FAIL,
         failure_reason="service_not_running",
         detail="Unexpected compose ps output format",
     )
@@ -269,7 +279,8 @@ def _check_dry_run_guard() -> dict[str, Any]:
 
     if not env_path.exists() or not compose_path.exists():
         return _make_probe(
-            "dry_run_guard", _CHECK_FAIL,
+            "dry_run_guard",
+            _CHECK_FAIL,
             failure_reason="env_file_absent",
             detail=".env or docker-compose.yml not found in working directory",
         )
@@ -278,7 +289,8 @@ def _check_dry_run_guard() -> dict[str, Any]:
         env_content = env_path.read_text()
     except OSError:
         return _make_probe(
-            "dry_run_guard", _CHECK_FAIL,
+            "dry_run_guard",
+            _CHECK_FAIL,
             failure_reason="env_file_absent",
             detail="Could not read .env file",
         )
@@ -289,7 +301,8 @@ def _check_dry_run_guard() -> dict[str, Any]:
 
     if not dry_run_match:
         return _make_probe(
-            "dry_run_guard", _CHECK_FAIL,
+            "dry_run_guard",
+            _CHECK_FAIL,
             failure_reason="dry_run_missing",
             detail="DRY_RUN key not found in .env",
         )
@@ -300,7 +313,8 @@ def _check_dry_run_guard() -> dict[str, Any]:
         return _make_probe("dry_run_guard", _CHECK_PASS)
 
     return _make_probe(
-        "dry_run_guard", _CHECK_FAIL,
+        "dry_run_guard",
+        _CHECK_FAIL,
         failure_reason="dry_run_false",
         detail="DRY_RUN is not 'true' (value redacted)",
     )
@@ -317,7 +331,9 @@ def _normalize_env_value(raw_value: str) -> str:
 # ── HTTP Probes (stdlib urllib) ────────────────────────────────────────────
 
 
-def _http_get(url: str, *, timeout: float = _HTTP_TIMEOUT_SEC) -> tuple[int, str, dict[str, str]]:
+def _http_get(
+    url: str, *, timeout: float = _HTTP_TIMEOUT_SEC
+) -> tuple[int, str, dict[str, str]]:
     """Perform an HTTP GET and return (status_code, body_text, headers_dict).
 
     Raises urllib.error.URLError on connection/timeout failures.
@@ -342,13 +358,15 @@ def _probe_healthz() -> dict[str, Any]:
         if status == 200:
             return _make_probe("healthz_probe", _CHECK_PASS)
         return _make_probe(
-            "healthz_probe", _CHECK_FAIL,
+            "healthz_probe",
+            _CHECK_FAIL,
             failure_reason="healthz_unreachable",
             detail=f"HTTP {status}",
         )
     except urllib.error.URLError as e:
         return _make_probe(
-            "healthz_probe", _CHECK_FAIL,
+            "healthz_probe",
+            _CHECK_FAIL,
             failure_reason="healthz_unreachable",
             detail=f"Connection failed: {e.reason}",
         )
@@ -360,7 +378,8 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
         status, body_text, _ = _http_get(url)
         if status != 200:
             return _make_probe(
-                "readyz_probe", _CHECK_FAIL,
+                "readyz_probe",
+                _CHECK_FAIL,
                 failure_reason="readyz_unreachable",
                 detail=f"HTTP {status}",
             )
@@ -370,7 +389,8 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
             body = json.loads(body_text)
         except json.JSONDecodeError:
             return _make_probe(
-                "readyz_probe", _CHECK_FAIL,
+                "readyz_probe",
+                _CHECK_FAIL,
                 failure_reason="readyz_malformed",
                 detail="Response is not valid JSON",
             )
@@ -378,7 +398,8 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
         status_value = body.get("status")
         if status_value not in ("ready", "degraded", "not_ready"):
             return _make_probe(
-                "readyz_probe", _CHECK_FAIL,
+                "readyz_probe",
+                _CHECK_FAIL,
                 failure_reason="readyz_malformed",
                 detail=f"Unknown status: {status_value}",
             )
@@ -387,7 +408,8 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
         if status_value == "not_ready":
             checks_detail = body.get("checks", {})
             return _make_probe(
-                "readyz_probe", _CHECK_FAIL,
+                "readyz_probe",
+                _CHECK_FAIL,
                 failure_reason="readyz_unreachable",
                 detail=f"Service not ready — checks: {checks_detail}",
             )
@@ -396,7 +418,8 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
         if status_value == "degraded" and not allow_degraded:
             checks_detail = body.get("checks", {})
             return _make_probe(
-                "readyz_probe", _CHECK_FAIL,
+                "readyz_probe",
+                _CHECK_FAIL,
                 failure_reason="readyz_malformed",
                 detail=f"Readiness degraded without --allow-degraded flag: {checks_detail}",
             )
@@ -406,14 +429,16 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
             checks_detail = body.get("checks", {})
             if not checks_detail or not isinstance(checks_detail, dict):
                 return _make_probe(
-                    "readyz_probe", _CHECK_FAIL,
+                    "readyz_probe",
+                    _CHECK_FAIL,
                     failure_reason="readyz_malformed",
                     detail="Degraded readiness accepted but checks payload missing",
                 )
             # Verify checks dict has expected keys
             if "database" not in checks_detail and "websocket" not in checks_detail:
                 return _make_probe(
-                    "readyz_probe", _CHECK_FAIL,
+                    "readyz_probe",
+                    _CHECK_FAIL,
                     failure_reason="readyz_malformed",
                     detail="Degraded readiness accepted but checks missing expected keys (database/websocket)",
                 )
@@ -421,7 +446,8 @@ def _probe_readyz(*, allow_degraded: bool = False) -> dict[str, Any]:
         return _make_probe("readyz_probe", _CHECK_PASS)
     except urllib.error.URLError as e:
         return _make_probe(
-            "readyz_probe", _CHECK_FAIL,
+            "readyz_probe",
+            _CHECK_FAIL,
             failure_reason="readyz_unreachable",
             detail=f"Connection failed: {e.reason}",
         )
@@ -462,7 +488,8 @@ def _probe_metrics() -> dict[str, Any]:
         status, body_text, headers = _http_get(url)
         if status != 200:
             return _make_probe(
-                "metrics_probe", _CHECK_FAIL,
+                "metrics_probe",
+                _CHECK_FAIL,
                 failure_reason="metrics_unreachable",
                 detail=f"HTTP {status}",
             )
@@ -470,7 +497,8 @@ def _probe_metrics() -> dict[str, Any]:
         content_type = headers.get("content-type", "")
         if "text/plain" not in content_type:
             return _make_probe(
-                "metrics_probe", _CHECK_FAIL,
+                "metrics_probe",
+                _CHECK_FAIL,
                 failure_reason="metrics_unreachable",
                 detail=f"Expected text/plain Content-Type, got: {content_type}",
             )
@@ -479,7 +507,8 @@ def _probe_metrics() -> dict[str, Any]:
         # (HELP, TYPE, or a metric name followed by value)
         if not _is_valid_prometheus_text(body_text):
             return _make_probe(
-                "metrics_probe", _CHECK_FAIL,
+                "metrics_probe",
+                _CHECK_FAIL,
                 failure_reason="metrics_unreachable",
                 detail="Response is not valid Prometheus text exposition format",
             )
@@ -487,7 +516,8 @@ def _probe_metrics() -> dict[str, Any]:
         return _make_probe("metrics_probe", _CHECK_PASS)
     except urllib.error.URLError as e:
         return _make_probe(
-            "metrics_probe", _CHECK_FAIL,
+            "metrics_probe",
+            _CHECK_FAIL,
             failure_reason="metrics_unreachable",
             detail=f"Connection failed: {e.reason}",
         )
@@ -502,7 +532,8 @@ def _inspect_metrics_labels() -> dict[str, Any]:
         status, text, headers = _http_get(url)
         if status != 200:
             return _make_probe(
-                "metrics_inspection", _CHECK_FAIL,
+                "metrics_inspection",
+                _CHECK_FAIL,
                 failure_reason="metrics_unreachable",
                 detail=f"HTTP {status}",
             )
@@ -510,14 +541,16 @@ def _inspect_metrics_labels() -> dict[str, Any]:
         content_type = headers.get("content-type", "")
         if "text/plain" not in content_type:
             return _make_probe(
-                "metrics_inspection", _CHECK_FAIL,
+                "metrics_inspection",
+                _CHECK_FAIL,
                 failure_reason="metrics_unreachable",
                 detail=f"Expected text/plain Content-Type, got: {content_type}",
             )
 
         if not _is_valid_prometheus_text(text):
             return _make_probe(
-                "metrics_inspection", _CHECK_FAIL,
+                "metrics_inspection",
+                _CHECK_FAIL,
                 failure_reason="metrics_unreachable",
                 detail="Response is not valid Prometheus text exposition format",
             )
@@ -533,7 +566,8 @@ def _inspect_metrics_labels() -> dict[str, Any]:
 
         if forbidden:
             return _make_probe(
-                "metrics_inspection", _CHECK_FAIL,
+                "metrics_inspection",
+                _CHECK_FAIL,
                 failure_reason="metrics_forbidden_label",
                 detail=f"Forbidden label patterns detected: {list(set(forbidden))}",
             )
@@ -541,7 +575,8 @@ def _inspect_metrics_labels() -> dict[str, Any]:
         return _make_probe("metrics_inspection", _CHECK_PASS)
     except urllib.error.URLError as e:
         return _make_probe(
-            "metrics_inspection", _CHECK_FAIL,
+            "metrics_inspection",
+            _CHECK_FAIL,
             failure_reason="metrics_unreachable",
             detail=f"Connection failed: {e.reason}",
         )

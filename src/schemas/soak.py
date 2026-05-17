@@ -121,8 +121,12 @@ class SoakHealthEvidence(BaseModel):
         default=None,
         description="READY | DEGRADED | NOT_READY",
     )
-    degraded_reason: Optional[str] = Field(default=None, description="Why readiness is degraded, if applicable")
-    health_probe: SoakProbeResult = Field(..., description="Aggregated health probe result")
+    degraded_reason: Optional[str] = Field(
+        default=None, description="Why readiness is degraded, if applicable"
+    )
+    health_probe: SoakProbeResult = Field(
+        ..., description="Aggregated health probe result"
+    )
 
 
 class SoakMetricsEvidence(BaseModel):
@@ -133,7 +137,9 @@ class SoakMetricsEvidence(BaseModel):
     metrics_reachable: bool = Field(default=False)
     metrics_status_code: Optional[int] = Field(default=None)
     prometheus_format_valid: bool = Field(default=False)
-    metrics_probe: SoakProbeResult = Field(..., description="Aggregated metrics probe result")
+    metrics_probe: SoakProbeResult = Field(
+        ..., description="Aggregated metrics probe result"
+    )
 
 
 class SoakDatabaseEvidence(BaseModel):
@@ -145,11 +151,15 @@ class SoakDatabaseEvidence(BaseModel):
     db_file_path: str = Field(default="/data/poly_oracle.db")
     db_file_size_bytes: int = Field(default=0, ge=0)
     db_growth_bytes: int = Field(default=0, description="Bytes grown since soak start")
-    db_grew: bool = Field(default=False, description="True if file size increased during soak")
+    db_grew: bool = Field(
+        default=False, description="True if file size increased during soak"
+    )
     recent_decision_count: int = Field(default=0, ge=0)
     recent_snapshot_count: int = Field(default=0, ge=0)
     sqlite_locked: bool = Field(default=False)
-    db_probe: SoakProbeResult = Field(..., description="Aggregated database probe result")
+    db_probe: SoakProbeResult = Field(
+        ..., description="Aggregated database probe result"
+    )
 
 
 class SoakRecoveryEvidence(BaseModel):
@@ -157,13 +167,19 @@ class SoakRecoveryEvidence(BaseModel):
 
     model_config = {"frozen": True}
 
-    recovery_tested: bool = Field(default=False, description="True if reboot/restart recovery was tested")
+    recovery_tested: bool = Field(
+        default=False, description="True if reboot/restart recovery was tested"
+    )
     recovery_method: Optional[SoakRecoveryMethod] = Field(
         default=None,
         description="docker compose restart | host reboot",
     )
-    service_recovered: Optional[bool] = Field(default=None, description="True if service came back healthy after restart")
-    recovery_probe: SoakProbeResult = Field(..., description="Aggregated recovery probe result")
+    service_recovered: Optional[bool] = Field(
+        default=None, description="True if service came back healthy after restart"
+    )
+    recovery_probe: SoakProbeResult = Field(
+        ..., description="Aggregated recovery probe result"
+    )
 
 
 # ── Top-Level Report ───────────────────────────────────────────────────────
@@ -178,13 +194,17 @@ class SoakEvidenceReport(BaseModel):
     model_config = {"frozen": True}
 
     report_id: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).strftime("soak-%Y%m%dT%H%M%SZ"),
+        default_factory=lambda: datetime.now(timezone.utc).strftime(
+            "soak-%Y%m%dT%H%M%SZ"
+        ),
     )
     target_host: str = Field(
         default="localhost",
         description="Host where evidence was collected; localhost or explicit host without private IPs",
     )
-    soak_start_utc: Optional[datetime] = Field(default=None, description="Operator-provided soak start timestamp")
+    soak_start_utc: Optional[datetime] = Field(
+        default=None, description="Operator-provided soak start timestamp"
+    )
     soak_end_utc: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="When evidence was collected",
@@ -201,7 +221,9 @@ class SoakEvidenceReport(BaseModel):
     telegram_enabled: Optional[bool] = Field(default=None)
     telegram_status: Optional[SoakProbeStatus] = Field(default=None)
     probes: list[SoakProbeResult] = Field(default_factory=list)
-    exit_code: int = Field(default=0, description="Recommended process exit code (0=pass, non-zero=fail)")
+    exit_code: int = Field(
+        default=0, description="Recommended process exit code (0=pass, non-zero=fail)"
+    )
     live_trading_authorized: Literal[False] = Field(
         default=False,
         description="ALWAYS False — soak evidence cannot authorize live trading",

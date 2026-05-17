@@ -61,13 +61,11 @@ from src.schemas.ops import (
     DailyOpsDigestWindow,
     DailyOpsDigestWriteResult,
     NarrativeRenderResult,
-    NarrativeRenderStatus,
     OperationalEventQuery,
     OperationalEventReadWindow,
     OperationalEventReasonCode,
     OperationalEventRecord,
     OperationalEventSeverity,
-    OperationalEventSource,
     OperationalEventType,
     _scan_event_payload,
 )
@@ -215,10 +213,7 @@ def _validate_output_path(
             #     leading prefix so the candidate resolves to a direct
             #     child of daily_notes_root rather than a nested copy.
             parts = candidate.parts
-            if (
-                len(parts) >= 2
-                and parts[0] == daily_notes_root.name
-            ):
+            if len(parts) >= 2 and parts[0] == daily_notes_root.name:
                 candidate = Path(*parts[1:])
             candidate = (daily_notes_root / candidate).resolve()
 
@@ -307,7 +302,9 @@ async def _read_events(
                     limit=_DEFAULT_EVENT_LIMIT,
                     offset=offset,
                 )
-                window_result: OperationalEventReadWindow = await repo.read_window(query)
+                window_result: OperationalEventReadWindow = await repo.read_window(
+                    query
+                )
                 all_events.extend(window_result.events)
                 if not window_result.has_more or not window_result.events:
                     break
@@ -490,8 +487,6 @@ def _derive_run_summary(
 
     saw_start = False
     saw_shutdown = False
-    has_any_lifecycle_evidence = False
-
     # Edge Case 9: when multiple START/SHUTDOWN cycles exist in one
     # window, uptime must be summed from typed pairs. Tracking the open
     # START cursor through the chronological walk lets a partial trailing
@@ -504,7 +499,6 @@ def _derive_run_summary(
 
         # Lifecycle
         if record.event_type == OperationalEventType.START:
-            has_any_lifecycle_evidence = True
             if start_utc is None or ts < start_utc:
                 start_utc = ts
             saw_start = True
@@ -513,7 +507,6 @@ def _derive_run_summary(
             if open_start is None:
                 open_start = ts
         elif record.event_type == OperationalEventType.SHUTDOWN:
-            has_any_lifecycle_evidence = True
             if stop_utc is None or ts > stop_utc:
                 stop_utc = ts
             saw_shutdown = True
@@ -524,9 +517,6 @@ def _derive_run_summary(
             if open_start is not None and ts >= open_start:
                 total_uptime += ts - open_start
                 open_start = None
-        elif record.event_type == OperationalEventType.CONFIG_LOADED:
-            has_any_lifecycle_evidence = True
-
         # Readiness
         if record.event_type == OperationalEventType.READY_STATE_CHANGED:
             if latest_readiness_ts is None or ts >= latest_readiness_ts:
@@ -1061,8 +1051,12 @@ def render_digest_markdown(report: DailyOpsDigestReport) -> str:
         lines.append(f"- **Run status:** `{rs.run_status}`")
         lines.append(f"- **Start (UTC):** {_format_optional_dt(rs.start_utc)}")
         lines.append(f"- **Stop (UTC):** {_format_optional_dt(rs.stop_utc)}")
-        lines.append(f"- **Uptime (seconds):** {_format_optional_int(rs.uptime_seconds)}")
-        lines.append(f"- **Active provider:** {_format_optional_str(rs.active_provider)}")
+        lines.append(
+            f"- **Uptime (seconds):** {_format_optional_int(rs.uptime_seconds)}"
+        )
+        lines.append(
+            f"- **Active provider:** {_format_optional_str(rs.active_provider)}"
+        )
         lines.append(f"- **Dry-run:** {_format_optional_bool(rs.dry_run)}")
         lines.append(
             f"- **Latest readiness:** {_format_optional_str(rs.latest_readiness)}"
@@ -1110,9 +1104,15 @@ def render_digest_markdown(report: DailyOpsDigestReport) -> str:
         lines.append("- (no repository-backed position data for this window)")
     else:
         ps = report.pnl_summary
-        lines.append(f"- **Realized PnL (USDC):** {_format_decimal(ps.realized_pnl, places=6)}")
-        lines.append(f"- **Unrealized PnL (USDC):** {_format_decimal(ps.unrealized_pnl, places=6)}")
-        lines.append(f"- **Gas + fees (USDC):** {_format_decimal(ps.gas_and_fees, places=6)}")
+        lines.append(
+            f"- **Realized PnL (USDC):** {_format_decimal(ps.realized_pnl, places=6)}"
+        )
+        lines.append(
+            f"- **Unrealized PnL (USDC):** {_format_decimal(ps.unrealized_pnl, places=6)}"
+        )
+        lines.append(
+            f"- **Gas + fees (USDC):** {_format_decimal(ps.gas_and_fees, places=6)}"
+        )
         lines.append(f"- **Closed positions in window:** {ps.closed_position_count}")
         lines.append(f"- **Open positions:** {ps.open_position_count}")
     lines.append("")
@@ -1199,9 +1199,7 @@ def render_telegram_text(report: DailyOpsDigestReport) -> Optional[str]:
             parts.append(f"readiness={report.run_summary.latest_readiness}")
     if report.decision_summary is not None:
         ds = report.decision_summary
-        parts.append(
-            f"decisions buy={ds.accepted_buy} hold={ds.accepted_hold}"
-        )
+        parts.append(f"decisions buy={ds.accepted_buy} hold={ds.accepted_hold}")
     if report.llm_summary is not None:
         ls = report.llm_summary
         parts.append(
@@ -1247,9 +1245,7 @@ async def _maybe_send_telegram(
         try:
             sent = await typed_send(summary.text, dry_run=False)
         except Exception:  # noqa: BLE001 — defensive; never crash digest
-            logger.warning(
-                "daily_ops_digest.telegram_send_failed", exc_info=False
-            )
+            logger.warning("daily_ops_digest.telegram_send_failed", exc_info=False)
             return DailyOpsDigestTelegramResult(
                 status="failed",
                 failure_reason="telegram send failed",
@@ -1343,9 +1339,7 @@ async def generate_digest(
     """
     daily_root = _resolve_daily_notes_root(request, daily_notes_root)
 
-    path_result, path_failure, path_message = _validate_output_path(
-        request, daily_root
-    )
+    path_result, path_failure, path_message = _validate_output_path(request, daily_root)
     if path_failure is not None:
         # Translate path-failure typed reasons into the correct status.
         return _failure_report(

@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-import pytest
 
 from src.backtesting.provider_comparison import (
     derive_readiness_verdict,
@@ -24,7 +23,6 @@ from src.backtesting.provider_comparison import (
 from src.schemas.provider_comparison import (
     LLMProviderCalibrationMetrics,
     LLMProviderComparisonConfig,
-    LLMProviderComparisonReport,
     LLMProviderComparisonResult,
     LLMProviderComparisonRun,
     LLMProviderCostMetrics,
@@ -46,16 +44,43 @@ def _pass_decision() -> LLMProviderDecisionMetrics:
         gatekeeper_passed=55,
         gatekeeper_failed=43,
         gatekeeper_pass_rate=Decimal("0.56"),
-        buy_count=25, hold_count=50, skip_count=25, sell_count=0,
+        buy_count=25,
+        hold_count=50,
+        skip_count=25,
+        sell_count=0,
     )
 
 
 def _pass_calibration() -> LLMProviderCalibrationMetrics:
     return LLMProviderCalibrationMetrics(
-        confidence_bucket_low=[Decimal("0"), Decimal("0.2"), Decimal("0.4"), Decimal("0.6"), Decimal("0.8")],
-        confidence_bucket_high=[Decimal("0.2"), Decimal("0.4"), Decimal("0.6"), Decimal("0.8"), Decimal("1.0")],
-        confidence_bucket_avg=[Decimal("0.1"), Decimal("0.3"), Decimal("0.5"), Decimal("0.7"), Decimal("0.9")],
-        confidence_bucket_observed_win_rate=[Decimal("0.1"), Decimal("0.28"), Decimal("0.48"), Decimal("0.65"), Decimal("0.82")],
+        confidence_bucket_low=[
+            Decimal("0"),
+            Decimal("0.2"),
+            Decimal("0.4"),
+            Decimal("0.6"),
+            Decimal("0.8"),
+        ],
+        confidence_bucket_high=[
+            Decimal("0.2"),
+            Decimal("0.4"),
+            Decimal("0.6"),
+            Decimal("0.8"),
+            Decimal("1.0"),
+        ],
+        confidence_bucket_avg=[
+            Decimal("0.1"),
+            Decimal("0.3"),
+            Decimal("0.5"),
+            Decimal("0.7"),
+            Decimal("0.9"),
+        ],
+        confidence_bucket_observed_win_rate=[
+            Decimal("0.1"),
+            Decimal("0.28"),
+            Decimal("0.48"),
+            Decimal("0.65"),
+            Decimal("0.82"),
+        ],
         confidence_bucket_count=[10, 15, 25, 20, 5],
         confidence_calibration_deviation=Decimal("0.05"),
         avg_ev=Decimal("0.045"),
@@ -68,16 +93,24 @@ def _pass_calibration() -> LLMProviderCalibrationMetrics:
 
 def _pass_cost() -> LLMProviderCostMetrics:
     return LLMProviderCostMetrics(
-        total_input_tokens=400_000, total_output_tokens=50_000, total_tokens=450_000,
-        total_estimated_cost_usd=Decimal("0.45"), is_estimated=False,
-        budget_block_count=1, cooldown_block_count=0,
+        total_input_tokens=400_000,
+        total_output_tokens=50_000,
+        total_tokens=450_000,
+        total_estimated_cost_usd=Decimal("0.45"),
+        is_estimated=False,
+        budget_block_count=1,
+        cooldown_block_count=0,
     )
 
 
 def _pass_latency() -> LLMProviderLatencyMetrics:
     return LLMProviderLatencyMetrics(
-        min_latency_ms=200, max_latency_ms=3000, mean_latency_ms=800,
-        median_latency_ms=750, p95_latency_ms=2500, p99_latency_ms=2900,
+        min_latency_ms=200,
+        max_latency_ms=3000,
+        mean_latency_ms=800,
+        median_latency_ms=750,
+        p95_latency_ms=2500,
+        p99_latency_ms=2900,
         sample_count=98,
     )
 
@@ -95,7 +128,8 @@ def test_generate_report_writes_json_file():
     """Report written via generate_comparison_report produces valid report."""
     cfg = _default_config()
     result = LLMProviderComparisonResult(
-        provider="deepseek", model_name="deepseek-v4-pro",
+        provider="deepseek",
+        model_name="deepseek-v4-pro",
         decision_metrics=_pass_decision(),
         calibration_metrics=_pass_calibration(),
         cost_metrics=_pass_cost(),
@@ -109,7 +143,7 @@ def test_generate_report_writes_json_file():
     out = Path("docs") / "backtests" / "_wi55_integration_test.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
-        report = generate_comparison_report(run=run, output_path=str(out))
+        generate_comparison_report(run=run, output_path=str(out))
         assert out.exists()
         data = json.loads(out.read_text())
         assert data["run"]["results"][0]["provider"] == "deepseek"
@@ -127,7 +161,8 @@ def test_report_rejects_secrets_in_content():
     """Report with API key patterns fails validation."""
     cfg = _default_config()
     result = LLMProviderComparisonResult(
-        provider="deepseek", model_name="deepseek-v4-pro",
+        provider="deepseek",
+        model_name="deepseek-v4-pro",
         decision_metrics=_pass_decision(),
         calibration_metrics=_pass_calibration(),
         cost_metrics=_pass_cost(),
@@ -149,11 +184,16 @@ def test_report_rejects_secrets_in_content():
 
 def test_deepseek_rejected_for_invalid_json_integration():
     dm = LLMProviderDecisionMetrics(
-        total_calls=100, valid_json_count=80, invalid_json_count=20,
+        total_calls=100,
+        valid_json_count=80,
+        invalid_json_count=20,
         json_validity_rate=Decimal("0.80"),
-        gatekeeper_passed=10, gatekeeper_failed=70,
+        gatekeeper_passed=10,
+        gatekeeper_failed=70,
         gatekeeper_pass_rate=Decimal("0.12"),
-        buy_count=5, hold_count=60, skip_count=35,
+        buy_count=5,
+        hold_count=60,
+        skip_count=35,
     )
     verdict, reasons = derive_readiness_verdict(
         decision_metrics=dm,
@@ -235,16 +275,22 @@ def test_cost_metrics_rejects_zero_cost_with_tokens():
     """LLMProviderCostMetrics with tokens but no cost and is_estimated=False fails."""
     with pytest.raises(ValueError):
         LLMProviderCostMetrics(
-            total_input_tokens=1000, total_output_tokens=200, total_tokens=1200,
-            total_estimated_cost_usd=_ZERO, is_estimated=False,
+            total_input_tokens=1000,
+            total_output_tokens=200,
+            total_tokens=1200,
+            total_estimated_cost_usd=_ZERO,
+            is_estimated=False,
         )
 
 
 def test_cost_metrics_accepts_estimated_zero_cost():
     """Estimated metrics accept zero when tokens are present but is_estimated=True."""
     cm = LLMProviderCostMetrics(
-        total_input_tokens=0, total_output_tokens=0, total_tokens=0,
-        total_estimated_cost_usd=Decimal("0.02"), is_estimated=True,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_tokens=0,
+        total_estimated_cost_usd=Decimal("0.02"),
+        is_estimated=True,
     )
     assert cm.is_estimated is True
 
@@ -256,12 +302,17 @@ def test_cost_metrics_accepts_estimated_zero_cost():
 
 def test_report_includes_budget_blocks():
     cst = LLMProviderCostMetrics(
-        total_input_tokens=1000, total_output_tokens=200, total_tokens=1200,
-        total_estimated_cost_usd=Decimal("0.01"), is_estimated=False,
-        budget_block_count=5, cooldown_block_count=3,
+        total_input_tokens=1000,
+        total_output_tokens=200,
+        total_tokens=1200,
+        total_estimated_cost_usd=Decimal("0.01"),
+        is_estimated=False,
+        budget_block_count=5,
+        cooldown_block_count=3,
     )
     result = LLMProviderComparisonResult(
-        provider="deepseek", model_name="deepseek-v4-pro",
+        provider="deepseek",
+        model_name="deepseek-v4-pro",
         decision_metrics=_pass_decision(),
         calibration_metrics=_pass_calibration(),
         cost_metrics=cst,
@@ -284,9 +335,13 @@ def test_report_includes_budget_blocks():
 async def test_cost_metrics_budget_blocks_surfaced():
     """LLMProviderCostMetrics with explicit budget_block_count surfaces it."""
     cst = LLMProviderCostMetrics(
-        total_input_tokens=1000, total_output_tokens=200, total_tokens=1200,
-        total_estimated_cost_usd=Decimal("0.01"), is_estimated=False,
-        budget_block_count=3, cooldown_block_count=1,
+        total_input_tokens=1000,
+        total_output_tokens=200,
+        total_tokens=1200,
+        total_estimated_cost_usd=Decimal("0.01"),
+        is_estimated=False,
+        budget_block_count=3,
+        cooldown_block_count=1,
     )
     assert cst.budget_block_count == 3
     assert cst.cooldown_block_count == 1

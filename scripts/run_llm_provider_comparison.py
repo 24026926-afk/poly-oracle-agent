@@ -95,8 +95,10 @@ class _ClaudeClientAdapter:
         # Derive a per-file market key from the prompt to avoid shared
         # key suppressing unrelated evaluations.
         mk = "backtest"
-        for pattern in (r'"condition_id"\s*:\s*"([^"]+)"',
-                         r"'condition_id'\s*:\s*'([^']+)'"):
+        for pattern in (
+            r'"condition_id"\s*:\s*"([^"]+)"',
+            r"'condition_id'\s*:\s*'([^']+)'",
+        ):
             m = re.search(pattern, str(prompt))
             if m:
                 mk = f"bt-{m.group(1)[:20]}"
@@ -104,7 +106,9 @@ class _ClaudeClientAdapter:
 
         try:
             parsed, usage, block_reason = await self._client.evaluate_for_backtest(
-                str(prompt), "backtest", market_key=mk,
+                str(prompt),
+                "backtest",
+                market_key=mk,
             )
         except Exception:
             self.json_invalid_count += 1
@@ -141,7 +145,9 @@ class _ClaudeClientAdapter:
             self.total_output_tokens += int(out)
 
         reasoning = str(parsed.get("reasoning_log", ""))
-        if reasoning.startswith("Provider call blocked") or reasoning.startswith("Fallback —"):
+        if reasoning.startswith("Provider call blocked") or reasoning.startswith(
+            "Fallback —"
+        ):
             self.json_invalid_count += 1
             return parsed
 
@@ -170,11 +176,14 @@ _FALLBACK: dict[str, Any] = {
     "market_context": {
         "condition_id": "0000000000",
         "outcome_evaluated": "YES",
-        "best_bid": "0.5", "best_ask": "0.5", "midpoint": "0.5",
+        "best_bid": "0.5",
+        "best_ask": "0.5",
+        "midpoint": "0.5",
     },
     "probabilistic_estimate": {"p_true": "0.5", "p_market": "0.5"},
     "risk_assessment": {
-        "liquidity_risk_score": "0.5", "resolution_risk_score": "0.5",
+        "liquidity_risk_score": "0.5",
+        "resolution_risk_score": "0.5",
         "information_asymmetry_flag": False,
         "risk_notes": "Adapter-level fallback — provider call failed entirely, meeting minimum character requirements for validation schema.",
     },
@@ -199,7 +208,9 @@ def _build_provider_adapter(provider: str) -> _ClaudeClientAdapter:
     if provider == "deepseek":
         api_key = os.environ.get("DEEPSEEK_API_KEY", "")
         model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
-        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
+        base_url = os.environ.get(
+            "DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"
+        )
         max_tokens = int(os.environ.get("DEEPSEEK_MAX_TOKENS", "4096"))
         max_retries = int(os.environ.get("DEEPSEEK_MAX_RETRIES", "2"))
     elif provider == "anthropic":
@@ -214,13 +225,20 @@ def _build_provider_adapter(provider: str) -> _ClaudeClientAdapter:
         raise RuntimeError(f"API key not set for '{provider}'.")
 
     config = AppConfig(
-        anthropic_api_key=SecretStr(api_key), anthropic_model=model,
-        anthropic_max_tokens=max_tokens, anthropic_max_retries=max_retries,
-        deepseek_api_key=SecretStr(api_key), deepseek_base_url=base_url,
-        deepseek_model=model, deepseek_max_tokens=max_tokens,
+        anthropic_api_key=SecretStr(api_key),
+        anthropic_model=model,
+        anthropic_max_tokens=max_tokens,
+        anthropic_max_retries=max_retries,
+        deepseek_api_key=SecretStr(api_key),
+        deepseek_base_url=base_url,
+        deepseek_model=model,
+        deepseek_max_tokens=max_tokens,
         deepseek_max_retries=max_retries,
-        llm_provider=provider, dry_run=True,
-        grok_api_key=SecretStr(""), grok_mocked=True, grok_live_enabled=False,
+        llm_provider=provider,
+        dry_run=True,
+        grok_api_key=SecretStr(""),
+        grok_mocked=True,
+        grok_live_enabled=False,
         # WI-52 budget guard: enable with explicit limits (no zero defaults)
         enable_llm_cost_guard=True,
         llm_hourly_call_limit=120,
@@ -235,8 +253,9 @@ def _build_provider_adapter(provider: str) -> _ClaudeClientAdapter:
     in_q: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     out_q: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     return _ClaudeClientAdapter(
-        ClaudeClient(in_queue=in_q, out_queue=out_q, config=config,
-                     db_session_factory=None),
+        ClaudeClient(
+            in_queue=in_q, out_queue=out_q, config=config, db_session_factory=None
+        ),
         provider_label=provider,
     )
 
@@ -247,10 +266,13 @@ def _build_provider_adapter(provider: str) -> _ClaudeClientAdapter:
 
 
 def _derive_decision_metrics(
-    report: object, adapter: _ClaudeClientAdapter,
+    report: object,
+    adapter: _ClaudeClientAdapter,
 ) -> LLMProviderDecisionMetrics:
     decisions = getattr(report, "decisions", [])
-    gk_pass = sum(1 for d in decisions if getattr(d, "gatekeeper_result", "") == "PASSED")
+    gk_pass = sum(
+        1 for d in decisions if getattr(d, "gatekeeper_result", "") == "PASSED"
+    )
     gk_fail = len(decisions) - gk_pass
     buy = sum(1 for d in decisions if str(getattr(d, "action", "")).upper() == "BUY")
     hold = sum(1 for d in decisions if str(getattr(d, "action", "")).upper() == "HOLD")
@@ -262,38 +284,69 @@ def _derive_decision_metrics(
     all_calls = valid + invalid
 
     return LLMProviderDecisionMetrics(
-        total_calls=all_calls, valid_json_count=valid, invalid_json_count=invalid,
-        json_validity_rate=Decimal(valid) / Decimal(all_calls) if all_calls > 0 else _ZERO,
-        gatekeeper_passed=gk_pass, gatekeeper_failed=gk_fail,
+        total_calls=all_calls,
+        valid_json_count=valid,
+        invalid_json_count=invalid,
+        json_validity_rate=Decimal(valid) / Decimal(all_calls)
+        if all_calls > 0
+        else _ZERO,
+        gatekeeper_passed=gk_pass,
+        gatekeeper_failed=gk_fail,
         gatekeeper_pass_rate=Decimal(gk_pass) / Decimal(valid) if valid > 0 else _ZERO,
-        buy_count=buy, hold_count=hold, skip_count=skip, sell_count=sell,
+        buy_count=buy,
+        hold_count=hold,
+        skip_count=skip,
+        sell_count=sell,
     )
 
 
 def _derive_calibration_metrics(report: object) -> LLMProviderCalibrationMetrics:
     decisions = getattr(report, "decisions", [])
     buy_decisions = [
-        d for d in decisions
+        d
+        for d in decisions
         if getattr(d, "decision", False)
         and str(getattr(d, "action", "")).upper() == "BUY"
     ]
-    edges = [Decimal("0.0"), Decimal("0.2"), Decimal("0.4"), Decimal("0.6"), Decimal("0.8"), Decimal("1.0")]
+    edges = [
+        Decimal("0.0"),
+        Decimal("0.2"),
+        Decimal("0.4"),
+        Decimal("0.6"),
+        Decimal("0.8"),
+        Decimal("1.0"),
+    ]
     lows, highs, avgs, rates, cnts = [], [], [], [], []
     for i in range(len(edges) - 1):
         lo, hi = edges[i], edges[i + 1]
-        bucket = [d for d in buy_decisions if lo <= getattr(d, "confidence", _ZERO) <= hi]
-        lows.append(lo); highs.append(hi); cnts.append(len(bucket))
+        bucket = [
+            d for d in buy_decisions if lo <= getattr(d, "confidence", _ZERO) <= hi
+        ]
+        lows.append(lo)
+        highs.append(hi)
+        cnts.append(len(bucket))
         if bucket:
-            avgs.append(sum((getattr(d, "confidence", _ZERO) for d in bucket), _ZERO) / len(bucket))
-            wins = sum(1 for d in bucket if getattr(d, "realized_pnl_usdc", _ZERO) > _ZERO)
+            avgs.append(
+                sum((getattr(d, "confidence", _ZERO) for d in bucket), _ZERO)
+                / len(bucket)
+            )
+            wins = sum(
+                1 for d in bucket if getattr(d, "realized_pnl_usdc", _ZERO) > _ZERO
+            )
             rates.append(Decimal(wins) / Decimal(len(bucket)))
         else:
-            avgs.append(_ZERO); rates.append(_ZERO)
+            avgs.append(_ZERO)
+            rates.append(_ZERO)
     max_dev = _ZERO
     for i in range(len(avgs)):
         if cnts[i] > 0 and rates[i] > _ZERO:
             max_dev = max(max_dev, abs(avgs[i] - rates[i]))
-    avg_ev = sum((getattr(d, "ev", _ZERO) for d in buy_decisions), _ZERO) / len(buy_decisions) if buy_decisions else _ZERO
+    avg_ev = (
+        sum((getattr(d, "ev", _ZERO) for d in buy_decisions), _ZERO)
+        / len(buy_decisions)
+        if buy_decisions
+        else _ZERO
+    )
     total_pnl = getattr(report, "net_pnl_usdc", _ZERO)
     total_trades = getattr(report, "total_trades", 0)
     avg_real = total_pnl / Decimal(total_trades) if total_trades > 0 else _ZERO
@@ -309,43 +362,64 @@ def _derive_calibration_metrics(report: object) -> LLMProviderCalibrationMetrics
     # non-zero PnL check) ensures valid break-even outcomes are still
     # counted as resolved data — a zero-PnL settled trade is real
     # outcome evidence for calibration.
-    has_outcomes = any(
-        bool(getattr(d, "outcome_resolved", False))
-        for d in decisions
-    )
+    has_outcomes = any(bool(getattr(d, "outcome_resolved", False)) for d in decisions)
 
     return LLMProviderCalibrationMetrics(
-        confidence_bucket_low=lows, confidence_bucket_high=highs,
-        confidence_bucket_avg=avgs, confidence_bucket_observed_win_rate=rates,
-        confidence_bucket_count=cnts, confidence_calibration_deviation=max_dev,
-        avg_ev=avg_ev, avg_realized_return=avg_real,
-        ev_calibration_deviation=ev_dev, outcome_coverage_fraction=outcome_cov,
+        confidence_bucket_low=lows,
+        confidence_bucket_high=highs,
+        confidence_bucket_avg=avgs,
+        confidence_bucket_observed_win_rate=rates,
+        confidence_bucket_count=cnts,
+        confidence_calibration_deviation=max_dev,
+        avg_ev=avg_ev,
+        avg_realized_return=avg_real,
+        ev_calibration_deviation=ev_dev,
+        outcome_coverage_fraction=outcome_cov,
         has_outcome_data=has_outcomes,
     )
 
 
 def _derive_cost_metrics(
-    adapter: _ClaudeClientAdapter, config: LLMProviderComparisonConfig,
+    adapter: _ClaudeClientAdapter,
+    config: LLMProviderComparisonConfig,
 ) -> LLMProviderCostMetrics:
     api_calls = adapter.api_call_count
     missing = adapter.calls_with_missing_usage
     has_usage = adapter.total_input_tokens > 0 or adapter.total_output_tokens > 0
     if api_calls == 0:
         return LLMProviderCostMetrics(
-            total_input_tokens=0, total_output_tokens=0, total_tokens=0,
-            total_estimated_cost_usd=_ZERO, is_estimated=False,
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_tokens=0,
+            total_estimated_cost_usd=_ZERO,
+            is_estimated=False,
             budget_block_count=adapter.budget_block_count,
             cooldown_block_count=adapter.cooldown_block_count,
             calls_with_missing_usage=0,
         )
     if has_usage:
-        est_in = adapter.total_input_tokens + (missing * config.fallback_tokens_per_call) if missing > 0 else adapter.total_input_tokens
-        est_out = adapter.total_output_tokens + (missing * max(config.fallback_tokens_per_call // 4, 256)) if missing > 0 else adapter.total_output_tokens
+        est_in = (
+            adapter.total_input_tokens + (missing * config.fallback_tokens_per_call)
+            if missing > 0
+            else adapter.total_input_tokens
+        )
+        est_out = (
+            adapter.total_output_tokens
+            + (missing * max(config.fallback_tokens_per_call // 4, 256))
+            if missing > 0
+            else adapter.total_output_tokens
+        )
         est_total = est_in + est_out
-        est_cost = Decimal(est_in) * config.cost_per_input_token_usd + Decimal(est_out) * config.cost_per_output_token_usd
+        est_cost = (
+            Decimal(est_in) * config.cost_per_input_token_usd
+            + Decimal(est_out) * config.cost_per_output_token_usd
+        )
         return LLMProviderCostMetrics(
-            total_input_tokens=est_in, total_output_tokens=est_out, total_tokens=est_total,
-            total_estimated_cost_usd=est_cost, is_estimated=(missing > 0),
+            total_input_tokens=est_in,
+            total_output_tokens=est_out,
+            total_tokens=est_total,
+            total_estimated_cost_usd=est_cost,
+            is_estimated=(missing > 0),
             budget_block_count=adapter.budget_block_count,
             cooldown_block_count=adapter.cooldown_block_count,
             calls_with_missing_usage=missing,
@@ -353,10 +427,16 @@ def _derive_cost_metrics(
     est_in = api_calls * config.fallback_tokens_per_call
     est_out = api_calls * max(config.fallback_tokens_per_call // 4, 256)
     est_total = est_in + est_out
-    est_cost = Decimal(est_in) * config.cost_per_input_token_usd + Decimal(est_out) * config.cost_per_output_token_usd
+    est_cost = (
+        Decimal(est_in) * config.cost_per_input_token_usd
+        + Decimal(est_out) * config.cost_per_output_token_usd
+    )
     return LLMProviderCostMetrics(
-        total_input_tokens=est_in, total_output_tokens=est_out, total_tokens=est_total,
-        total_estimated_cost_usd=est_cost, is_estimated=True,
+        total_input_tokens=est_in,
+        total_output_tokens=est_out,
+        total_tokens=est_total,
+        total_estimated_cost_usd=est_cost,
+        is_estimated=True,
         budget_block_count=adapter.budget_block_count,
         cooldown_block_count=adapter.cooldown_block_count,
         calls_with_missing_usage=api_calls,
@@ -366,11 +446,13 @@ def _derive_cost_metrics(
 def _derive_latency_metrics(adapter: _ClaudeClientAdapter) -> LLMProviderLatencyMetrics:
     lats = adapter._latencies
     return LLMProviderLatencyMetrics(
-        min_latency_ms=min(lats) if lats else 0.0, max_latency_ms=max(lats) if lats else 0.0,
+        min_latency_ms=min(lats) if lats else 0.0,
+        max_latency_ms=max(lats) if lats else 0.0,
         mean_latency_ms=float(adapter.mean_latency_ms),
         median_latency_ms=float(adapter.median_latency_ms),
         p95_latency_ms=float(adapter.p95_latency_ms),
-        p99_latency_ms=0.0, sample_count=len(lats),
+        p99_latency_ms=0.0,
+        sample_count=len(lats),
     )
 
 
@@ -380,32 +462,51 @@ def _derive_latency_metrics(adapter: _ClaudeClientAdapter) -> LLMProviderLatency
 
 
 async def _run_provider_backtest(
-    *, adapter: _ClaudeClientAdapter, comp_config: LLMProviderComparisonConfig,
-    provider_name: str, model_name: str, data_dir: str,
+    *,
+    adapter: _ClaudeClientAdapter,
+    comp_config: LLMProviderComparisonConfig,
+    provider_name: str,
+    model_name: str,
+    data_dir: str,
 ) -> LLMProviderComparisonResult:
-    bt_cfg = BacktestConfig(data_dir=data_dir, initial_bankroll_usdc=comp_config.initial_bankroll_usdc, dry_run=True)
-    runner = BacktestRunner(config=bt_cfg, data_loader=BacktestDataLoader(bt_cfg), claude_client=adapter)
+    bt_cfg = BacktestConfig(
+        data_dir=data_dir,
+        initial_bankroll_usdc=comp_config.initial_bankroll_usdc,
+        dry_run=True,
+    )
+    runner = BacktestRunner(
+        config=bt_cfg, data_loader=BacktestDataLoader(bt_cfg), claude_client=adapter
+    )
     report = await runner.run()
     decision = _derive_decision_metrics(report, adapter)
     calibration = _derive_calibration_metrics(report)
     cost = _derive_cost_metrics(adapter, comp_config)
     latency = _derive_latency_metrics(adapter)
     verdict, reasons = derive_readiness_verdict(
-        decision_metrics=decision, calibration_metrics=calibration,
-        cost_metrics=cost, latency_metrics=latency,
+        decision_metrics=decision,
+        calibration_metrics=calibration,
+        cost_metrics=cost,
+        latency_metrics=latency,
         baseline_cost_usd=comp_config.anthropic_baseline_cost_usd,
         baseline_mean_latency_ms=comp_config.anthropic_baseline_latency_ms,
         config=comp_config,
     )
     rec = derive_calibration_recommendation(
-        provider=provider_name, model_name=model_name,
-        calibration_metrics=calibration, decision_metrics=decision, config=comp_config,
+        provider=provider_name,
+        model_name=model_name,
+        calibration_metrics=calibration,
+        decision_metrics=decision,
+        config=comp_config,
     )
     return LLMProviderComparisonResult(
-        provider=provider_name, model_name=model_name,
-        decision_metrics=decision, calibration_metrics=calibration,
-        cost_metrics=cost, latency_metrics=latency,
-        readiness_verdict=verdict, readiness_reasons=reasons,
+        provider=provider_name,
+        model_name=model_name,
+        decision_metrics=decision,
+        calibration_metrics=calibration,
+        cost_metrics=cost,
+        latency_metrics=latency,
+        readiness_verdict=verdict,
+        readiness_reasons=reasons,
         calibration_recommendation=rec,
     )
 
@@ -431,6 +532,7 @@ def _load_overrides(path: str) -> dict:
         pass
     try:
         import yaml
+
         loaded = yaml.safe_load(raw)
         if loaded is None:
             return {}
@@ -462,28 +564,42 @@ async def main() -> int:
         ds = _build_provider_adapter("deepseek")
     except RuntimeError as exc:
         error_msg = f"deepseek: {exc}"
-        run = LLMProviderComparisonRun(config=comp_config, started_at_utc=started,
-                                        completed_at_utc=datetime.now(timezone.utc),
-                                        error_message=error_msg)
+        run = LLMProviderComparisonRun(
+            config=comp_config,
+            started_at_utc=started,
+            completed_at_utc=datetime.now(timezone.utc),
+            error_message=error_msg,
+        )
         generate_comparison_report(run=run, output_path=output_path)
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     try:
-        results.append(await _run_provider_backtest(
-            adapter=ds, comp_config=comp_config, provider_name="deepseek",
-            model_name=comp_config.deepseek_model, data_dir=comp_config.data_dir,
-        ))
+        results.append(
+            await _run_provider_backtest(
+                adapter=ds,
+                comp_config=comp_config,
+                provider_name="deepseek",
+                model_name=comp_config.deepseek_model,
+                data_dir=comp_config.data_dir,
+            )
+        )
     except Exception as exc:
         error_msg = f"deepseek backtest: {exc}"
-        run = LLMProviderComparisonRun(config=comp_config, started_at_utc=started,
-                                        completed_at_utc=datetime.now(timezone.utc),
-                                        error_message=error_msg)
+        run = LLMProviderComparisonRun(
+            config=comp_config,
+            started_at_utc=started,
+            completed_at_utc=datetime.now(timezone.utc),
+            error_message=error_msg,
+        )
         generate_comparison_report(run=run, output_path=output_path)
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
     # --- Anthropic sampling (fraction-gated) ---
-    if comp_config.enable_anthropic_sampling and comp_config.anthropic_sample_fraction > _ZERO:
+    if (
+        comp_config.enable_anthropic_sampling
+        and comp_config.anthropic_sample_fraction > _ZERO
+    ):
         try:
             an = _build_provider_adapter("anthropic")
         except RuntimeError as exc:
@@ -501,10 +617,15 @@ async def main() -> int:
                     for f in sampled:
                         shutil.copy2(f, tmpdir)
                     an_dir = tmpdir
-                results.append(await _run_provider_backtest(
-                    adapter=an, comp_config=comp_config, provider_name="anthropic",
-                    model_name=comp_config.anthropic_model, data_dir=an_dir,
-                ))
+                results.append(
+                    await _run_provider_backtest(
+                        adapter=an,
+                        comp_config=comp_config,
+                        provider_name="anthropic",
+                        model_name=comp_config.anthropic_model,
+                        data_dir=an_dir,
+                    )
+                )
             except Exception as exc:
                 logger.error("anthropic.backtest_failed", error=str(exc))
             finally:
@@ -512,9 +633,13 @@ async def main() -> int:
                     shutil.rmtree(tmpdir, ignore_errors=True)
 
     # --- Report ---
-    run = LLMProviderComparisonRun(config=comp_config, started_at_utc=started,
-                                    completed_at_utc=datetime.now(timezone.utc),
-                                    results=results, error_message=error_msg)
+    run = LLMProviderComparisonRun(
+        config=comp_config,
+        started_at_utc=started,
+        completed_at_utc=datetime.now(timezone.utc),
+        results=results,
+        error_message=error_msg,
+    )
     generate_comparison_report(run=run, output_path=output_path)
     for r in results:
         print(

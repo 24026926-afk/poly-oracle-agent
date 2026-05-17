@@ -19,7 +19,6 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import pytest
 from pydantic import ValidationError
@@ -27,7 +26,6 @@ from pydantic import ValidationError
 from src.schemas.ops import (
     NarrativeRenderStatus,
     NarrativeTemplateKey,
-    OperationalEventPayload,
     OperationalEventPersistenceStatus,
     OperationalEventReasonCode,
     OperationalEventRecord,
@@ -46,6 +44,7 @@ try:
         DashboardActivityFeedStatus,
         DashboardCurrentState,
     )
+
     _DASHBOARD_SCHEMAS_AVAILABLE = True
 except ImportError:
     _DASHBOARD_SCHEMAS_AVAILABLE = False
@@ -58,6 +57,7 @@ try:
         fetch_activity_feed,
         format_activity_row_html,
     )
+
     _DASHBOARD_HELPERS_AVAILABLE = True
 except ImportError:
     _DASHBOARD_HELPERS_AVAILABLE = False
@@ -116,7 +116,9 @@ def test_dashboard_activity_feed_status_enum_exists() -> None:
 
 def test_dashboard_activity_feed_failure_reason_enum_exists() -> None:
     if not _DASHBOARD_SCHEMAS_AVAILABLE:
-        raise NotImplementedError("DashboardActivityFeedFailureReason enum not implemented")
+        raise NotImplementedError(
+            "DashboardActivityFeedFailureReason enum not implemented"
+        )
     expected = {
         "MISSING_TABLE",
         "DATABASE_UNREACHABLE",
@@ -202,7 +204,13 @@ def test_dashboard_current_state_schema_exists() -> None:
         overall_state="continued",
         timestamp_utc=_utc(hour=0),
     )
-    assert state.overall_state in {"continued", "skipped", "degraded", "stopped", "unknown"}
+    assert state.overall_state in {
+        "continued",
+        "skipped",
+        "degraded",
+        "stopped",
+        "unknown",
+    }
     assert state.timestamp_utc.tzinfo is not None
 
 
@@ -219,7 +227,6 @@ def test_dashboard_current_state_rejects_invalid_overall_state() -> None:
 def test_dashboard_activity_feed_result_status_consistency() -> None:
     if not _DASHBOARD_SCHEMAS_AVAILABLE:
         raise NotImplementedError("DashboardActivityFeedResult schema not implemented")
-    req = DashboardActivityFeedFilter()
     result = DashboardActivityFeedResult(
         status=DashboardActivityFeedStatus.EMPTY_WINDOW,
         items=[],
@@ -287,7 +294,9 @@ def test_fetch_activity_feed_returns_dashboard_activity_feed_result(tmp_path) ->
         dashboard_mod_local.DB_PATH = original
     assert isinstance(result, DashboardActivityFeedResult)
     assert result.status == DashboardActivityFeedStatus.DATABASE_UNAVAILABLE
-    assert result.failure_reason == DashboardActivityFeedFailureReason.DATABASE_UNREACHABLE
+    assert (
+        result.failure_reason == DashboardActivityFeedFailureReason.DATABASE_UNREACHABLE
+    )
     assert not nonexistent.exists()
 
 
@@ -672,7 +681,10 @@ def test_derive_current_state_preserves_dry_run_execution() -> None:
     ]
     state = derive_current_state(items)
     assert state.execution_summary is not None
-    assert "simulated" in state.execution_summary.lower() or "dry" in state.execution_summary.lower()
+    assert (
+        "simulated" in state.execution_summary.lower()
+        or "dry" in state.execution_summary.lower()
+    )
 
 
 def test_derive_current_state_derives_circuit_breaker_from_latest() -> None:
@@ -692,7 +704,10 @@ def test_derive_current_state_derives_circuit_breaker_from_latest() -> None:
         ),
     ]
     state = derive_current_state(items)
-    assert state.circuit_breaker_summary == "Circuit breaker opened; new BUY routing blocked."
+    assert (
+        state.circuit_breaker_summary
+        == "Circuit breaker opened; new BUY routing blocked."
+    )
     assert state.overall_state == "degraded"
 
 

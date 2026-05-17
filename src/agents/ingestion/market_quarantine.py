@@ -10,7 +10,6 @@ does not suppress unrelated markets.
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, Optional
@@ -60,7 +59,9 @@ class MarketQuarantineManager:
         if self.is_quarantined(condition_id):
             return None  # Already quarantined
 
-        self._failure_counts[condition_id] = self._failure_counts.get(condition_id, 0) + 1
+        self._failure_counts[condition_id] = (
+            self._failure_counts.get(condition_id, 0) + 1
+        )
 
         if self._failure_counts[condition_id] >= self._failure_threshold:
             now = datetime.now(timezone.utc)
@@ -88,7 +89,9 @@ class MarketQuarantineManager:
         # If quarantined, remove from quarantine on success
         self._quarantined.pop(condition_id, None)
 
-    def get_quarantine_decision(self, condition_id: str) -> Optional[MarketQuarantineDecision]:
+    def get_quarantine_decision(
+        self, condition_id: str
+    ) -> Optional[MarketQuarantineDecision]:
         """Return the active quarantine decision for a market, or None."""
         if self.is_quarantined(condition_id):
             return self._quarantined.get(condition_id)
@@ -99,10 +102,7 @@ class MarketQuarantineManager:
         """Number of currently quarantined markets."""
         # Count only non-expired quarantines
         now = datetime.now(timezone.utc)
-        return sum(
-            1 for d in self._quarantined.values()
-            if d.expires_at_utc > now
-        )
+        return sum(1 for d in self._quarantined.values() if d.expires_at_utc > now)
 
     def clear(self) -> None:
         """Clear all quarantine state (e.g. on restart)."""

@@ -9,10 +9,8 @@ no LLM call, no execution call, and no Gatekeeper field is introduced.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -230,7 +228,10 @@ async def test_every_supported_event_type_renders_a_typed_success_or_typed_fallb
         )
         result = render_event(rec)
         assert isinstance(result.status, NarrativeRenderStatus)
-        assert result.narrative is not None or result.status == NarrativeRenderStatus.FAILED
+        assert (
+            result.narrative is not None
+            or result.status == NarrativeRenderStatus.FAILED
+        )
 
 
 @pytest.mark.asyncio
@@ -375,7 +376,10 @@ async def test_render_pass_with_injected_malformed_payload_records_does_not_cras
     assert len(results) == len(poisoned.events)
     # Bad record returns a typed fallback, not an exception
     assert results[-1].status == NarrativeRenderStatus.FALLBACK
-    assert results[-1].failure_reason == NarrativeRenderFailureReason.MALFORMED_PAYLOAD_JSON
+    assert (
+        results[-1].failure_reason
+        == NarrativeRenderFailureReason.MALFORMED_PAYLOAD_JSON
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

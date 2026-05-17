@@ -9,7 +9,6 @@ lifecycle event emission.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from decimal import Decimal
@@ -90,11 +89,23 @@ async def test_operational_events_table_has_required_columns(async_engine):
     from sqlalchemy import inspect as sa_inspect
 
     def _get_columns(conn):
-        return {col["name"] for col in sa_inspect(conn).get_columns("operational_events")}
+        return {
+            col["name"] for col in sa_inspect(conn).get_columns("operational_events")
+        }
 
     async with async_engine.connect() as conn:
         columns = await conn.run_sync(_get_columns)
-    required = {"id", "event_type", "severity", "source", "reason_code", "payload_json", "persistence_status", "created_at_utc", "recorded_at_utc"}
+    required = {
+        "id",
+        "event_type",
+        "severity",
+        "source",
+        "reason_code",
+        "payload_json",
+        "persistence_status",
+        "created_at_utc",
+        "recorded_at_utc",
+    }
     assert required.issubset(columns)
 
 
@@ -120,7 +131,7 @@ async def test_repository_read_window_returns_events(async_session):
     """read_window returns events within the current transaction."""
     repo = OperationalEventRepository(async_session)
     event = _make_create()
-    record = await repo.append(event)
+    await repo.append(event)
     await async_session.flush()
 
     query = OperationalEventQuery(limit=10)
@@ -151,11 +162,13 @@ async def test_repository_read_window_filters_by_severity(async_session):
     """read_window filters by severity."""
     repo = OperationalEventRepository(async_session)
     await repo.append(_make_create(severity=OperationalEventSeverity.INFO))
-    await repo.append(_make_create(
-        severity=OperationalEventSeverity.CRITICAL,
-        event_type=OperationalEventType.ERROR_RECOVERED,
-        reason_code=OperationalEventReasonCode.ERROR_HANDLED,
-    ))
+    await repo.append(
+        _make_create(
+            severity=OperationalEventSeverity.CRITICAL,
+            event_type=OperationalEventType.ERROR_RECOVERED,
+            reason_code=OperationalEventReasonCode.ERROR_HANDLED,
+        )
+    )
     await async_session.flush()
 
     query = OperationalEventQuery(
@@ -171,8 +184,10 @@ async def test_repository_read_window_filters_by_severity(async_session):
 async def test_repository_has_no_update_delete_methods():
     """Repository public API has no update or delete methods."""
     public = [
-        m for m in dir(OperationalEventRepository)
-        if not m.startswith("_") and callable(getattr(OperationalEventRepository, m, None))
+        m
+        for m in dir(OperationalEventRepository)
+        if not m.startswith("_")
+        and callable(getattr(OperationalEventRepository, m, None))
     ]
     assert "update" not in public
     assert "delete" not in public
@@ -185,7 +200,10 @@ async def test_repository_batch_append_persists_multiple_events(async_session):
     events = [
         _make_create(),
         _make_create(event_type=OperationalEventType.SHUTDOWN),
-        _make_create(event_type=OperationalEventType.CONFIG_LOADED, reason_code=OperationalEventReasonCode.CONFIG_VALID),
+        _make_create(
+            event_type=OperationalEventType.CONFIG_LOADED,
+            reason_code=OperationalEventReasonCode.CONFIG_VALID,
+        ),
     ]
     result = await repo.batch_append(events)
 
@@ -225,7 +243,9 @@ async def test_event_bus_queue_overflow_behavior(async_session):
     async def factory():
         return repo
 
-    config = _make_config(event_ledger_queue_size=1, event_ledger_overflow_policy="drop_newest")
+    config = _make_config(
+        event_ledger_queue_size=1, event_ledger_overflow_policy="drop_newest"
+    )
     bus = OperationalEventBus(repository_factory=factory, config=config)
 
     # Fill with WARNING (not diagnostic, so _pop_diagnostic won't free space)
@@ -243,7 +263,9 @@ async def test_event_bus_queue_state_reports_dropped(async_session):
     async def factory():
         return repo
 
-    config = _make_config(event_ledger_queue_size=1, event_ledger_overflow_policy="drop_newest")
+    config = _make_config(
+        event_ledger_queue_size=1, event_ledger_overflow_policy="drop_newest"
+    )
     bus = OperationalEventBus(repository_factory=factory, config=config)
 
     # Fill with WARNING so _pop_diagnostic can't free space
@@ -339,7 +361,9 @@ async def test_read_window_offset_pages_through_all_records(async_session):
 async def test_event_payload_is_secret_free_in_db(async_session):
     """Persisted events in the database do not contain raw secrets."""
     repo = OperationalEventRepository(async_session)
-    event = _make_create(payload=OperationalEventPayload(message="System started normally"))
+    event = _make_create(
+        payload=OperationalEventPayload(message="System started normally")
+    )
     record = await repo.append(event)
 
     # payload_json should be a clean JSON string without secrets
@@ -371,14 +395,22 @@ def test_migration_file_exists_and_creates_correct_table():
     correct table name and columns in its upgrade function."""
     migration_path = os.path.join(
         os.path.dirname(__file__),
-        "..", "..", "migrations", "versions", "0006_add_operational_events.py",
+        "..",
+        "..",
+        "migrations",
+        "versions",
+        "0006_add_operational_events.py",
     )
-    assert os.path.exists(migration_path), f"Migration file not found at {migration_path}"
+    assert os.path.exists(migration_path), (
+        f"Migration file not found at {migration_path}"
+    )
 
     with open(migration_path) as f:
         content = f.read()
 
-    assert "operational_events" in content, "Migration must create operational_events table"
+    assert "operational_events" in content, (
+        "Migration must create operational_events table"
+    )
     assert "def upgrade()" in content, "Migration must have upgrade function"
     assert "def downgrade()" in content, "Migration must have downgrade function"
 
@@ -387,7 +419,11 @@ def test_migration_declares_all_required_columns():
     """Verify the migration file declares all required columns."""
     migration_path = os.path.join(
         os.path.dirname(__file__),
-        "..", "..", "migrations", "versions", "0006_add_operational_events.py",
+        "..",
+        "..",
+        "migrations",
+        "versions",
+        "0006_add_operational_events.py",
     )
     with open(migration_path) as f:
         content = f.read()
@@ -411,17 +447,18 @@ async def test_alembic_migration_applies_to_real_engine():
         db_path = tmp.name
 
     try:
-        alembic_dir = os.path.join(
-            os.path.dirname(__file__), "..", "..", "migrations"
-        )
         db_url = f"sqlite+aiosqlite:///{db_path}"
         env = {**os.environ, "DATABASE_URL": db_url}
 
         result = subprocess.run(
             [
-                ".venv/bin/python", "-m", "alembic",
-                "-c", os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"),
-                "upgrade", "head",
+                ".venv/bin/python",
+                "-m",
+                "alembic",
+                "-c",
+                os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"),
+                "upgrade",
+                "head",
             ],
             capture_output=True,
             text=True,
@@ -430,9 +467,7 @@ async def test_alembic_migration_applies_to_real_engine():
             timeout=30,
         )
 
-        assert result.returncode == 0, (
-            f"alembic upgrade head failed:\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"alembic upgrade head failed:\n{result.stderr}"
 
         # Verify the table exists in the migrated DB using aiosqlite
         import aiosqlite
@@ -442,7 +477,9 @@ async def test_alembic_migration_applies_to_real_engine():
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='operational_events'"
             )
             row = await cursor.fetchone()
-            assert row is not None, "operational_events table not found after alembic upgrade"
+            assert row is not None, (
+                "operational_events table not found after alembic upgrade"
+            )
 
             # Verify columns
             cursor = await db.execute("PRAGMA table_info(operational_events)")

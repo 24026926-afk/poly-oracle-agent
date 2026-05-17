@@ -13,13 +13,11 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.ops.check_deployment import (
-    _check_compose_plugin,
     _check_compose_service,
     _check_docker_installed,
     _check_dry_run_guard,
@@ -76,7 +74,6 @@ def _raise_urlerror(reason: str = "Connection refused") -> None:
 
 
 def _raise_httperror(status: int, body: str = "") -> None:
-    req = urllib.request.Request("http://127.0.0.1:8080/healthz")
     resp = _FakeHTTPResponse(status, body)
     raise urllib.error.HTTPError(
         "http://127.0.0.1:8080/healthz", status, "Error", dict(resp.headers), None
@@ -206,9 +203,7 @@ class TestComposeServiceStatus:
     def test_container_restarting_reports_restart_count(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = _mock_subprocess_run(
-                stdout=json.dumps(
-                    [{"State": "restarting", "Status": "Restarting (3)"}]
-                )
+                stdout=json.dumps([{"State": "restarting", "Status": "Restarting (3)"}])
             )
             probe = _check_compose_service()
             assert probe["status"] == "fail"
@@ -470,7 +465,9 @@ class TestDeploymentValidationReport:
 
         report = json.loads(captured.getvalue())
         assert "probes" in report
-        assert len(report["probes"]) >= 7  # docker + compose + service + dry_run + healthz + readyz + metrics + inspection
+        assert (
+            len(report["probes"]) >= 7
+        )  # docker + compose + service + dry_run + healthz + readyz + metrics + inspection
 
     def test_report_failure_reason_is_typed_enum(self):
         """All failure reasons map to known DeploymentFailureReason values."""

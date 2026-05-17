@@ -86,9 +86,11 @@ class HistoricalDatasetBuilder:
         source_failure = False
 
         for idx, raw in enumerate(raw_markets):
-            record, record_skips, record_source_failure = (
-                await self._build_market_record(raw, index=idx)
-            )
+            (
+                record,
+                record_skips,
+                record_source_failure,
+            ) = await self._build_market_record(raw, index=idx)
             skipped.extend(record_skips)
             if record_source_failure:
                 source_failure = True
@@ -270,8 +272,7 @@ class HistoricalDatasetBuilder:
                 token_id=token_id,
                 condition_id=condition_id,
                 message=(
-                    f"Snapshot payload is not a list: "
-                    f"{type(raw_snapshots).__name__}"
+                    f"Snapshot payload is not a list: {type(raw_snapshots).__name__}"
                 ),
                 record_index=index,
             )
@@ -336,8 +337,7 @@ class HistoricalDatasetBuilder:
                     token_id=token_id,
                     condition_id=condition_id,
                     message=(
-                        f"Duplicate snapshot at "
-                        f"{snapshot.timestamp_utc.isoformat()}"
+                        f"Duplicate snapshot at {snapshot.timestamp_utc.isoformat()}"
                     ),
                     record_index=snap_idx,
                 )
@@ -421,13 +421,17 @@ class HistoricalDatasetBuilder:
             )
 
         spread = self._optional_decimal(
-            raw, token_id=token_id, condition_id=condition_id,
+            raw,
+            token_id=token_id,
+            condition_id=condition_id,
             field_names=("spread",),
             default=best_ask - best_bid,
             skips=skips,
         )
         volume_24h = self._optional_decimal(
-            raw, token_id=token_id, condition_id=condition_id,
+            raw,
+            token_id=token_id,
+            condition_id=condition_id,
             field_names=("volume_24h", "volume24hr", "volume"),
             default=None,
             skips=skips,
@@ -555,9 +559,7 @@ class HistoricalDatasetBuilder:
         if record.resolved_outcome is not None:
             outcome_data["resolved_outcome"] = record.resolved_outcome
         if record.resolved_outcome_price is not None:
-            outcome_data["resolved_outcome_price"] = str(
-                record.resolved_outcome_price
-            )
+            outcome_data["resolved_outcome_price"] = str(record.resolved_outcome_price)
         if record.realized_pnl_usdc is not None:
             outcome_data["realized_pnl_usdc"] = str(record.realized_pnl_usdc)
 
@@ -585,9 +587,7 @@ class HistoricalDatasetBuilder:
     # Field helpers
     # ------------------------------------------------------------------
 
-    def _require_decimal(
-        self, raw: dict[str, Any], *field_names: str
-    ) -> Decimal:
+    def _require_decimal(self, raw: dict[str, Any], *field_names: str) -> Decimal:
         """Extract first available named field and parse as Decimal."""
         for name in field_names:
             value = raw.get(name)
@@ -602,9 +602,7 @@ class HistoricalDatasetBuilder:
                     return Decimal(str(value))
                 except Exception:
                     pass
-        raise ValueError(
-            f"None of the fields {field_names} found in snapshot"
-        )
+        raise ValueError(f"None of the fields {field_names} found in snapshot")
 
     def _optional_decimal(
         self,

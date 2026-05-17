@@ -16,7 +16,7 @@ import json
 import random
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 import websockets
@@ -110,7 +110,9 @@ class CLOBWebSocketClient:
                 self._health.consecutive_failure_count += 1
                 self._health.reconnect_count = self._health.consecutive_failure_count
                 self._health.total_reconnect_count += 1
-                self._health.last_error_reason = f"ConnectionClosed: code={exc.code} reason={exc.reason}"
+                self._health.last_error_reason = (
+                    f"ConnectionClosed: code={exc.code} reason={exc.reason}"
+                )
                 self._health.last_connected_at_utc = None
                 logger.warning(
                     "ws_client.disconnected",
@@ -295,9 +297,7 @@ class CLOBWebSocketClient:
                 except asyncio.TimeoutError:
                     logger.warning(
                         "ws_client.pong_timeout",
-                        timeout_seconds=str(
-                            self._reconnect_cfg.pong_timeout_seconds
-                        ),
+                        timeout_seconds=str(self._reconnect_cfg.pong_timeout_seconds),
                     )
                     return  # trigger reconnect
             except websockets.ConnectionClosed:

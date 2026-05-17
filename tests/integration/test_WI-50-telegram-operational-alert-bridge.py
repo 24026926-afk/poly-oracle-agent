@@ -11,16 +11,14 @@ timestamps, and cooldown dedupe across multiple evaluation cycles.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from src.agents.execution.circuit_breaker import CircuitBreakerState
 from src.observability.operational_alerts import OperationalAlertBridge
 from src.schemas.ops import (
     OperationalAlert,
     OperationalAlertConfig,
-    OperationalAlertDispatchResult,
     OperationalAlertSeverity,
     OperationalAlertStatus,
     OperationalAlertType,
@@ -96,8 +94,7 @@ class TestEndToEndAlertDispatch:
             now=now,
         )
         assert all(
-            r.status in (OperationalAlertStatus.SUPPRESSED_DISABLED,)
-            for r in results
+            r.status in (OperationalAlertStatus.SUPPRESSED_DISABLED,) for r in results
         )
 
         # 2. Still degraded but below threshold
@@ -110,8 +107,7 @@ class TestEndToEndAlertDispatch:
             now=now2,
         )
         assert all(
-            r.status == OperationalAlertStatus.SUPPRESSED_DISABLED
-            for r in results
+            r.status == OperationalAlertStatus.SUPPRESSED_DISABLED for r in results
         )
 
         # 3. Sustained beyond threshold — fires
@@ -194,7 +190,8 @@ class TestEndToEndAlertDispatch:
             now=now,
         )
         open_dispatched = [
-            r for r in results
+            r
+            for r in results
             if r.alert_type == OperationalAlertType.CIRCUIT_BREAKER_OPENED
             and r.status == OperationalAlertStatus.DISPATCHED
         ]
@@ -210,7 +207,8 @@ class TestEndToEndAlertDispatch:
             now=now2,
         )
         closed_dispatched = [
-            r for r in results
+            r
+            for r in results
             if r.alert_type == OperationalAlertType.CIRCUIT_BREAKER_CLOSED
             and r.status == OperationalAlertStatus.DISPATCHED
         ]
@@ -241,22 +239,30 @@ class TestCooldownAcrossMultipleCycles:
 
         # Cycle 1: first seen
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now,
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now,
         )
         # Cycle 2: beyond threshold — dispatch
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=11),
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=11),
         )
         # Cycle 3: still degraded, inside cooldown — suppressed
         results = await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=30),
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=30),
         )
         suppressed = [
-            r for r in results
-            if r.status == OperationalAlertStatus.SUPPRESSED_COOLDOWN
+            r for r in results if r.status == OperationalAlertStatus.SUPPRESSED_COOLDOWN
         ]
         assert len(suppressed) == 1
         assert notifier._send.call_count == 1
@@ -277,25 +283,39 @@ class TestCooldownAcrossMultipleCycles:
 
         # First: degraded readiness fires
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now,
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now,
         )
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=11),
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=11),
         )
 
         # Second: websocket stale fires (different type, independent cooldown)
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=False, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=1),
+            readiness_ready=False,
+            ws_connected=False,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=1),
         )
         results = await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=False, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=12),
+            readiness_ready=False,
+            ws_connected=False,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=12),
         )
 
-        dispatched = [r for r in results if r.status == OperationalAlertStatus.DISPATCHED]
+        dispatched = [
+            r for r in results if r.status == OperationalAlertStatus.DISPATCHED
+        ]
         assert len(dispatched) == 1  # websocket_stale dispatched
         assert notifier._send.call_count == 2  # readiness + websocket
 
@@ -318,16 +338,22 @@ class TestEdgeCases:
 
         # Flap: degraded
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now,
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now,
         )
         state = bridge.get_state(OperationalAlertType.READINESS_DEGRADED)
         assert state.is_active is True
 
         # Flap: ready
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=True, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=10),
+            readiness_ready=True,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=10),
         )
         state = bridge.get_state(OperationalAlertType.READINESS_DEGRADED)
         assert state.is_active is False
@@ -335,8 +361,11 @@ class TestEdgeCases:
 
         # Flap: degraded again — fresh first_seen
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=20),
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=20),
         )
         state = bridge.get_state(OperationalAlertType.READINESS_DEGRADED)
         assert state.is_active is True
@@ -347,7 +376,9 @@ class TestEdgeCases:
         bridge = OperationalAlertBridge(config=config, notifier=MagicMock())
 
         results = await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=False, ws_pong_stale=False,
+            readiness_ready=False,
+            ws_connected=False,
+            ws_pong_stale=False,
             circuit_breaker_state=CircuitBreakerState.OPEN,
         )
         assert results == []
@@ -364,18 +395,26 @@ class TestEdgeCases:
 
         # First: OPEN transition fires
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=True, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.OPEN, now=now,
+            readiness_ready=True,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.OPEN,
+            now=now,
         )
 
         # Second: still OPEN — no alert
         results = await bridge.evaluate_and_dispatch_all(
-            readiness_ready=True, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.OPEN, now=now + timedelta(seconds=30),
+            readiness_ready=True,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.OPEN,
+            now=now + timedelta(seconds=30),
         )
         cb_results = [
-            r for r in results
-            if r.alert_type in (
+            r
+            for r in results
+            if r.alert_type
+            in (
                 OperationalAlertType.CIRCUIT_BREAKER_OPENED,
                 OperationalAlertType.CIRCUIT_BREAKER_CLOSED,
             )
@@ -445,15 +484,23 @@ class TestSecretFreeAlertConstruction:
 
         now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=timezone.utc)
         await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now,
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now,
         )
         results = await bridge.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now + timedelta(seconds=11),
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now + timedelta(seconds=11),
         )
 
-        dispatched = [r for r in results if r.status == OperationalAlertStatus.DISPATCHED]
+        dispatched = [
+            r for r in results if r.status == OperationalAlertStatus.DISPATCHED
+        ]
         assert len(dispatched) == 1
         alert = dispatched[0].alert
         # Re-validate through OperationalAlert constructor
@@ -476,11 +523,16 @@ class TestSecretFreeAlertConstruction:
 
         now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=timezone.utc)
         results = await bridge.evaluate_and_dispatch_all(
-            readiness_ready=True, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.OPEN, now=now,
+            readiness_ready=True,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.OPEN,
+            now=now,
         )
 
-        dispatched = [r for r in results if r.status == OperationalAlertStatus.DISPATCHED]
+        dispatched = [
+            r for r in results if r.status == OperationalAlertStatus.DISPATCHED
+        ]
         assert len(dispatched) == 1
         alert = dispatched[0].alert
         # No addresses, no token IDs, no private keys
@@ -504,8 +556,11 @@ class TestBridgeStateIsolation:
 
         # Bridge 1 detects degraded
         await bridge1.evaluate_and_dispatch_all(
-            readiness_ready=False, ws_connected=True, ws_pong_stale=False,
-            circuit_breaker_state=CircuitBreakerState.CLOSED, now=now,
+            readiness_ready=False,
+            ws_connected=True,
+            ws_pong_stale=False,
+            circuit_breaker_state=CircuitBreakerState.CLOSED,
+            now=now,
         )
         state1 = bridge1.get_state(OperationalAlertType.READINESS_DEGRADED)
         assert state1.is_active is True

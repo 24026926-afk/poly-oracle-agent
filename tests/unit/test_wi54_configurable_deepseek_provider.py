@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+from src.agents.evaluation.claude_client import ClaudeClient
+from src.core.config import AppConfig
 from src.schemas.llm import (
     LLMProvider,
     LLMProviderConfig,
@@ -28,7 +30,6 @@ from src.schemas.llm import (
     LLMProviderUsage,
     LLMEvaluationResponse,
 )
-from src.agents.evaluation.claude_client import ClaudeClient
 
 
 # ---------------------------------------------------------------------------
@@ -395,8 +396,6 @@ def test_llm_provider_config_error_reason_has_malformed_url_value():
 # AppConfig: Provider Fields
 # ---------------------------------------------------------------------------
 
-from src.core.config import AppConfig
-
 
 def test_app_config_has_llm_provider_field():
     """AppConfig exposes an llm_provider field (default anthropic)."""
@@ -525,7 +524,7 @@ def test_claude_client_anthropic_default_uses_anthropic_sdk():
     """When llm_provider=anthropic, ClaudeClient uses AsyncAnthropic with anthropic base_url."""
     with patch("src.agents.evaluation.claude_client.AsyncAnthropic") as mock_async:
         cfg = _mock_config(provider="anthropic")
-        client = ClaudeClient(
+        ClaudeClient(
             in_queue=asyncio.Queue(),
             out_queue=asyncio.Queue(),
             config=cfg,
@@ -540,7 +539,7 @@ def test_claude_client_deepseek_uses_anthropic_sdk_with_custom_base_url():
     """When llm_provider=deepseek, ClaudeClient uses AsyncAnthropic with deepseek base_url."""
     with patch("src.agents.evaluation.claude_client.AsyncAnthropic") as mock_async:
         cfg = _mock_config(provider="deepseek")
-        client = ClaudeClient(
+        ClaudeClient(
             in_queue=asyncio.Queue(),
             out_queue=asyncio.Queue(),
             config=cfg,
@@ -639,7 +638,9 @@ def test_provider_failure_auth_error_yields_typed_skip():
     """Authentication failure from any provider yields a typed skip outcome, never routes execution."""
     with patch("src.agents.evaluation.claude_client.AsyncAnthropic") as mock_async:
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("401 Unauthorized"))
+        mock_client.messages.create = AsyncMock(
+            side_effect=Exception("401 Unauthorized")
+        )
         mock_async.return_value = mock_client
 
         cfg = _mock_config(provider="deepseek")
@@ -690,7 +691,7 @@ def test_provider_malformed_json_enters_retry_path():
         config=_mock_config(provider="anthropic"),
     )
     # Verify the json extraction method exists and works
-    extracted = client._extract_json("some text {\"key\": \"value\"} more text")
+    extracted = client._extract_json('some text {"key": "value"} more text')
     assert "key" in extracted
     assert "value" in extracted
 
@@ -766,7 +767,10 @@ def test_no_silent_fallback_from_deepseek_to_anthropic():
             out_queue=asyncio.Queue(),
             config=cfg,
         )
-        assert mock_async.call_args.kwargs["base_url"] == "https://api.deepseek.com/anthropic"
+        assert (
+            mock_async.call_args.kwargs["base_url"]
+            == "https://api.deepseek.com/anthropic"
+        )
         assert mock_async.call_args.kwargs["api_key"] == "sk-ds-test"
 
 
@@ -899,6 +903,7 @@ def test_no_openai_sdk_imported():
 
     # Verify config.py also doesn't import openai
     from src.core import config as cfg_mod
+
     source = cfg_mod.__file__
     assert source is not None
     with open(source) as f:
@@ -1054,11 +1059,13 @@ def test_build_hold_candidate_produces_conservative_no_trade():
         out_queue=asyncio.Queue(),
         config=_mock_config(provider="anthropic"),
     )
-    primary = json.dumps({
-        "decision_boolean": True,
-        "recommended_action": "BUY",
-        "confidence_score": 0.85,
-    })
+    primary = json.dumps(
+        {
+            "decision_boolean": True,
+            "recommended_action": "BUY",
+            "confidence_score": 0.85,
+        }
+    )
     hold = client._build_hold_candidate(primary)
     parsed = json.loads(hold)
     assert parsed["decision_boolean"] is False

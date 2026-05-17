@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 from pathlib import Path
 
@@ -72,13 +71,17 @@ async def main() -> int:
         await client.close()
 
     manifest_path = output_dir / "manifest.json"
-    print(f"Dataset built: {result.manifest.market_count} markets, "
-          f"{result.manifest.snapshot_count} snapshots, "
-          f"{result.manifest.skipped_count} skipped")
+    print(
+        f"Dataset built: {result.manifest.market_count} markets, "
+        f"{result.manifest.snapshot_count} snapshots, "
+        f"{result.manifest.skipped_count} skipped"
+    )
     print(f"Manifest: {manifest_path}")
 
     if result.source_failure:
-        logger.error("build.source_failure", skipped_count=result.manifest.skipped_count)
+        logger.error(
+            "build.source_failure", skipped_count=result.manifest.skipped_count
+        )
         return 1
 
     return 0

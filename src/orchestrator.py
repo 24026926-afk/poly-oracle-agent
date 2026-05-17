@@ -63,7 +63,6 @@ from src.observability.metrics import (
     DecisionLabel,
     DecisionMetricEvent,
     ExecutionMetricEvent,
-    LatencyMetricEvent,
     MetricsRegistry,
 )
 from src.observability.metrics_server import MetricsServer
@@ -233,9 +232,7 @@ class Orchestrator:
             websocket_stale_threshold_seconds=float(
                 self.config.operational_websocket_stale_threshold_sec
             ),
-            alert_cooldown_seconds=float(
-                self.config.operational_alert_cooldown_sec
-            ),
+            alert_cooldown_seconds=float(self.config.operational_alert_cooldown_sec),
         )
         if self._op_alert_config.enable_operational_alerts:
             self.operational_alert_bridge = OperationalAlertBridge(
@@ -250,10 +247,12 @@ class Orchestrator:
         self.event_bus: OperationalEventBus | None = None
         self._event_ledger_degraded = False
         if self.config.enable_operational_event_ledger:
+
             async def _event_repo_factory():
                 from src.db.repositories.operational_event_repository import (
                     OperationalEventRepository,
                 )
+
                 session = AsyncSessionLocal()
                 return (OperationalEventRepository(session), session)
 
@@ -429,23 +428,25 @@ class Orchestrator:
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator
 
-        self._tasks.extend([
-            asyncio.create_task(self.ws_client.run(), name="IngestionTask"),
-            asyncio.create_task(self.aggregator.start(), name="ContextTask"),
-            asyncio.create_task(self.claude_client.start(), name="EvaluationTask"),
-            asyncio.create_task(
-                self._execution_consumer_loop(),
-                name="ExecutionTask",
-            ),
-            asyncio.create_task(
-                self._discovery_loop(),
-                name="DiscoveryTask",
-            ),
-            asyncio.create_task(
-                self._exit_scan_loop(),
-                name="ExitScanTask",
-            ),
-        ])
+        self._tasks.extend(
+            [
+                asyncio.create_task(self.ws_client.run(), name="IngestionTask"),
+                asyncio.create_task(self.aggregator.start(), name="ContextTask"),
+                asyncio.create_task(self.claude_client.start(), name="EvaluationTask"),
+                asyncio.create_task(
+                    self._execution_consumer_loop(),
+                    name="ExecutionTask",
+                ),
+                asyncio.create_task(
+                    self._discovery_loop(),
+                    name="DiscoveryTask",
+                ),
+                asyncio.create_task(
+                    self._exit_scan_loop(),
+                    name="ExitScanTask",
+                ),
+            ]
+        )
         if self.config.enable_portfolio_aggregator:
             self._tasks.append(
                 asyncio.create_task(
@@ -506,7 +507,9 @@ class Orchestrator:
         self.aggregator._market_category = market.category
         self.aggregator._market_tags = list(market.tags)
         self.aggregator._market_question = market.question
-        self.aggregator._yes_token_id = market.token_ids[0] if market.token_ids else None
+        self.aggregator._yes_token_id = (
+            market.token_ids[0] if market.token_ids else None
+        )
 
     async def _activate_markets(self, markets: list[MarketMetadata]) -> None:
         """Activate multiple discovered Gamma markets for WS, aggregation, and routing.
@@ -857,10 +860,14 @@ class Orchestrator:
                 try:
                     decision = eval_resp.recommended_action
                     if decision is not None:
-                        decision_str = str(decision.value if hasattr(decision, 'value') else decision).upper()
+                        decision_str = str(
+                            decision.value if hasattr(decision, "value") else decision
+                        ).upper()
                         if decision_str in ("BUY", "HOLD", "SKIP"):
                             await self.metrics_registry.record_decision(
-                                DecisionMetricEvent(decision=DecisionLabel(decision_str))
+                                DecisionMetricEvent(
+                                    decision=DecisionLabel(decision_str)
+                                )
                             )
                     await self.metrics_registry.record_execution(
                         ExecutionMetricEvent(action=execution_result.action)
@@ -923,15 +930,23 @@ class Orchestrator:
                         event_type=OperationalEventType.DECISION_SKIPPED,
                         severity=OperationalEventSeverity.INFO,
                         source=OperationalEventSource.EXECUTION,
-                        reason_code=OperationalEventReasonCode.EXEC_DRY_RUN_SKIP if self.config.dry_run else OperationalEventReasonCode.EXEC_FAILED,
+                        reason_code=OperationalEventReasonCode.EXEC_DRY_RUN_SKIP
+                        if self.config.dry_run
+                        else OperationalEventReasonCode.EXEC_FAILED,
                         message=f"Execution skipped: {execution_result.reason or 'unknown'}",
                     )
-                elif execution_result.action in (ExecutionAction.EXECUTED, ExecutionAction.DRY_RUN):
+                elif execution_result.action in (
+                    ExecutionAction.EXECUTED,
+                    ExecutionAction.DRY_RUN,
+                ):
                     await self._emit_event(
                         event_type=OperationalEventType.DECISION_ACCEPTED,
                         severity=OperationalEventSeverity.INFO,
                         source=OperationalEventSource.EXECUTION,
-                        reason_code=OperationalEventReasonCode.DECISION_BUY if eval_resp.recommended_action and str(eval_resp.recommended_action.value).upper() == "BUY" else OperationalEventReasonCode.DECISION_HOLD,
+                        reason_code=OperationalEventReasonCode.DECISION_BUY
+                        if eval_resp.recommended_action
+                        and str(eval_resp.recommended_action.value).upper() == "BUY"
+                        else OperationalEventReasonCode.DECISION_HOLD,
                         message=f"Decision: {execution_result.action.value}",
                     )
 
@@ -1003,16 +1018,16 @@ class Orchestrator:
                         discovered=len(eligible),
                         eligible=len(eligible),
                         activated=len(self.active_markets),
-                        active_condition_ids=[m.condition_id for m in self.active_markets],
+                        active_condition_ids=[
+                            m.condition_id for m in self.active_markets
+                        ],
                     )
                 else:
                     # WI-32: No eligible markets — deactivate all stale markets.
                     logger.warning(
                         "orchestrator.no_eligible_markets_on_refresh",
                         deactivating=len(self.active_markets),
-                        was_condition_ids=[
-                            m.condition_id for m in self.active_markets
-                        ],
+                        was_condition_ids=[m.condition_id for m in self.active_markets],
                     )
                     self.active_markets = []
                     self.active_condition_id = None
@@ -1044,8 +1059,7 @@ class Orchestrator:
                 heartbeat_age = Decimal("0")
                 if ws_health.last_pong_received_at_utc is not None:
                     delta = (
-                        datetime.now(timezone.utc)
-                        - ws_health.last_pong_received_at_utc
+                        datetime.now(timezone.utc) - ws_health.last_pong_received_at_utc
                     )
                     heartbeat_age = Decimal(str(round(delta.total_seconds(), 3)))
                 await self.metrics_registry.update_from_ws_health(
@@ -1090,7 +1104,10 @@ class Orchestrator:
                     and ws_health.connection_state.value == "CONNECTED"
                 )
                 ws_pong_stale = False
-                if ws_health is not None and ws_health.last_pong_received_at_utc is not None:
+                if (
+                    ws_health is not None
+                    and ws_health.last_pong_received_at_utc is not None
+                ):
                     from datetime import datetime, timezone as tz
 
                     pong_age = (
@@ -1540,15 +1557,17 @@ class Orchestrator:
     async def _get_runtime_health(self) -> RuntimeHealthSnapshot:
         """Return current runtime health snapshot for readiness checks."""
         ws_health = (
-            self.ws_client.get_health_snapshot()
-            if self.ws_client is not None
-            else None
+            self.ws_client.get_health_snapshot() if self.ws_client is not None else None
         )
         return RuntimeHealthSnapshot(
             ws_health=ws_health,
             db_reachable=await self._check_db_reachable(),
-            active_market_count=len(self.active_markets) if self.active_markets else (1 if self.active_condition_id else 0),
-            subscribed_asset_count=len(self.ws_client._assets_ids) if self.ws_client else 0,
+            active_market_count=len(self.active_markets)
+            if self.active_markets
+            else (1 if self.active_condition_id else 0),
+            subscribed_asset_count=len(self.ws_client._assets_ids)
+            if self.ws_client
+            else 0,
             ledger_degraded=getattr(self, "_event_ledger_degraded", False),
         )
 
@@ -1557,9 +1576,7 @@ class Orchestrator:
         """Check if the database is reachable."""
         try:
             async with AsyncSessionLocal() as session:
-                await session.execute(
-                    __import__("sqlalchemy").text("SELECT 1")
-                )
+                await session.execute(__import__("sqlalchemy").text("SELECT 1"))
             return True
         except Exception:
             return False
@@ -1578,10 +1595,9 @@ class Orchestrator:
         if self.event_bus is None:
             return None
         result = await self.event_bus.publish(event)
-        if (
-            not result.accepted
-            and event.severity
-            in (OperationalEventSeverity.CRITICAL, OperationalEventSeverity.ERROR)
+        if not result.accepted and event.severity in (
+            OperationalEventSeverity.CRITICAL,
+            OperationalEventSeverity.ERROR,
         ):
             self._mark_event_ledger_degraded()
             logger.error(
@@ -1678,8 +1694,7 @@ class Orchestrator:
                     else None
                 )
                 ws_connected = (
-                    ws_health is not None
-                    and ws_health.connection_state == "CONNECTED"
+                    ws_health is not None and ws_health.connection_state == "CONNECTED"
                 )
 
                 # WS connectivity transitions
@@ -1724,9 +1739,13 @@ class Orchestrator:
                 if ready != _prev_ready:
                     await self._emit_event(
                         event_type=OperationalEventType.READY_STATE_CHANGED,
-                        severity=OperationalEventSeverity.INFO if ready else OperationalEventSeverity.WARNING,
+                        severity=OperationalEventSeverity.INFO
+                        if ready
+                        else OperationalEventSeverity.WARNING,
                         source=OperationalEventSource.OBSERVABILITY,
-                        reason_code=OperationalEventReasonCode.READY if ready else OperationalEventReasonCode.DEGRADED,
+                        reason_code=OperationalEventReasonCode.READY
+                        if ready
+                        else OperationalEventReasonCode.DEGRADED,
                         message=f"Readiness changed to {'ready' if ready else 'degraded'}",
                     )
                 _prev_ready = ready

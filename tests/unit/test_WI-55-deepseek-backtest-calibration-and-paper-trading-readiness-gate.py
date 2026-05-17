@@ -7,10 +7,7 @@ Readiness Gate.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -26,7 +23,6 @@ from src.schemas.provider_comparison import (
     LLMProviderCalibrationMetrics,
     LLMProviderCalibrationRecommendation,
     LLMProviderComparisonConfig,
-    LLMProviderComparisonReport,
     LLMProviderComparisonResult,
     LLMProviderComparisonRun,
     LLMProviderCostMetrics,
@@ -74,20 +70,32 @@ def _full_pass_decision_metrics(**overrides) -> LLMProviderDecisionMetrics:
 def _full_pass_calibration_metrics(**overrides) -> LLMProviderCalibrationMetrics:
     kwargs = {
         "confidence_bucket_low": [
-            Decimal("0.0"), Decimal("0.2"), Decimal("0.4"),
-            Decimal("0.6"), Decimal("0.8"),
+            Decimal("0.0"),
+            Decimal("0.2"),
+            Decimal("0.4"),
+            Decimal("0.6"),
+            Decimal("0.8"),
         ],
         "confidence_bucket_high": [
-            Decimal("0.2"), Decimal("0.4"), Decimal("0.6"),
-            Decimal("0.8"), Decimal("1.0"),
+            Decimal("0.2"),
+            Decimal("0.4"),
+            Decimal("0.6"),
+            Decimal("0.8"),
+            Decimal("1.0"),
         ],
         "confidence_bucket_avg": [
-            Decimal("0.12"), Decimal("0.31"), Decimal("0.52"),
-            Decimal("0.71"), Decimal("0.88"),
+            Decimal("0.12"),
+            Decimal("0.31"),
+            Decimal("0.52"),
+            Decimal("0.71"),
+            Decimal("0.88"),
         ],
         "confidence_bucket_observed_win_rate": [
-            Decimal("0.10"), Decimal("0.28"), Decimal("0.48"),
-            Decimal("0.65"), Decimal("0.82"),
+            Decimal("0.10"),
+            Decimal("0.28"),
+            Decimal("0.48"),
+            Decimal("0.65"),
+            Decimal("0.82"),
         ],
         "confidence_bucket_count": [10, 15, 25, 20, 5],
         "confidence_calibration_deviation": Decimal("0.06"),
@@ -218,7 +226,8 @@ class TestDecisionMetrics:
 
     def test_records_gatekeeper_pass_fail_counts(self):
         dm = _full_pass_decision_metrics(
-            gatekeeper_passed=40, gatekeeper_failed=58,
+            gatekeeper_passed=40,
+            gatekeeper_failed=58,
             gatekeeper_pass_rate=Decimal("0.408"),
         )
         assert dm.gatekeeper_passed == 40
@@ -226,7 +235,10 @@ class TestDecisionMetrics:
 
     def test_records_decision_distribution(self):
         dm = _full_pass_decision_metrics(
-            buy_count=10, hold_count=60, skip_count=30, sell_count=0,
+            buy_count=10,
+            hold_count=60,
+            skip_count=30,
+            sell_count=0,
         )
         assert dm.buy_count == 10
         assert dm.hold_count == 60
@@ -264,16 +276,20 @@ class TestCalibrationMetrics:
     def test_confidence_distribution_is_decimal_buckets(self):
         cm = _full_pass_calibration_metrics()
         assert all(isinstance(v, Decimal) for v in cm.confidence_bucket_avg)
-        assert all(isinstance(v, Decimal) for v in cm.confidence_bucket_observed_win_rate)
+        assert all(
+            isinstance(v, Decimal) for v in cm.confidence_bucket_observed_win_rate
+        )
 
     def test_records_outcome_coverage_flag(self):
-        cm_with = _full_pass_calibration_metrics(has_outcome_data=True,
-                                                   outcome_coverage_fraction=Decimal("0.75"))
+        cm_with = _full_pass_calibration_metrics(
+            has_outcome_data=True, outcome_coverage_fraction=Decimal("0.75")
+        )
         assert cm_with.has_outcome_data is True
         assert cm_with.outcome_coverage_fraction == Decimal("0.75")
 
-        cm_without = _full_pass_calibration_metrics(has_outcome_data=False,
-                                                      outcome_coverage_fraction=Decimal("0"))
+        cm_without = _full_pass_calibration_metrics(
+            has_outcome_data=False, outcome_coverage_fraction=Decimal("0")
+        )
         assert cm_without.has_outcome_data is False
         assert cm_without.outcome_coverage_fraction == Decimal("0")
 
@@ -396,8 +412,7 @@ class TestComparisonResult:
         assert result.cost_metrics.total_estimated_cost_usd == Decimal("0.45")
 
     def test_records_provider_model_name(self):
-        result = _full_pass_result(provider="deepseek",
-                                     model_name="deepseek-v4-pro")
+        result = _full_pass_result(provider="deepseek", model_name="deepseek-v4-pro")
         assert result.provider == "deepseek"
         assert result.model_name == "deepseek-v4-pro"
 
@@ -545,8 +560,10 @@ class TestComparisonReport:
         cst = _full_pass_cost_metrics(budget_block_count=3, cooldown_block_count=1)
         lm = _full_pass_latency_metrics()
         result = _full_pass_result(
-            decision_metrics=dc, calibration_metrics=cc,
-            cost_metrics=cst, latency_metrics=lm,
+            decision_metrics=dc,
+            calibration_metrics=cc,
+            cost_metrics=cst,
+            latency_metrics=lm,
         )
         run = LLMProviderComparisonRun(
             config=_default_config(),
@@ -561,8 +578,10 @@ class TestComparisonReport:
         cst = _full_pass_cost_metrics(budget_block_count=0, cooldown_block_count=5)
         lm = _full_pass_latency_metrics()
         result = _full_pass_result(
-            decision_metrics=dc, calibration_metrics=cc,
-            cost_metrics=cst, latency_metrics=lm,
+            decision_metrics=dc,
+            calibration_metrics=cc,
+            cost_metrics=cst,
+            latency_metrics=lm,
         )
         run = LLMProviderComparisonRun(
             config=_default_config(),
@@ -628,8 +647,10 @@ class TestComparisonReport:
 class TestReadinessVerdict:
     def test_is_str_enum(self):
         assert issubclass(LLMProviderReadinessVerdict, str)
-        assert LLMProviderReadinessVerdict.PROVIDER_READY_FOR_DRY_RUN_PRIMARY == \
-            "PROVIDER_READY_FOR_DRY_RUN_PRIMARY"
+        assert (
+            LLMProviderReadinessVerdict.PROVIDER_READY_FOR_DRY_RUN_PRIMARY
+            == "PROVIDER_READY_FOR_DRY_RUN_PRIMARY"
+        )
 
     def test_includes_rejected_json_validity(self):
         v = LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_JSON_VALIDITY
@@ -662,10 +683,14 @@ class TestReadinessVerdict:
 
 
 class TestDeriveVerdict:
-    def _derive(self, **kw) -> tuple[LLMProviderReadinessVerdict, list[LLMProviderReadinessReason]]:
+    def _derive(
+        self, **kw
+    ) -> tuple[LLMProviderReadinessVerdict, list[LLMProviderReadinessReason]]:
         return derive_readiness_verdict(
             decision_metrics=kw.get("decision_metrics", _full_pass_decision_metrics()),
-            calibration_metrics=kw.get("calibration_metrics", _full_pass_calibration_metrics()),
+            calibration_metrics=kw.get(
+                "calibration_metrics", _full_pass_calibration_metrics()
+            ),
             cost_metrics=kw.get("cost_metrics", _full_pass_cost_metrics()),
             latency_metrics=kw.get("latency_metrics", _full_pass_latency_metrics()),
             baseline_cost_usd=kw.get("baseline_cost_usd", Decimal("3.00")),
@@ -675,22 +700,32 @@ class TestDeriveVerdict:
 
     def test_invalid_json_exceeds_tolerance_gives_rejected_json(self):
         dm = _full_pass_decision_metrics(
-            total_calls=100, valid_json_count=80, invalid_json_count=20,
+            total_calls=100,
+            valid_json_count=80,
+            invalid_json_count=20,
             json_validity_rate=Decimal("0.80"),
         )
         verdict, reasons = self._derive(decision_metrics=dm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_JSON_VALIDITY
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_JSON_VALIDITY
+        )
         assert LLMProviderReadinessReason.JSON_VALIDITY_BELOW_TOLERANCE in reasons
 
     def test_gatekeeper_fails_for_all_decisions_gives_rejection(self):
         dm = _full_pass_decision_metrics(
-            total_calls=100, valid_json_count=98, invalid_json_count=2,
+            total_calls=100,
+            valid_json_count=98,
+            invalid_json_count=2,
             json_validity_rate=Decimal("0.98"),
-            gatekeeper_passed=10, gatekeeper_failed=88,
+            gatekeeper_passed=10,
+            gatekeeper_failed=88,
             gatekeeper_pass_rate=Decimal("0.10"),
         )
         verdict, reasons = self._derive(decision_metrics=dm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_NEEDS_THRESHOLD_RECALIBRATION
+        assert (
+            verdict
+            == LLMProviderReadinessVerdict.PROVIDER_NEEDS_THRESHOLD_RECALIBRATION
+        )
         assert LLMProviderReadinessReason.GATEKEEPER_FAILURE_RATE_HIGH in reasons
 
     def test_negative_realized_ev_gives_rejected_negative_ev(self):
@@ -708,7 +743,9 @@ class TestDeriveVerdict:
             cost_metrics=cst,
             baseline_cost_usd=Decimal("3.00"),
         )
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_COST_OR_LATENCY
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_COST_OR_LATENCY
+        )
         assert LLMProviderReadinessReason.COST_EXCEEDS_BASELINE in reasons
 
     def test_latency_too_high_gives_rejected_cost_latency(self):
@@ -717,7 +754,9 @@ class TestDeriveVerdict:
             latency_metrics=lm,
             baseline_mean_latency_ms=1200.0,
         )
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_COST_OR_LATENCY
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_COST_OR_LATENCY
+        )
         assert LLMProviderReadinessReason.LATENCY_EXCEEDS_BASELINE in reasons
 
     def test_ok_validity_poor_calibration_gives_needs_recalibration(self):
@@ -725,7 +764,10 @@ class TestDeriveVerdict:
             confidence_calibration_deviation=Decimal("0.35"),
         )
         verdict, reasons = self._derive(calibration_metrics=cm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_NEEDS_THRESHOLD_RECALIBRATION
+        assert (
+            verdict
+            == LLMProviderReadinessVerdict.PROVIDER_NEEDS_THRESHOLD_RECALIBRATION
+        )
         assert LLMProviderReadinessReason.WEAK_CONFIDENCE_CALIBRATION in reasons
 
     def test_promising_but_not_all_gates_gives_sampled_audit(self):
@@ -734,7 +776,9 @@ class TestDeriveVerdict:
             outcome_coverage_fraction=Decimal("0"),
         )
         verdict, reasons = self._derive(calibration_metrics=cm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_READY_FOR_SAMPLED_AUDIT_ONLY
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_READY_FOR_SAMPLED_AUDIT_ONLY
+        )
         assert LLMProviderReadinessReason.OUTCOME_COVERAGE_MISSING in reasons
 
     def test_all_gates_pass_gives_ready_for_primary(self):
@@ -744,14 +788,18 @@ class TestDeriveVerdict:
 
     def test_ordering_rejected_before_needs_recalibration(self):
         dm = _full_pass_decision_metrics(
-            total_calls=100, valid_json_count=80, invalid_json_count=20,
+            total_calls=100,
+            valid_json_count=80,
+            invalid_json_count=20,
             json_validity_rate=Decimal("0.80"),
         )
         cm = _full_pass_calibration_metrics(
             confidence_calibration_deviation=Decimal("0.40"),
         )
         verdict, _ = self._derive(decision_metrics=dm, calibration_metrics=cm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_JSON_VALIDITY
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_JSON_VALIDITY
+        )
 
     def test_ordering_rejected_before_sampled_audit(self):
         cst = _full_pass_cost_metrics(total_estimated_cost_usd=Decimal("4.00"))
@@ -759,9 +807,12 @@ class TestDeriveVerdict:
             has_outcome_data=False,
             outcome_coverage_fraction=Decimal("0"),
         )
-        verdict, _ = self._derive(cost_metrics=cst, calibration_metrics=cm,
-                                    baseline_cost_usd=Decimal("3.00"))
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_COST_OR_LATENCY
+        verdict, _ = self._derive(
+            cost_metrics=cst, calibration_metrics=cm, baseline_cost_usd=Decimal("3.00")
+        )
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_REJECTED_FOR_COST_OR_LATENCY
+        )
 
     def test_ordering_rejected_before_ready(self):
         cm = _full_pass_calibration_metrics(
@@ -778,7 +829,10 @@ class TestDeriveVerdict:
             outcome_coverage_fraction=Decimal("0"),
         )
         verdict, reasons = self._derive(calibration_metrics=cm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_NEEDS_THRESHOLD_RECALIBRATION
+        assert (
+            verdict
+            == LLMProviderReadinessVerdict.PROVIDER_NEEDS_THRESHOLD_RECALIBRATION
+        )
         assert LLMProviderReadinessReason.OUTCOME_COVERAGE_MISSING in reasons
 
     def test_ordering_sampled_audit_before_ready(self):
@@ -787,7 +841,9 @@ class TestDeriveVerdict:
             outcome_coverage_fraction=Decimal("0"),
         )
         verdict, _ = self._derive(calibration_metrics=cm)
-        assert verdict == LLMProviderReadinessVerdict.PROVIDER_READY_FOR_SAMPLED_AUDIT_ONLY
+        assert (
+            verdict == LLMProviderReadinessVerdict.PROVIDER_READY_FOR_SAMPLED_AUDIT_ONLY
+        )
 
     def test_missing_outcome_coverage_excluded_from_ev_check(self):
         cm = _full_pass_calibration_metrics(
@@ -963,27 +1019,36 @@ class TestDryRunInvariant:
 class TestBudgetCooldown:
     def test_budget_blocked_call_not_counted_as_valid_decision(self):
         cm = _full_pass_cost_metrics(budget_block_count=10)
-        dm = _full_pass_decision_metrics(total_calls=90, valid_json_count=90,
-                                           invalid_json_count=0,
-                                           json_validity_rate=Decimal("1.0"))
+        dm = _full_pass_decision_metrics(
+            total_calls=90,
+            valid_json_count=90,
+            invalid_json_count=0,
+            json_validity_rate=Decimal("1.0"),
+        )
         assert dm.total_calls == 90
         assert cm.budget_block_count == 10
 
     def test_budget_blocked_call_not_counted_as_gatekeeper_pass(self):
         cm = _full_pass_cost_metrics(budget_block_count=5)
         dm = _full_pass_decision_metrics(
-            total_calls=95, valid_json_count=95, invalid_json_count=0,
+            total_calls=95,
+            valid_json_count=95,
+            invalid_json_count=0,
             json_validity_rate=Decimal("1.0"),
-            gatekeeper_passed=55, gatekeeper_failed=40,
+            gatekeeper_passed=55,
+            gatekeeper_failed=40,
         )
         assert cm.budget_block_count == 5
         assert dm.total_calls == 95
 
     def test_cooldown_blocked_call_not_counted_as_valid_decision(self):
         cm = _full_pass_cost_metrics(cooldown_block_count=8)
-        dm = _full_pass_decision_metrics(total_calls=92, valid_json_count=92,
-                                           invalid_json_count=0,
-                                           json_validity_rate=Decimal("1.0"))
+        dm = _full_pass_decision_metrics(
+            total_calls=92,
+            valid_json_count=92,
+            invalid_json_count=0,
+            json_validity_rate=Decimal("1.0"),
+        )
         assert dm.total_calls == 92
         assert cm.cooldown_block_count == 8
 
@@ -1086,14 +1151,17 @@ class TestOutcomeCalibration:
 class TestReuseExistingPaths:
     def test_uses_existing_claude_client_class(self):
         from src.agents.evaluation.claude_client import ClaudeClient
+
         assert ClaudeClient is not None
 
     def test_uses_existing_backtest_data_loader(self):
         from src.backtest_runner import BacktestDataLoader
+
         assert BacktestDataLoader is not None
 
     def test_does_not_duplicate_backtesting_engine(self):
         from src.backtest_runner import BacktestRunner
+
         assert BacktestRunner is not None
 
 
@@ -1128,8 +1196,11 @@ class TestDeriveCalibrationRecommendation:
         cm = _full_pass_calibration_metrics(
             confidence_calibration_deviation=Decimal("0.30"),
             confidence_bucket_observed_win_rate=[
-                Decimal("0.10"), Decimal("0.20"), Decimal("0.40"),
-                Decimal("0.60"), Decimal("0.70"),
+                Decimal("0.10"),
+                Decimal("0.20"),
+                Decimal("0.40"),
+                Decimal("0.60"),
+                Decimal("0.70"),
             ],
         )
         rec = derive_calibration_recommendation(
@@ -1160,7 +1231,9 @@ class TestDeriveCalibrationRecommendation:
 
     def test_suggests_max_tokens_when_json_validity_low(self):
         dm = _full_pass_decision_metrics(
-            total_calls=100, valid_json_count=85, invalid_json_count=15,
+            total_calls=100,
+            valid_json_count=85,
+            invalid_json_count=15,
             json_validity_rate=Decimal("0.85"),
         )
         rec = derive_calibration_recommendation(

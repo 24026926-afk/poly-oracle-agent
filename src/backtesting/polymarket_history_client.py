@@ -10,8 +10,6 @@ for offline backtesting dataset construction.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -172,9 +170,7 @@ class PolymarketHistoryClient:
                         attempt=attempt,
                     )
                     if attempt < self._max_retries:
-                        await asyncio.sleep(
-                            _RETRY_BACKOFF_BASE ** attempt
-                        )
+                        await asyncio.sleep(_RETRY_BACKOFF_BASE**attempt)
                         continue
                     resp.raise_for_status()
 
@@ -184,7 +180,7 @@ class PolymarketHistoryClient:
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_exc = exc
                 if attempt < self._max_retries:
-                    wait = _RETRY_BACKOFF_BASE ** attempt
+                    wait = _RETRY_BACKOFF_BASE**attempt
                     logger.warning(
                         "history_client.retry",
                         attempt=attempt,

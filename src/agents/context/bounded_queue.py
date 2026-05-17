@@ -172,9 +172,12 @@ class BoundedPromptQueue:
         """Update the queue depth gauge if metrics are available."""
         if self._metrics is not None:
             import asyncio as _asyncio
+
             try:
                 loop = _asyncio.get_running_loop()
-                loop.create_task(self._metrics.set_evaluation_queue_depth(len(self._deque)))
+                loop.create_task(
+                    self._metrics.set_evaluation_queue_depth(len(self._deque))
+                )
             except RuntimeError:
                 pass  # No running loop (e.g. in sync context)
 

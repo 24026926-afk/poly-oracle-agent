@@ -27,7 +27,6 @@ Constraints:
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime, timezone
 from html import escape
@@ -275,7 +274,12 @@ def _read_records_from_sqlite(
     db_path: Path,
     *,
     limit: int,
-) -> tuple[list[OperationalEventRecord], DashboardActivityFeedStatus, Optional[DashboardActivityFeedFailureReason], Optional[str]]:
+) -> tuple[
+    list[OperationalEventRecord],
+    DashboardActivityFeedStatus,
+    Optional[DashboardActivityFeedFailureReason],
+    Optional[str],
+]:
     """Read recent operational event records from the read-only SQLite URI.
 
     Returns the raw record list plus a status/failure_reason/message
@@ -366,7 +370,12 @@ async def _read_records_via_repository(
     session_factory,
     *,
     limit: int,
-) -> tuple[list[OperationalEventRecord], DashboardActivityFeedStatus, Optional[DashboardActivityFeedFailureReason], Optional[str]]:
+) -> tuple[
+    list[OperationalEventRecord],
+    DashboardActivityFeedStatus,
+    Optional[DashboardActivityFeedFailureReason],
+    Optional[str],
+]:
     """Read records via OperationalEventRepository for async integration paths."""
     from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
@@ -481,9 +490,10 @@ _CONTINUATION_STATE_BY_TYPED_EVENT: dict[
         OperationalEventType.MARKET_REJECTED,
         OperationalEventReasonCode.MARKET_NOT_FOUND,
     ): "skipped",
-    (OperationalEventType.MARKET_REJECTED, OperationalEventReasonCode.MARKET_COOLDOWN): (
-        "skipped"
-    ),
+    (
+        OperationalEventType.MARKET_REJECTED,
+        OperationalEventReasonCode.MARKET_COOLDOWN,
+    ): ("skipped"),
     (
         OperationalEventType.MARKET_QUARANTINE,
         OperationalEventReasonCode.MARKET_QUARANTINED,
@@ -541,9 +551,10 @@ _CONTINUATION_STATE_BY_TYPED_EVENT: dict[
     (OperationalEventType.DECISION_ACCEPTED, OperationalEventReasonCode.DECISION_BUY): (
         "continued"
     ),
-    (OperationalEventType.DECISION_ACCEPTED, OperationalEventReasonCode.DECISION_HOLD): (
-        "continued"
-    ),
+    (
+        OperationalEventType.DECISION_ACCEPTED,
+        OperationalEventReasonCode.DECISION_HOLD,
+    ): ("continued"),
     (
         OperationalEventType.DECISION_SKIPPED,
         OperationalEventReasonCode.DECISION_SKIP_LOW_CONF,
@@ -589,9 +600,10 @@ _CONTINUATION_STATE_BY_TYPED_EVENT: dict[
     (OperationalEventType.ERROR_RECOVERED, OperationalEventReasonCode.ERROR_HANDLED): (
         "continued"
     ),
-    (OperationalEventType.ERROR_RECOVERED, OperationalEventReasonCode.ERROR_UNHANDLED): (
-        "degraded"
-    ),
+    (
+        OperationalEventType.ERROR_RECOVERED,
+        OperationalEventReasonCode.ERROR_UNHANDLED,
+    ): ("degraded"),
 }
 
 
@@ -838,14 +850,10 @@ def format_activity_row_html(item: DashboardActivityFeedItem) -> str:
     timestamp_text = item.timestamp_utc.strftime("%Y-%m-%d %H:%M:%S")
     dry_label = ""
     if item.dry_run is not None:
-        dry_label = (
-            f' <span class="ribbon-chip">dry_run={"true" if item.dry_run else "false"}</span>'
-        )
+        dry_label = f' <span class="ribbon-chip">dry_run={"true" if item.dry_run else "false"}</span>'
     narrative_label = ""
     if item.narrative_status != NarrativeRenderStatus.SUCCESS:
-        narrative_label = (
-            f' <span class="ribbon-chip">{escape(item.narrative_status.value.lower())}</span>'
-        )
+        narrative_label = f' <span class="ribbon-chip">{escape(item.narrative_status.value.lower())}</span>'
     return (
         f"<tr>"
         f'<td style="padding:10px 12px;color:#888;font-size:11px">'

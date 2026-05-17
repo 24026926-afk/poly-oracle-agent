@@ -273,9 +273,7 @@ async def main() -> int:
 
     # Enforce output under docs/backtests/
     try:
-        output_path.resolve().relative_to(
-            Path.cwd() / _ALLOWED_OUTPUT_PARENT
-        )
+        output_path.resolve().relative_to(Path.cwd() / _ALLOWED_OUTPUT_PARENT)
     except ValueError:
         logger.error(
             "output.path_rejected",

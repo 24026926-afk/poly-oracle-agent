@@ -24,7 +24,6 @@ from src.core.config import AppConfig
 from src.schemas.llm import (
     LLMProvider,
     LLMProviderName,
-    LLMBudgetBlockReason,
     LLMProviderMetadata,
     LLMEvaluationResponse,
     MarketCategory,
@@ -280,7 +279,8 @@ class ClaudeClient:
             [AsyncSession], DecisionRepository
         ] = DecisionRepository,
         metrics: Any = None,
-        event_publisher: Callable[[OperationalEventCreate], Awaitable[Any]] | None = None,
+        event_publisher: Callable[[OperationalEventCreate], Awaitable[Any]]
+        | None = None,
     ):
         self.in_queue = in_queue
         self.out_queue = out_queue
@@ -308,7 +308,9 @@ class ClaudeClient:
             _max_retries = self.config.anthropic_max_retries
             self._provider_name = LLMProviderName.ANTHROPIC
 
-        self.client = AsyncAnthropic(api_key=_api_key, base_url=_base_url, max_retries=_max_retries)
+        self.client = AsyncAnthropic(
+            api_key=_api_key, base_url=_base_url, max_retries=_max_retries
+        )
         self.model = _model
         self.max_tokens = _max_tokens
         self.max_retries = _max_retries
@@ -397,9 +399,7 @@ class ClaudeClient:
                 )
             )
             asyncio.ensure_future(
-                self._metrics.set_active_provider(
-                    provider=self._provider_name.value
-                )
+                self._metrics.set_active_provider(provider=self._provider_name.value)
             )
 
         # Start the background consumption loop
@@ -517,7 +517,9 @@ class ClaudeClient:
                 failure_reason = self._grok_client.last_failure_reason
                 self._log_sentiment(
                     status="FALLBACK",
-                    reason=failure_reason.value if failure_reason else "NEUTRAL_RETURNED",
+                    reason=failure_reason.value
+                    if failure_reason
+                    else "NEUTRAL_RETURNED",
                     sentiment=sentiment,
                     snapshot_id=snapshot_id,
                 )
@@ -603,7 +605,9 @@ class ClaudeClient:
             logger.warning(
                 "market_in_cooldown — skipping evaluation.",
                 market_key=_hash_market_key(market_key),
-                reason=cooldown_decision.cooldown_reason.value if cooldown_decision.cooldown_reason else None,
+                reason=cooldown_decision.cooldown_reason.value
+                if cooldown_decision.cooldown_reason
+                else None,
                 snapshot_id=snapshot_id,
             )
             # WI-52: Emit cooldown block metric for actual blocked evaluation
@@ -799,19 +803,23 @@ class ClaudeClient:
         action = eval_resp.recommended_action.value
         if action == "HOLD":
             await self._cognitive_breaker.record_outcome(
-                market_key=market_key, outcome_type="hold",
+                market_key=market_key,
+                outcome_type="hold",
             )
         elif action == "SKIP":
             await self._cognitive_breaker.record_outcome(
-                market_key=market_key, outcome_type="skip",
+                market_key=market_key,
+                outcome_type="skip",
             )
         elif action == "BUY":
             await self._cognitive_breaker.record_outcome(
-                market_key=market_key, outcome_type="buy",
+                market_key=market_key,
+                outcome_type="buy",
             )
         elif action == "SELL":
             await self._cognitive_breaker.record_outcome(
-                market_key=market_key, outcome_type="sell",
+                market_key=market_key,
+                outcome_type="sell",
             )
 
     def _extract_json(self, text: str) -> str:
@@ -833,7 +841,9 @@ class ClaudeClient:
     # ------------------------------------------------------------------
 
     async def evaluate_for_backtest(
-        self, prompt: str, snapshot_id: str = "backtest",
+        self,
+        prompt: str,
+        snapshot_id: str = "backtest",
         market_key: str = "backtest-market",
     ) -> tuple[dict[str, Any], dict[str, int] | None, str | None]:
         """Public async evaluate(prompt) -> (dict, usage, block_reason).
@@ -861,8 +871,10 @@ class ClaudeClient:
         try:
             primary, primary_block = await asyncio.wait_for(
                 self._get_primary_candidate(
-                    prompt=prompt, snapshot_id=snapshot_id,
-                    max_retries=self.max_retries, market_key=market_key,
+                    prompt=prompt,
+                    snapshot_id=snapshot_id,
+                    max_retries=self.max_retries,
+                    market_key=market_key,
                 ),
                 timeout=60.0,
             )
@@ -877,17 +889,21 @@ class ClaudeClient:
 
         # --- Simple reflection (same guards active; fail-closed) ---
         reflection = await self._bt_reflection(
-            candidate_json=candidate_json, snapshot_id=snapshot_id,
+            candidate_json=candidate_json,
+            snapshot_id=snapshot_id,
             market_key=market_key,
         )
 
         if reflection.verdict.value == "REJECTED":
             # Propagate budget-block reason from reflection to the caller
             refl_block = (
-                "budget" if "budget" in (reflection.audit_note or "").lower()
-                else None
+                "budget" if "budget" in (reflection.audit_note or "").lower() else None
             )
-            return self._bt_fallback("reflection rejected the candidate"), usage, refl_block
+            return (
+                self._bt_fallback("reflection rejected the candidate"),
+                usage,
+                refl_block,
+            )
 
         final_json = candidate_json
         if (
@@ -899,12 +915,19 @@ class ClaudeClient:
         try:
             parsed = _json.loads(final_json, parse_float=Decimal)
         except (_json.JSONDecodeError, TypeError):
-            return self._bt_fallback("final candidate unparseable after reflection"), usage, None
+            return (
+                self._bt_fallback("final candidate unparseable after reflection"),
+                usage,
+                None,
+            )
 
         return parsed, usage, None  # type: ignore[return-value]
 
     async def _bt_reflection(
-        self, *, candidate_json: str, snapshot_id: str,
+        self,
+        *,
+        candidate_json: str,
+        snapshot_id: str,
         market_key: str = "backtest-market",
     ) -> ReflectionResponse:
         """Single-shot reflection call for backtest context.
@@ -918,7 +941,8 @@ class ClaudeClient:
         """
         refl_key = f"{market_key}-reflection"
         budget_ok = await self._budget_guard.check_budget(
-            call_type="reflection", market_key=refl_key,
+            call_type="reflection",
+            market_key=refl_key,
         )
         if not budget_ok.allowed:
             return ReflectionResponse(
@@ -974,7 +998,9 @@ class ClaudeClient:
             "market_context": {
                 "condition_id": "0000000000",
                 "outcome_evaluated": "YES",
-                "best_bid": "0.5", "best_ask": "0.5", "midpoint": "0.5",
+                "best_bid": "0.5",
+                "best_ask": "0.5",
+                "midpoint": "0.5",
             },
             "probabilistic_estimate": {"p_true": "0.5", "p_market": "0.5"},
             "risk_assessment": {
@@ -1020,12 +1046,15 @@ class ClaudeClient:
         for attempt in range(max_retries + 1):
             # WI-52: Enforce budget before EACH paid call (including retries)
             budget_decision = await self._budget_guard.check_budget(
-                call_type="primary", market_key=market_key,
+                call_type="primary",
+                market_key=market_key,
             )
             if not budget_decision.allowed:
                 logger.warning(
                     "llm_budget_blocked — skipping primary provider call.",
-                    reason=budget_decision.block_reason.value if budget_decision.block_reason else None,
+                    reason=budget_decision.block_reason.value
+                    if budget_decision.block_reason
+                    else None,
                     snapshot_id=snapshot_id,
                     attempt=attempt + 1,
                 )
@@ -1153,12 +1182,15 @@ class ClaudeClient:
         """
         # WI-52: Enforce budget before paid reflection call
         reflection_budget_decision = await self._budget_guard.check_budget(
-            call_type="reflection", market_key=market_key,
+            call_type="reflection",
+            market_key=market_key,
         )
         if not reflection_budget_decision.allowed:
             logger.warning(
                 "llm_budget_blocked — skipping reflection provider call.",
-                reason=reflection_budget_decision.block_reason.value if reflection_budget_decision.block_reason else None,
+                reason=reflection_budget_decision.block_reason.value
+                if reflection_budget_decision.block_reason
+                else None,
                 market_key=_hash_market_key(market_key) if market_key else None,
                 snapshot_id=snapshot_id,
             )
@@ -1318,7 +1350,10 @@ class ClaudeClient:
         return json.dumps(candidate)
 
     async def _evaluate_with_retries(
-        self, prompt: str, snapshot_id: str, max_retries: Optional[int] = None,
+        self,
+        prompt: str,
+        snapshot_id: str,
+        max_retries: Optional[int] = None,
         market_key: Optional[str] = None,
     ) -> Optional[tuple[LLMEvaluationResponse, str, Dict[str, int]]]:
         """Direct evaluation path with budget guard enforcement.
@@ -1332,12 +1367,15 @@ class ClaudeClient:
         for attempt in range(max_retries + 1):
             # WI-52: Enforce budget before EACH paid call (including retries)
             budget_decision = await self._budget_guard.check_budget(
-                call_type="primary", market_key=market_key,
+                call_type="primary",
+                market_key=market_key,
             )
             if not budget_decision.allowed:
                 logger.warning(
                     "llm_budget_blocked — skipping _evaluate_with_retries call.",
-                    reason=budget_decision.block_reason.value if budget_decision.block_reason else None,
+                    reason=budget_decision.block_reason.value
+                    if budget_decision.block_reason
+                    else None,
                     snapshot_id=snapshot_id,
                     attempt=attempt + 1,
                 )
@@ -1390,7 +1428,8 @@ class ClaudeClient:
                     await self._budget_guard.record_usage(
                         provider=self._provider_name,
                         model_name=self.model,
-                        input_tokens=None, output_tokens=None,
+                        input_tokens=None,
+                        output_tokens=None,
                         market_key=market_key,
                     )
                     if attempt < max_retries:

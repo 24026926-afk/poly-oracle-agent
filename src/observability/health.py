@@ -88,7 +88,11 @@ class WebSocketHealthSnapshot(BaseModel):
     last_error_reason: Optional[str] = Field(default=None)
     active_subscribed_asset_count: int = Field(default=0, ge=0)
 
-    @field_validator("last_connected_at_utc", "last_heartbeat_sent_at_utc", "last_pong_received_at_utc")
+    @field_validator(
+        "last_connected_at_utc",
+        "last_heartbeat_sent_at_utc",
+        "last_pong_received_at_utc",
+    )
     @classmethod
     def _ensure_utc(cls, dt: Optional[datetime]) -> Optional[datetime]:
         if dt is not None and dt.tzinfo is None:

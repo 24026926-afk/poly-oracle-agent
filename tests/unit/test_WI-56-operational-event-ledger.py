@@ -8,12 +8,10 @@ overflow policy, config, and metrics label enforcement.
 
 from __future__ import annotations
 
-import asyncio
-import json
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -82,16 +80,28 @@ def _make_create(
 
 
 _REQUIRED_EVENT_TYPES = {
-    "START", "SHUTDOWN", "CONFIG_LOADED",
-    "MARKET_DISCOVERED", "MARKET_REJECTED", "MARKET_QUARANTINE",
-    "WS_CONNECTED", "WS_RECONNECT", "WS_PONG_STALE",
+    "START",
+    "SHUTDOWN",
+    "CONFIG_LOADED",
+    "MARKET_DISCOVERED",
+    "MARKET_REJECTED",
+    "MARKET_QUARANTINE",
+    "WS_CONNECTED",
+    "WS_RECONNECT",
+    "WS_PONG_STALE",
     "READY_STATE_CHANGED",
-    "LLM_CALL_STARTED", "LLM_CALL_BLOCKED",
-    "BUDGET_BLOCK", "COOLDOWN_BLOCK", "PROVIDER_FAILURE",
-    "DECISION_ACCEPTED", "DECISION_SKIPPED",
+    "LLM_CALL_STARTED",
+    "LLM_CALL_BLOCKED",
+    "BUDGET_BLOCK",
+    "COOLDOWN_BLOCK",
+    "PROVIDER_FAILURE",
+    "DECISION_ACCEPTED",
+    "DECISION_SKIPPED",
     "EXECUTION_DRY_RUN",
-    "CIRCUIT_BREAKER_OPEN", "CIRCUIT_BREAKER_CLOSED",
-    "ALERT_SENT", "ERROR_RECOVERED",
+    "CIRCUIT_BREAKER_OPEN",
+    "CIRCUIT_BREAKER_CLOSED",
+    "ALERT_SENT",
+    "ERROR_RECOVERED",
 }
 
 
@@ -126,7 +136,15 @@ def test_event_severity_enum_values():
 
 
 def test_event_source_enum_contains_required_sources():
-    expected = {"ORCHESTRATOR", "INGESTION", "CONTEXT", "EVALUATION", "EXECUTION", "OBSERVABILITY", "DATABASE"}
+    expected = {
+        "ORCHESTRATOR",
+        "INGESTION",
+        "CONTEXT",
+        "EVALUATION",
+        "EXECUTION",
+        "OBSERVABILITY",
+        "DATABASE",
+    }
     assert {s.value for s in OperationalEventSource} == expected
 
 
@@ -190,7 +208,9 @@ def test_event_payload_rejects_secret_like_values():
 
 def test_event_payload_rejects_high_cardinality_identifiers():
     with pytest.raises(ValidationError):
-        OperationalEventPayload(message="condition 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        OperationalEventPayload(
+            message="condition 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
 
 
 def test_event_payload_rejects_raw_prompt_text():
@@ -220,17 +240,23 @@ def test_event_payload_rejects_token_ids():
 
 def test_event_payload_rejects_condition_ids():
     with pytest.raises(ValidationError):
-        OperationalEventPayload(message="condition 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        OperationalEventPayload(
+            message="condition 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
 
 
 def test_event_payload_rejects_wallet_addresses():
     with pytest.raises(ValidationError):
-        OperationalEventPayload(message="wallet 0x1234567890123456789012345678901234567890")
+        OperationalEventPayload(
+            message="wallet 0x1234567890123456789012345678901234567890"
+        )
 
 
 def test_event_payload_rejects_telegram_tokens():
     with pytest.raises(ValidationError):
-        OperationalEventPayload(message="bot token: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz")
+        OperationalEventPayload(
+            message="bot token: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+        )
 
 
 def test_event_payload_allows_valid_bounded_counts():
@@ -409,12 +435,16 @@ def test_event_batch_accepts_list_of_creates():
 
 
 def test_event_batch_result_tracks_success_count():
-    r = OperationalEventBatchResult(batch_id="b1", total=5, succeeded=5, failed=0, dropped=0)
+    r = OperationalEventBatchResult(
+        batch_id="b1", total=5, succeeded=5, failed=0, dropped=0
+    )
     assert r.succeeded == 5
 
 
 def test_event_batch_result_tracks_failure_count():
-    r = OperationalEventBatchResult(batch_id="b1", total=5, succeeded=3, failed=2, dropped=0)
+    r = OperationalEventBatchResult(
+        batch_id="b1", total=5, succeeded=3, failed=2, dropped=0
+    )
     assert r.failed == 2
 
 
@@ -436,7 +466,9 @@ def test_append_result_success():
 
 
 def test_append_result_failure_with_reason():
-    r = OperationalEventAppendResult(accepted=False, reason="queue_full", queue_depth=100)
+    r = OperationalEventAppendResult(
+        accepted=False, reason="queue_full", queue_depth=100
+    )
     assert r.accepted is False
     assert r.reason == "queue_full"
 
@@ -633,6 +665,7 @@ async def test_event_bus_accepts_event_create():
     repo_mock.batch_append = AsyncMock(
         return_value=OperationalEventBatchResult(batch_id="b1", total=1, succeeded=1)
     )
+
     async def factory():
         return repo_mock
 
@@ -649,6 +682,7 @@ async def test_event_bus_accepts_event_create():
 @pytest.mark.asyncio
 async def test_event_bus_queue_is_bounded():
     repo_mock = AsyncMock()
+
     async def factory():
         return repo_mock
 
@@ -666,6 +700,7 @@ async def test_event_bus_queue_is_bounded():
 @pytest.mark.asyncio
 async def test_event_bus_overflow_drops_diagnostic_first():
     repo_mock = AsyncMock()
+
     async def factory():
         return repo_mock
 
@@ -689,6 +724,7 @@ async def test_event_bus_overflow_drops_diagnostic_first():
 @pytest.mark.asyncio
 async def test_event_bus_overflow_preserves_critical_events():
     repo_mock = AsyncMock()
+
     async def factory():
         return repo_mock
 
@@ -768,10 +804,13 @@ async def test_event_bus_drop_diagnostic_retains_critical_over_non_critical():
 @pytest.mark.asyncio
 async def test_event_bus_overflow_returns_typed_result():
     repo_mock = AsyncMock()
+
     async def factory():
         return repo_mock
 
-    config = _make_config(event_ledger_queue_size=1, event_ledger_overflow_policy="drop_newest")
+    config = _make_config(
+        event_ledger_queue_size=1, event_ledger_overflow_policy="drop_newest"
+    )
     bus = OperationalEventBus(repository_factory=factory, config=config)
 
     # Fill with a WARNING event (not diagnostic, so _pop_diagnostic won't drop it)
@@ -787,6 +826,7 @@ async def test_event_bus_flush_bounded_batch_size():
     repo_mock.batch_append = AsyncMock(
         return_value=OperationalEventBatchResult(batch_id="b1", total=2, succeeded=2)
     )
+
     async def factory():
         return repo_mock
 
@@ -850,6 +890,7 @@ async def test_event_bus_shutdown_flush_timeout():
     repo_mock.batch_append = AsyncMock(
         return_value=OperationalEventBatchResult(batch_id="b1", total=1, succeeded=1)
     )
+
     async def factory():
         return repo_mock
 
@@ -869,6 +910,7 @@ async def test_event_bus_start_stop_lifecycle():
     repo_mock.batch_append = AsyncMock(
         return_value=OperationalEventBatchResult(batch_id="b1", total=0, succeeded=0)
     )
+
     async def factory():
         return repo_mock
 
@@ -889,10 +931,15 @@ async def test_event_bus_start_stop_lifecycle():
 
 
 def test_repository_has_no_public_update_methods():
-    from src.db.repositories.operational_event_repository import OperationalEventRepository
+    from src.db.repositories.operational_event_repository import (
+        OperationalEventRepository,
+    )
+
     public_methods = [
-        m for m in dir(OperationalEventRepository)
-        if not m.startswith("_") and callable(getattr(OperationalEventRepository, m, None))
+        m
+        for m in dir(OperationalEventRepository)
+        if not m.startswith("_")
+        and callable(getattr(OperationalEventRepository, m, None))
     ]
     assert "update" not in public_methods
     assert "delete" not in public_methods
@@ -900,43 +947,70 @@ def test_repository_has_no_public_update_methods():
 
 
 def test_repository_has_no_public_delete_methods():
-    from src.db.repositories.operational_event_repository import OperationalEventRepository
+    from src.db.repositories.operational_event_repository import (
+        OperationalEventRepository,
+    )
+
     public_methods = [
-        m for m in dir(OperationalEventRepository)
-        if not m.startswith("_") and callable(getattr(OperationalEventRepository, m, None))
+        m
+        for m in dir(OperationalEventRepository)
+        if not m.startswith("_")
+        and callable(getattr(OperationalEventRepository, m, None))
     ]
-    delete_like = [m for m in public_methods if "delete" in m.lower() or "remove" in m.lower()]
+    delete_like = [
+        m for m in public_methods if "delete" in m.lower() or "remove" in m.lower()
+    ]
     assert len(delete_like) == 0
 
 
 def test_repository_has_append_method():
-    from src.db.repositories.operational_event_repository import OperationalEventRepository
+    from src.db.repositories.operational_event_repository import (
+        OperationalEventRepository,
+    )
+
     assert hasattr(OperationalEventRepository, "append")
     assert callable(getattr(OperationalEventRepository, "append"))
 
 
 def test_repository_has_read_window_method():
-    from src.db.repositories.operational_event_repository import OperationalEventRepository
+    from src.db.repositories.operational_event_repository import (
+        OperationalEventRepository,
+    )
+
     assert hasattr(OperationalEventRepository, "read_window")
     assert callable(getattr(OperationalEventRepository, "read_window"))
 
 
 def test_repository_append_returns_event_record():
-    from src.db.repositories.operational_event_repository import OperationalEventRepository
+    from src.db.repositories.operational_event_repository import (
+        OperationalEventRepository,
+    )
     import inspect
+
     sig = inspect.signature(OperationalEventRepository.append)
     return_annotation = sig.return_annotation
     # With from __future__ import annotations, return annotation may be a string
-    annotation_name = return_annotation.__name__ if hasattr(return_annotation, "__name__") else str(return_annotation)
+    annotation_name = (
+        return_annotation.__name__
+        if hasattr(return_annotation, "__name__")
+        else str(return_annotation)
+    )
     assert "OperationalEventRecord" in annotation_name
 
 
 def test_repository_batch_append_returns_batch_result():
-    from src.db.repositories.operational_event_repository import OperationalEventRepository
+    from src.db.repositories.operational_event_repository import (
+        OperationalEventRepository,
+    )
     import inspect
+
     sig = inspect.signature(OperationalEventRepository.batch_append)
     return_annotation = sig.return_annotation
-    annotation_name = return_annotation.__name__ if hasattr(return_annotation, "__name__") else str(return_annotation)
+    annotation_name = (
+        return_annotation.__name__
+        if hasattr(return_annotation, "__name__")
+        else str(return_annotation)
+    )
     assert "OperationalEventBatchResult" in annotation_name
 
 
@@ -947,6 +1021,7 @@ def test_repository_batch_append_returns_batch_result():
 
 def test_config_has_event_ledger_enabled():
     from src.core.config import AppConfig
+
     fields = AppConfig.model_fields
     assert "enable_operational_event_ledger" in fields
     assert fields["enable_operational_event_ledger"].default is False
@@ -954,26 +1029,31 @@ def test_config_has_event_ledger_enabled():
 
 def test_config_has_event_queue_size():
     from src.core.config import AppConfig
+
     assert "event_ledger_queue_size" in AppConfig.model_fields
 
 
 def test_config_has_event_batch_size():
     from src.core.config import AppConfig
+
     assert "event_ledger_batch_size" in AppConfig.model_fields
 
 
 def test_config_has_event_flush_interval_seconds():
     from src.core.config import AppConfig
+
     assert "event_ledger_flush_interval_sec" in AppConfig.model_fields
 
 
 def test_config_has_event_shutdown_flush_timeout():
     from src.core.config import AppConfig
+
     assert "event_ledger_shutdown_flush_timeout_sec" in AppConfig.model_fields
 
 
 def test_config_has_event_overflow_policy():
     from src.core.config import AppConfig
+
     assert "event_ledger_overflow_policy" in AppConfig.model_fields
 
 
@@ -990,6 +1070,7 @@ def test_config_rejects_unknown_event_overflow_policy():
 
 def test_config_ledger_disabled_by_default():
     from src.core.config import AppConfig
+
     assert AppConfig.model_fields["enable_operational_event_ledger"].default is False
 
 
@@ -1000,6 +1081,7 @@ def test_config_ledger_disabled_by_default():
 
 def test_metrics_append_attempt_counter_low_cardinality():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     assert "poly_agent_event_append_attempts_total" in m._counter_helps
     # Event type labels are from a bounded enum => low cardinality
@@ -1007,36 +1089,42 @@ def test_metrics_append_attempt_counter_low_cardinality():
 
 def test_metrics_persisted_counter_low_cardinality():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     assert "poly_agent_event_persisted_total" in m._counter_helps
 
 
 def test_metrics_dropped_counter_low_cardinality():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     assert "poly_agent_event_dropped_total" in m._counter_helps
 
 
 def test_metrics_queue_depth_gauge_low_cardinality():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     assert "poly_agent_event_queue_depth" in m._gauge_helps
 
 
 def test_metrics_overflow_counter_low_cardinality():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     assert "poly_agent_event_queue_overflow_total" in m._counter_helps
 
 
 def test_metrics_flush_failure_counter_low_cardinality():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     assert "poly_agent_event_flush_failures_total" in m._counter_helps
 
 
 def test_metrics_rejects_high_cardinality_event_type_labels():
     from src.observability.metrics import MetricsRegistry
+
     m = MetricsRegistry()
     # The label keys used are "event_type", "severity", "reason" — all from bounded enums
     # Verify these are the only keys
@@ -1072,7 +1160,9 @@ def test_operational_event_record_cannot_be_modified_after_persistence():
 
 def test_event_payload_rejects_raw_exception_messages():
     with pytest.raises(ValidationError):
-        OperationalEventPayload(message="reasoning_log: the model produced an error during evaluation")
+        OperationalEventPayload(
+            message="reasoning_log: the model produced an error during evaluation"
+        )
 
 
 def test_llm_event_payload_rejects_raw_prompts():
@@ -1092,7 +1182,9 @@ def test_market_event_payload_rejects_token_ids():
 
 def test_market_event_payload_rejects_condition_ids():
     with pytest.raises(ValidationError):
-        OperationalEventPayload(message="condition_id 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        OperationalEventPayload(
+            message="condition_id 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
 
 
 def test_execution_event_payload_preserves_dry_run_auditability():
@@ -1118,6 +1210,7 @@ def test_fail_closed_for_safety_critical_events():
 async def test_non_critical_failure_does_not_crash_loop():
     repo_mock = AsyncMock()
     repo_mock.batch_append = AsyncMock(side_effect=RuntimeError("db down"))
+
     async def factory():
         return repo_mock
 

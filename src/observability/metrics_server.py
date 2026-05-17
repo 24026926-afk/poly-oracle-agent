@@ -87,9 +87,7 @@ class MetricsServer:
     ) -> None:
         """Parse HTTP request line and route to handler."""
         try:
-            request_line = await asyncio.wait_for(
-                reader.readline(), timeout=5.0
-            )
+            request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
         except asyncio.TimeoutError:
             writer.close()
             return
@@ -114,9 +112,7 @@ class MetricsServer:
                 break
 
         if method != "GET":
-            await self._respond_text(
-                writer, b"HTTP/1.1 405 Method Not Allowed\r\n\r\n"
-            )
+            await self._respond_text(writer, b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
             return
 
         if path == "/metrics":
@@ -144,17 +140,13 @@ class MetricsServer:
 
         writer.write(_HTTP_200_LINE)
         writer.write(_CONTENT_TYPE)
-        writer.write(
-            f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
-        )
+        writer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii"))
         writer.write(body)
         await writer.drain()
         writer.close()
 
     @staticmethod
-    async def _respond_text(
-        writer: asyncio.StreamWriter, response: bytes
-    ) -> None:
+    async def _respond_text(writer: asyncio.StreamWriter, response: bytes) -> None:
         """Write a raw response and close."""
         try:
             writer.write(response)

@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
-import sys
 import tempfile
 import urllib.error
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,6 +21,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Import modules under test
 # ---------------------------------------------------------------------------
+
 
 def _import_soak_schemas():
     try:
@@ -72,7 +71,8 @@ def test_soak_probe_status_schema_exists(soak_schemas):
 def test_soak_probe_result_schema_exists(soak_schemas):
     assert hasattr(soak_schemas, "SoakProbeResult")
     result = soak_schemas.SoakProbeResult(
-        probe_name="test", status=soak_schemas.SoakProbeStatus.PASS,
+        probe_name="test",
+        status=soak_schemas.SoakProbeStatus.PASS,
     )
     assert result.probe_name == "test"
 
@@ -86,7 +86,8 @@ def test_soak_service_status_schema_exists(soak_schemas):
 def test_soak_health_evidence_schema_exists(soak_schemas):
     assert hasattr(soak_schemas, "SoakHealthEvidence")
     probe = soak_schemas.SoakProbeResult(
-        probe_name="health", status=soak_schemas.SoakProbeStatus.PASS,
+        probe_name="health",
+        status=soak_schemas.SoakProbeStatus.PASS,
     )
     he = soak_schemas.SoakHealthEvidence(health_probe=probe)
     assert he.healthz_reachable is False
@@ -95,7 +96,8 @@ def test_soak_health_evidence_schema_exists(soak_schemas):
 def test_soak_metrics_evidence_schema_exists(soak_schemas):
     assert hasattr(soak_schemas, "SoakMetricsEvidence")
     probe = soak_schemas.SoakProbeResult(
-        probe_name="metrics", status=soak_schemas.SoakProbeStatus.PASS,
+        probe_name="metrics",
+        status=soak_schemas.SoakProbeStatus.PASS,
     )
     me = soak_schemas.SoakMetricsEvidence(metrics_probe=probe)
     assert me.metrics_reachable is False
@@ -104,7 +106,8 @@ def test_soak_metrics_evidence_schema_exists(soak_schemas):
 def test_soak_database_evidence_schema_exists(soak_schemas):
     assert hasattr(soak_schemas, "SoakDatabaseEvidence")
     probe = soak_schemas.SoakProbeResult(
-        probe_name="database", status=soak_schemas.SoakProbeStatus.PASS,
+        probe_name="database",
+        status=soak_schemas.SoakProbeStatus.PASS,
     )
     de = soak_schemas.SoakDatabaseEvidence(db_probe=probe)
     assert de.db_file_exists is False
@@ -113,7 +116,8 @@ def test_soak_database_evidence_schema_exists(soak_schemas):
 def test_soak_recovery_evidence_schema_exists(soak_schemas):
     assert hasattr(soak_schemas, "SoakRecoveryEvidence")
     probe = soak_schemas.SoakProbeResult(
-        probe_name="recovery", status=soak_schemas.SoakProbeStatus.INCOMPLETE,
+        probe_name="recovery",
+        status=soak_schemas.SoakProbeStatus.INCOMPLETE,
     )
     re_ev = soak_schemas.SoakRecoveryEvidence(recovery_probe=probe)
     assert re_ev.recovery_tested is False
@@ -205,11 +209,18 @@ class TestReportGeneration:
             with patch.object(collector, "_PROJECT_ROOT", Path(tmpdir)):
                 out = Path(tmpdir) / "docs" / "operations"
                 assert not out.exists()
-                collector._write_report({
-                    "report_id": "x", "target_host": "localhost", "verdict": "pass",
-                    "duration_hours": 24.0, "probes": [], "live_trading_authorized": False,
-                    "exit_code": 0, "verdict_reason": "test",
-                })
+                collector._write_report(
+                    {
+                        "report_id": "x",
+                        "target_host": "localhost",
+                        "verdict": "pass",
+                        "duration_hours": 24.0,
+                        "probes": [],
+                        "live_trading_authorized": False,
+                        "exit_code": 0,
+                        "verdict_reason": "test",
+                    }
+                )
                 assert out.exists()
                 assert (out / "phase14-soak-report.md").exists()
                 assert (out / "phase14-soak-report.json").exists()
@@ -227,7 +238,9 @@ class TestDryRunGate:
         """DRY_RUN=false in .env → fail."""
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "read_text", return_value="DRY_RUN=false\n"):
-                with patch.object(collector, "_http_get", side_effect=urllib.error.URLError("no")):
+                with patch.object(
+                    collector, "_http_get", side_effect=urllib.error.URLError("no")
+                ):
                     ok, probe = collector._probe_dry_run("127.0.0.1")
                     assert ok is False
                     assert probe["status"] == "fail"
@@ -236,18 +249,26 @@ class TestDryRunGate:
         """DRY_RUN key missing from .env → fail."""
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "read_text", return_value="OTHER_KEY=value\n"):
-                with patch.object(collector, "_http_get", side_effect=urllib.error.URLError("no")):
+                with patch.object(
+                    collector, "_http_get", side_effect=urllib.error.URLError("no")
+                ):
                     ok, probe = collector._probe_dry_run("127.0.0.1")
                     assert ok is False
                     assert probe["status"] == "fail"
                     assert probe["failure_reason"] == "dry_run_missing"
 
-    def test_collect_soak_evidence_does_not_emit_passing_report_when_dry_run_false(self, collector):
+    def test_collect_soak_evidence_does_not_emit_passing_report_when_dry_run_false(
+        self, collector
+    ):
         """When dry_run is false, _compute_verdict returns fail."""
         report = {
             "probes": [
-                {"probe_name": "dry_run_guard", "status": "fail",
-                 "detail": "DRY_RUN is not true", "failure_reason": "dry_run_false"},
+                {
+                    "probe_name": "dry_run_guard",
+                    "status": "fail",
+                    "detail": "DRY_RUN is not true",
+                    "failure_reason": "dry_run_false",
+                },
             ],
         }
         verdict, reason = collector._compute_verdict(report)
@@ -259,7 +280,11 @@ class TestDryRunGate:
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "read_text", return_value="DRY_RUN=true\n"):
                 with patch.object(collector, "_http_get") as mock_get:
-                    mock_get.return_value = (200, '{"status":"READY","dry_run":true}', {})
+                    mock_get.return_value = (
+                        200,
+                        '{"status":"READY","dry_run":true}',
+                        {},
+                    )
                     ok, probe = collector._probe_dry_run("127.0.0.1")
                     assert ok is True
                     assert "runtime /readyz" in probe["detail"]
@@ -269,7 +294,11 @@ class TestDryRunGate:
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "read_text", return_value="DRY_RUN=true\n"):
                 with patch.object(collector, "_http_get") as mock_get:
-                    mock_get.return_value = (200, '{"status":"READY","dry_run":false}', {})
+                    mock_get.return_value = (
+                        200,
+                        '{"status":"READY","dry_run":false}',
+                        {},
+                    )
                     ok, probe = collector._probe_dry_run("127.0.0.1")
                     assert ok is False
                     assert probe["status"] == "fail"
@@ -296,7 +325,9 @@ class TestDryRunGate:
 class TestSoakDuration:
     """Tests for minimum soak duration enforcement."""
 
-    def test_collect_soak_evidence_fails_when_soak_shorter_than_24_hours(self, collector):
+    def test_collect_soak_evidence_fails_when_soak_shorter_than_24_hours(
+        self, collector
+    ):
         one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         duration_hours, probe = collector._probe_duration(one_hour_ago)
         assert duration_hours < 24.0
@@ -342,7 +373,11 @@ class TestHealthEvidence:
         with patch.object(collector, "_http_get") as mock_get:
             mock_get.side_effect = [
                 (200, "OK", {}),
-                (200, '{"status":"DEGRADED","checks":{"database":"ok","websocket":"stale"}}', {}),
+                (
+                    200,
+                    '{"status":"DEGRADED","checks":{"database":"ok","websocket":"stale"}}',
+                    {},
+                ),
             ]
             evidence = collector._probe_health("127.0.0.1")
             assert evidence["readyz_status"] == "DEGRADED"
@@ -422,7 +457,9 @@ class TestDatabaseEvidence:
                     mock_stat.return_value.st_size = 4096
                     with patch("sqlite3.connect") as mock_connect:
                         mock_connect.return_value = self._make_mock_connection(5, 10)
-                        evidence = collector._probe_database("/fake/db.db", soak_start, baseline_size=0)
+                        evidence = collector._probe_database(
+                            "/fake/db.db", soak_start, baseline_size=0
+                        )
                         assert evidence["db_file_exists"] is True
                         assert evidence["db_file_size_bytes"] == 4096
 
@@ -436,7 +473,9 @@ class TestDatabaseEvidence:
                     with patch("sqlite3.connect") as mock_connect:
                         mock_connect.return_value = self._make_mock_connection(5, 10)
                         evidence = collector._probe_database(
-                            "/fake/db.db", soak_start, baseline_size=4096,
+                            "/fake/db.db",
+                            soak_start,
+                            baseline_size=4096,
                         )
                         assert evidence["db_growth_bytes"] == 4096
                         assert evidence["db_grew"] is True
@@ -451,12 +490,17 @@ class TestDatabaseEvidence:
                     with patch("sqlite3.connect") as mock_connect:
                         mock_connect.return_value = self._make_mock_connection(0, 0)
                         evidence = collector._probe_database(
-                            "/fake/db.db", soak_start, baseline_size=4096,
+                            "/fake/db.db",
+                            soak_start,
+                            baseline_size=4096,
                         )
                         assert evidence["db_growth_bytes"] == 0
                         assert evidence["db_grew"] is False
                         assert evidence["db_probe"]["status"] == "fail"
-                        assert evidence["db_probe"]["failure_reason"] == "no_persistence_activity"
+                        assert (
+                            evidence["db_probe"]["failure_reason"]
+                            == "no_persistence_activity"
+                        )
 
     def test_soak_evidence_flags_missing_persistence_activity(self, collector):
         """DB exists but has 0 decisions and 0 snapshots → incomplete."""
@@ -467,7 +511,9 @@ class TestDatabaseEvidence:
                     mock_stat.return_value.st_size = 4096
                     with patch("sqlite3.connect") as mock_connect:
                         mock_connect.return_value = self._make_mock_connection(0, 0)
-                        evidence = collector._probe_database("/fake/db.db", soak_start, baseline_size=0)
+                        evidence = collector._probe_database(
+                            "/fake/db.db", soak_start, baseline_size=0
+                        )
                         assert evidence["db_probe"]["status"] == "incomplete"
 
     def test_soak_evidence_handles_locked_sqlite(self, collector):
@@ -478,8 +524,13 @@ class TestDatabaseEvidence:
                     mock_stat.return_value.st_size = 4096
                     with patch("sqlite3.connect") as mock_connect:
                         import sqlite3
-                        mock_connect.side_effect = sqlite3.OperationalError("database is locked")
-                        evidence = collector._probe_database("/fake/db.db", soak_start, baseline_size=0)
+
+                        mock_connect.side_effect = sqlite3.OperationalError(
+                            "database is locked"
+                        )
+                        evidence = collector._probe_database(
+                            "/fake/db.db", soak_start, baseline_size=0
+                        )
                         assert evidence["sqlite_locked"] is True
                         assert evidence["db_probe"]["status"] == "fail"
                         assert evidence["db_probe"]["failure_reason"] == "sqlite_locked"
@@ -492,7 +543,9 @@ class TestDatabaseEvidence:
                     mock_stat.return_value.st_size = 4096
                     with patch("sqlite3.connect") as mock_connect:
                         mock_connect.return_value = self._make_mock_connection(42, 100)
-                        evidence = collector._probe_database("/fake/db.db", soak_start, baseline_size=0)
+                        evidence = collector._probe_database(
+                            "/fake/db.db", soak_start, baseline_size=0
+                        )
                         assert evidence["recent_decision_count"] == 42
                         assert evidence["recent_snapshot_count"] == 100
                         assert evidence["db_probe"]["status"] == "pass"
@@ -505,7 +558,9 @@ class TestDatabaseEvidence:
                     mock_stat.return_value.st_size = 4096
                     with patch("sqlite3.connect") as mock_connect:
                         mock_connect.return_value = self._make_mock_connection(3, 77)
-                        evidence = collector._probe_database("/fake/db.db", soak_start, baseline_size=0)
+                        evidence = collector._probe_database(
+                            "/fake/db.db", soak_start, baseline_size=0
+                        )
                         assert evidence["recent_snapshot_count"] == 77
 
     def test_soak_evidence_counts_sqlalchemy_sqlite_datetime_strings(self, collector):
@@ -548,13 +603,15 @@ class TestComposeService:
     """Tests for Compose service status probing."""
 
     def test_soak_evidence_includes_compose_service_status(self, collector):
-        svc_json = json.dumps([
-            {
-                "State": "running",
-                "Status": "Up 2 hours",
-                "Name": "poly-oracle-agent-orchestrator-1",
-            }
-        ])
+        svc_json = json.dumps(
+            [
+                {
+                    "State": "running",
+                    "Status": "Up 2 hours",
+                    "Name": "poly-oracle-agent-orchestrator-1",
+                }
+            ]
+        )
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout=svc_json, stderr=""),
@@ -566,13 +623,15 @@ class TestComposeService:
             assert svc_info["service_name"] == "orchestrator"
 
     def test_soak_evidence_includes_restart_count(self, collector):
-        svc_json = json.dumps([
-            {
-                "State": "running",
-                "Status": "Up 2 hours",
-                "Name": "poly-oracle-agent-orchestrator-1",
-            }
-        ])
+        svc_json = json.dumps(
+            [
+                {
+                    "State": "running",
+                    "Status": "Up 2 hours",
+                    "Name": "poly-oracle-agent-orchestrator-1",
+                }
+            ]
+        )
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout=svc_json, stderr=""),
@@ -583,10 +642,14 @@ class TestComposeService:
             assert svc_info["restart_count_source"] == "docker_inspect"
 
     def test_soak_evidence_includes_restart_evidence_when_nonzero(self, collector):
-        svc_json = json.dumps([{"State": "restarting", "Status": "Restarting (3) 10 seconds ago"}])
+        svc_json = json.dumps(
+            [{"State": "restarting", "Status": "Restarting (3) 10 seconds ago"}]
+        )
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
-                returncode=0, stdout=svc_json, stderr="",
+                returncode=0,
+                stdout=svc_json,
+                stderr="",
             )
             svc_info, probe = collector._probe_compose_service()
             assert svc_info["running"] is False
@@ -602,7 +665,9 @@ class TestComposeService:
 class TestTelegramEvidence:
     """Tests for Telegram status recording."""
 
-    def test_soak_evidence_records_telegram_not_applicable_when_disabled(self, collector):
+    def test_soak_evidence_records_telegram_not_applicable_when_disabled(
+        self, collector
+    ):
         evidence = collector._probe_telegram(telegram_enabled=False)
         assert evidence["status"] == "not_applicable"
         assert evidence["enabled"] is False
@@ -618,14 +683,17 @@ class TestRecoveryEvidence:
     """Tests for restart/reboot recovery evidence."""
 
     def test_soak_evidence_marks_recovery_incomplete_when_not_tested(self, collector):
-        evidence = collector._probe_recovery(recovery_tested=False, recovery_method=None)
+        evidence = collector._probe_recovery(
+            recovery_tested=False, recovery_method=None
+        )
         assert evidence["recovery_tested"] is False
         assert evidence["recovery_probe"]["status"] == "incomplete"
 
     def test_soak_evidence_marks_recovery_pass_when_tested(self, collector):
         """When recovery was tested with valid method, probe status is PASS."""
         evidence = collector._probe_recovery(
-            recovery_tested=True, recovery_method="docker compose restart",
+            recovery_tested=True,
+            recovery_method="docker compose restart",
             health_evidence={"health_probe": {"status": "pass"}},
             service_info={"running": True},
             db_evidence={"db_file_exists": True},
@@ -636,7 +704,8 @@ class TestRecoveryEvidence:
 
     def test_recovery_fails_without_post_recovery_health(self, collector):
         evidence = collector._probe_recovery(
-            recovery_tested=True, recovery_method="docker compose restart",
+            recovery_tested=True,
+            recovery_method="docker compose restart",
             health_evidence={"health_probe": {"status": "fail"}},
             service_info={"running": True},
             db_evidence={"db_file_exists": True},
@@ -648,7 +717,8 @@ class TestRecoveryEvidence:
     def test_recovery_fails_on_unknown_method(self, collector):
         """Unknown recovery method → FAIL."""
         evidence = collector._probe_recovery(
-            recovery_tested=True, recovery_method="magic restart",
+            recovery_tested=True,
+            recovery_method="magic restart",
         )
         assert evidence["recovery_probe"]["status"] == "fail"
         assert evidence["recovery_probe"]["failure_reason"] == "invalid_recovery_method"
@@ -816,8 +886,11 @@ class TestVerdictComputation:
 
     def test_soak_verdict_is_failed_when_mandatory_evidence_missing(self, collector):
         probes = self._mandatory_probes_pass()
-        probes[2] = {"probe_name": "health", "status": "fail",
-                     "detail": "Health endpoint unreachable"}
+        probes[2] = {
+            "probe_name": "health",
+            "status": "fail",
+            "detail": "Health endpoint unreachable",
+        }
         report = {"probes": probes}
         verdict, _ = collector._compute_verdict(report)
         assert verdict == "fail"
@@ -857,8 +930,11 @@ class TestVerdictComputation:
 
     def test_soak_verdict_is_failed_when_any_mandatory_gate_fails(self, collector):
         probes = self._mandatory_probes_pass()
-        probes[3] = {"probe_name": "metrics", "status": "fail",
-                     "detail": "Metrics endpoint unreachable"}
+        probes[3] = {
+            "probe_name": "metrics",
+            "status": "fail",
+            "detail": "Metrics endpoint unreachable",
+        }
         report = {"probes": probes}
         verdict, _ = collector._compute_verdict(report)
         assert verdict == "fail"
@@ -910,7 +986,9 @@ class TestRunbook:
         assert "DRY_RUN=true" in self.content
 
     def test_runbook_states_soak_does_not_authorize_live(self):
-        assert "does NOT authorize" in self.content or "does not authorize" in self.content
+        assert (
+            "does NOT authorize" in self.content or "does not authorize" in self.content
+        )
 
     def test_runbook_records_db_baseline_at_soak_start(self):
         assert "BEFORE starting the soak" in self.content
@@ -951,16 +1029,18 @@ class TestOutputPathConstraints:
             with patch.object(collector, "_PROJECT_ROOT", Path(tmpdir)):
                 with patch.object(collector, "_OUTPUT_DIR", Path("../outside")):
                     with pytest.raises(ValueError, match="docs/operations"):
-                        collector._write_report({
-                            "report_id": "x",
-                            "target_host": "localhost",
-                            "verdict": "pass",
-                            "duration_hours": 24.0,
-                            "verdict_reason": "test",
-                            "probes": [],
-                            "live_trading_authorized": False,
-                            "exit_code": 0,
-                        })
+                        collector._write_report(
+                            {
+                                "report_id": "x",
+                                "target_host": "localhost",
+                                "verdict": "pass",
+                                "duration_hours": 24.0,
+                                "verdict_reason": "test",
+                                "probes": [],
+                                "live_trading_authorized": False,
+                                "exit_code": 0,
+                            }
+                        )
 
     def test_collect_soak_evidence_report_makes_target_host_explicit(self, collector):
         """Report includes the target_host field."""

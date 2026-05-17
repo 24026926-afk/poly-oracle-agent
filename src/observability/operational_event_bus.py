@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Callable, Optional
 
 import structlog
@@ -89,7 +88,9 @@ class OperationalEventBus:
 
     # ── Public API ───────────────────────────────────────────────────────
 
-    async def publish(self, event: OperationalEventCreate) -> OperationalEventAppendResult:
+    async def publish(
+        self, event: OperationalEventCreate
+    ) -> OperationalEventAppendResult:
         """Submit an operational event to the bounded queue.
 
         Records an append-attempt metric for every call.
@@ -115,7 +116,10 @@ class OperationalEventBus:
         self._flush_task = asyncio.create_task(
             self._flush_loop(), name="OperationalEventBus-FlushLoop"
         )
-        logger.info("operational_event_bus.started", queue_maxsize=self._config.event_ledger_queue_size)
+        logger.info(
+            "operational_event_bus.started",
+            queue_maxsize=self._config.event_ledger_queue_size,
+        )
 
     async def stop(self) -> None:
         """Stop the bus, drain remaining events with a timeout."""
@@ -176,7 +180,9 @@ class OperationalEventBus:
         self._last_overflow_at_utc = datetime.now(timezone.utc)
         self._record_overflow_metric(severity)
 
-    def _handle_overflow(self, event: OperationalEventCreate) -> OperationalEventAppendResult:
+    def _handle_overflow(
+        self, event: OperationalEventCreate
+    ) -> OperationalEventAppendResult:
         """Apply the configured overflow policy.
 
         Never drops critical events.  For ``drop_oldest``, the oldest
@@ -407,9 +413,7 @@ class OperationalEventBus:
 
             persisted = result.succeeded
             failed = result.failed
-            has_critical = any(
-                e.severity.value in _CRITICAL_SEVERITIES for e in batch
-            )
+            has_critical = any(e.severity.value in _CRITICAL_SEVERITIES for e in batch)
 
             for _ in range(batch_count):
                 try:
@@ -475,9 +479,7 @@ class OperationalEventBus:
                 except Exception:
                     pass
 
-            has_critical = any(
-                e.severity.value in _CRITICAL_SEVERITIES for e in batch
-            )
+            has_critical = any(e.severity.value in _CRITICAL_SEVERITIES for e in batch)
 
             if self._metrics is not None:
                 try:
@@ -535,9 +537,7 @@ class OperationalEventBus:
     def _record_dropped_metric(self, reason: str) -> None:
         if self._metrics is not None:
             try:
-                asyncio.ensure_future(
-                    self._metrics.record_event_dropped(reason=reason)
-                )
+                asyncio.ensure_future(self._metrics.record_event_dropped(reason=reason))
             except Exception:
                 pass
 

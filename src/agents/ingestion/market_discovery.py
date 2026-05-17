@@ -60,7 +60,8 @@ class MarketDiscoveryEngine:
         config: AppConfig,
         polymarket_client=None,  # Optional, for preflight order book lookups
         metrics=None,  # Optional MetricsRegistry for WI-53 metrics
-        event_publisher: Callable[[OperationalEventCreate], Awaitable[Any]] | None = None,
+        event_publisher: Callable[[OperationalEventCreate], Awaitable[Any]]
+        | None = None,
     ) -> None:
         self._gamma_client = gamma_client
         self._bankroll_tracker = bankroll_tracker
@@ -249,13 +250,21 @@ class MarketDiscoveryEngine:
                 stats["preflight_skip"] += 1
                 decision = self._quarantine_manager.record_failure(market.condition_id)
                 if self._metrics is not None:
-                    reason = preflight_result.skip_reason.value if preflight_result.skip_reason else "UNKNOWN"
+                    reason = (
+                        preflight_result.skip_reason.value
+                        if preflight_result.skip_reason
+                        else "UNKNOWN"
+                    )
                     await self._metrics.record_preflight_fail(reason=reason)
                     if decision is not None:
-                        await self._metrics.record_quarantine(reason=decision.reason.value)
+                        await self._metrics.record_quarantine(
+                            reason=decision.reason.value
+                        )
                 logger.info(
                     "market_discovery.preflight_failed",
-                    skip_reason=preflight_result.skip_reason.value if preflight_result.skip_reason else None,
+                    skip_reason=preflight_result.skip_reason.value
+                    if preflight_result.skip_reason
+                    else None,
                 )
                 await self._publish_event(
                     event_type=OperationalEventType.MARKET_REJECTED,
@@ -282,7 +291,9 @@ class MarketDiscoveryEngine:
     # WI-53: Preflight checks
     # ------------------------------------------------------------------
 
-    async def _run_preflight(self, market: MarketMetadata) -> MarketEligibilityPreflightResult:
+    async def _run_preflight(
+        self, market: MarketMetadata
+    ) -> MarketEligibilityPreflightResult:
         """Run read-only preflight checks on a market candidate.
 
         Validates:

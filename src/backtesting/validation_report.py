@@ -67,7 +67,11 @@ class BacktestCalibrationBucket(BaseModel):
     deviation: Decimal
 
     @field_validator(
-        "low", "high", "avg_confidence", "observed_win_rate", "deviation",
+        "low",
+        "high",
+        "avg_confidence",
+        "observed_win_rate",
+        "deviation",
         mode="before",
     )
     @classmethod
@@ -175,10 +179,9 @@ def build_validation_report(
     # Realized EV calibration: deviation between avg EV and realized return
     # (both in unit-return / probability space)
     if report.total_trades > 0 and trade_decisions:
-        avg_position = (
-            sum((d.position_size_usdc for d in trade_decisions), _ZERO)
-            / len(trade_decisions)
-        )
+        avg_position = sum(
+            (d.position_size_usdc for d in trade_decisions), _ZERO
+        ) / len(trade_decisions)
         if avg_position > _ZERO:
             realized_per_trade = report.net_pnl_usdc / report.total_trades
             realized_return = realized_per_trade / avg_position
