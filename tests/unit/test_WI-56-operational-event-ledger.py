@@ -548,6 +548,24 @@ def test_read_window_bounded_limit():
     assert q.limit == 50
 
 
+def test_query_offset_defaults_to_zero():
+    """OperationalEventQuery exposes an offset cursor defaulting to 0."""
+    q = OperationalEventQuery()
+    assert q.offset == 0
+
+
+def test_query_offset_accepts_positive_int():
+    """Callers may page through results using an explicit offset."""
+    q = OperationalEventQuery(offset=2000)
+    assert q.offset == 2000
+
+
+def test_query_offset_rejects_negative():
+    """Negative offsets are rejected at the schema boundary."""
+    with pytest.raises(ValidationError):
+        OperationalEventQuery(offset=-1)
+
+
 def test_read_window_start_time():
     t = datetime(2026, 1, 1, tzinfo=timezone.utc)
     w = OperationalEventReadWindow(start_time_utc=t)
