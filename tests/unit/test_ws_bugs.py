@@ -326,6 +326,78 @@ async def test_ws_client_parses_price_changes_array():
 
 
 @pytest.mark.asyncio
+async def test_ws_client_resolves_nested_price_change_asset_id():
+    """Nested price_changes[].asset_id must resolve yes_token_id mappings."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        token_id_to_yes_token_id={"tok_nested": "tok_nested_yes"},
+    )
+
+    msg = json.dumps(
+        {
+            "event_type": "price_change",
+            "market": "0xcond_nested",
+            "price_changes": [
+                {
+                    "asset_id": "tok_nested",
+                    "best_bid": "0.48",
+                    "best_ask": "0.52",
+                }
+            ],
+        }
+    )
+
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert snapshot.yes_token_id == "tok_nested_yes"
+
+
+@pytest.mark.asyncio
+async def test_ws_client_routes_nested_price_change_asset_id_to_aggregator():
+    """Nested asset_id must route before falling back to DB enqueue."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    aggregator = MagicMock()
+    aggregator.frame_count = 0
+    aggregator.last_seen_utc = None
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+    )
+    client.register_aggregator("tok_nested", aggregator)
+
+    msg = json.dumps(
+        {
+            "event_type": "price_change",
+            "market": "0xcond_nested",
+            "price_changes": [
+                {
+                    "asset_id": "tok_nested",
+                    "best_bid": "0.48",
+                    "best_ask": "0.52",
+                }
+            ],
+        }
+    )
+
+    await client._handle_message(msg)
+
+    aggregator.process_frame.assert_called_once()
+    assert aggregator.frame_count == 1
+    assert aggregator.last_seen_utc is not None
+    assert queue.qsize() == 0
+
+
+@pytest.mark.asyncio
 async def test_ws_client_skips_price_change_with_missing_ask():
     """price_change frame with best_ask=0 must NOT emit a snapshot."""
     queue: asyncio.Queue = asyncio.Queue()

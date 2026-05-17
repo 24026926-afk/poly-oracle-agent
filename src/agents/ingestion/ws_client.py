@@ -41,6 +41,21 @@ _VALID_EVENTS = {"book", "price_change", "last_trade_price"}
 _HEARTBEAT_INTERVAL_S = 10
 
 
+def _extract_asset_id(data: dict) -> str:
+    """Return top-level or first nested price_change asset id."""
+    asset_id = data.get("asset_id", "")
+    if asset_id:
+        return str(asset_id)
+    price_changes = data.get("price_changes", [])
+    if price_changes and isinstance(price_changes, list):
+        first_change = price_changes[0]
+        if isinstance(first_change, dict):
+            nested_asset_id = first_change.get("asset_id", "")
+            if nested_asset_id:
+                return str(nested_asset_id)
+    return ""
+
+
 class CLOBWebSocketClient:
     """Streams live CLOB orderbook events and enqueues MarketSnapshots."""
 
@@ -375,7 +390,7 @@ class CLOBWebSocketClient:
                     return  # do not treat as transport error
 
         # WI-32: Route to per-market aggregator via asset_id before standard processing
-        asset_id = data.get("asset_id") if isinstance(data, dict) else None
+        asset_id = _extract_asset_id(data) if isinstance(data, dict) else None
         if asset_id and asset_id in self._aggregator_map:
             aggregator = self._aggregator_map[asset_id]
             aggregator.process_frame(data)
@@ -425,7 +440,7 @@ class CLOBWebSocketClient:
             return
 
         condition_id = data.get("market", data.get("condition_id", ""))
-        asset_id = data.get("asset_id", "")
+        asset_id = _extract_asset_id(data)
 
         # WI-32: Drop frames from tokens not in any active market.
         # When _condition_by_token is populated, both condition_id and

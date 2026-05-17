@@ -185,6 +185,11 @@ def test_app_config_includes_interval_decimal_default_30():
 
 
 def test_app_config_accepts_interval_override_from_env(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://rpc.ankr.com/polygon")
+    monkeypatch.setenv("WALLET_ADDRESS", "0x1111111111111111111111111111111111111111")
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "1" * 64)
+    monkeypatch.setenv("DRY_RUN", "true")
     monkeypatch.setenv("PORTFOLIO_AGGREGATION_INTERVAL_SEC", "60")
     cfg = AppConfig()
 

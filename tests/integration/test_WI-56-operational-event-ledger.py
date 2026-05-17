@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -452,7 +453,7 @@ async def test_alembic_migration_applies_to_real_engine():
 
         result = subprocess.run(
             [
-                ".venv/bin/python",
+                sys.executable,
                 "-m",
                 "alembic",
                 "-c",
