@@ -130,7 +130,7 @@ class LLMProviderComparisonConfig(BaseModel):
     )
     confidence_min_populated: int = Field(default=2, ge=1)
     anthropic_model: str = Field(default="claude-sonnet-4-20250514", min_length=1)
-    deepseek_model: str = Field(default="deepseek-v4-pro", min_length=1)
+    deepseek_model: str = Field(default="deepseek-chat", min_length=1)
     deepseek_base_url: str = Field(
         default="https://api.deepseek.com/anthropic", min_length=1
     )

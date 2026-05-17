@@ -91,10 +91,40 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2283 |
+| Total tests | 2296 |
+| Latest local test result | 2296 passed unforced with local `.env`; coverage-backed regression also 2296 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
+
+## Runtime Hotfixes
+
+2026-05-17 - Prompt queue consumer and DeepSeek model stabilization:
+- Fixed `BoundedPromptQueue` lock starvation by keeping coalesce/drop-stale mutation synchronous under the queue lock and recording coalescing metrics after releasing the lock.
+- Fixed coalescing-miss audit metrics so no-match stale drops increment dropped-context metrics rather than coalesced-context metrics.
+- Added `ClaudeClient` consumer startup logging and a done-callback error log so unexpected consumer termination is visible in the runtime log stream.
+- Corrected the DeepSeek model from invalid `deepseek-v4-pro` to `deepseek-chat` (`DeepSeek-V3`) in config/runtime settings and matching test assertions.
+- Restored WI-52 zero-limit fail-closed semantics while setting usable non-zero operational defaults for daily token and per-market hourly limits.
+- Isolated WI-54 provider config tests from local `.env` provider settings.
+- Fixed a `BoundedPromptQueue.get()` notification-clear race that could erase a producer wakeup and starve the evaluation consumer.
+- Aligned WI-55 provider-comparison defaults and DeepSeek readiness runbook with the runtime `deepseek-chat` model.
+- Latest local regression: 2296 passed; coverage 93%.
+
+2026-05-17 - WebSocket subscription and book-frame stabilization:
+- Aligned `CLOBWebSocketClient` market-channel initial and live subscription payloads with current Polymarket docs (`type: market` for initial subscriptions; `operation: subscribe` / `operation: unsubscribe` for live updates).
+- Added live unsubscribe-all handling and stale aggregator-route pruning during market deactivation/rotation.
+- Suppressed misleading `ws.frame_unrouted` warnings for known active tokens that intentionally flow through the standard persistence path rather than a registered per-token aggregator.
+- Fixed full orderbook frame parsing to use max bid and min ask, preventing first-level array ordering from fabricating midpoint `0.5` / spread `0.98` snapshots.
+- Added crossed-book fail-closed handling before snapshot emission.
+- Moved `MarketSnapshotSchema` bid/ask/last-trade/midpoint validation to Decimal-native arithmetic before persistence.
+- Focused validation: 363 hotfix-related tests passed; full regression 2296 passed; Ruff passed on touched files.
+
+2026-05-17 - WebSocket YES/NO quote normalization:
+- Added condition-level YES/NO token-pair propagation from `Orchestrator` into `CLOBWebSocketClient`.
+- Normalized NO-token WebSocket quotes into canonical YES-probability bid/ask ranges before snapshot validation, persistence, and context enqueueing.
+- Populated `no_token_id` on emitted `MarketSnapshot` rows when Gamma token-pair metadata is available.
+- Added regressions for NO-token `price_change` and `book` frames so paired books no longer alternate the same condition between mirrored midpoints like `0.095` and `0.905`.
+- Focused validation included NO-token `price_change` and `book` normalization, unsubscribe rotation, stale aggregator pruning, queue metrics, and provider env isolation; full regression passed unforced (`2296 passed`).
 
 Phase 14 planned 2026-05-06 — DigitalOcean 24/7 Paper-Trading Deployment:
 - `docs/PRD-v14.0.md` created as the Phase 14 planning source.

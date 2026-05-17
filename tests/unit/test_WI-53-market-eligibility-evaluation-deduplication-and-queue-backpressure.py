@@ -1045,6 +1045,69 @@ class TestPromptQueueBackpressure:
         assert bq.qsize() == 2
 
     @pytest.mark.asyncio
+    async def test_queue_full_no_match_records_dropped_not_coalesced_metric(self):
+        """A coalescing miss must report stale-drop metrics, not coalescing."""
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        class MetricsProbe:
+            def __init__(self):
+                self.coalesced = 0
+                self.dropped = 0
+
+            async def record_coalesced_context(self):
+                self.coalesced += 1
+
+            async def record_dropped_stale_context(self):
+                self.dropped += 1
+
+            async def set_evaluation_queue_depth(self, _depth):
+                return None
+
+        metrics = MetricsProbe()
+        bq = BoundedPromptQueue(max_size=2, coalescing=True, metrics=metrics)
+        await bq.put({"state": {"condition_id": "c1"}, "prompt": "c1"})
+        await bq.put({"state": {"condition_id": "c2"}, "prompt": "c2"})
+
+        decision = await bq.put({"state": {"condition_id": "c3"}, "prompt": "c3"})
+
+        assert decision.reason == PromptQueueBackpressureReason.STALE_DROPPED
+        assert metrics.coalesced == 0
+        assert metrics.dropped == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_get_clears_notification_under_lock(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        bq = BoundedPromptQueue(max_size=1, coalescing=True)
+        real_event = bq._not_empty
+
+        class EventProbe:
+            def __init__(self):
+                self.clear_lock_states = []
+
+            def clear(self):
+                self.clear_lock_states.append(bq._lock.locked())
+                real_event.clear()
+
+            def set(self):
+                real_event.set()
+
+            async def wait(self):
+                await real_event.wait()
+
+        probe = EventProbe()
+        bq._not_empty = probe
+
+        waiter = asyncio.create_task(bq.get())
+        await asyncio.sleep(0)
+
+        assert probe.clear_lock_states == [True]
+
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+    @pytest.mark.asyncio
     async def test_queue_backpressure_is_logged(self):
         """Backpressure decisions are logged (verified via decision return)."""
         from src.agents.context.bounded_queue import BoundedPromptQueue

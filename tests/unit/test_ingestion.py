@@ -6,6 +6,7 @@ Async unit tests for Module 1 — Market Ingestion Engine.
 
 import asyncio
 import json
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -81,7 +82,7 @@ async def test_ws_message_valid_book_frame_enqueues_snapshot():
     assert queue.qsize() == 1
     row = queue.get_nowait()
     assert row.condition_id == "0xcondition123"
-    assert row.midpoint == 0.5
+    assert row.midpoint == Decimal("0.5")
 
 
 @pytest.mark.asyncio
@@ -144,7 +145,7 @@ async def test_ws_midpoint_computed_not_trusted():
         midpoint=0.99,  # garbage — must be overwritten
         raw_ws_payload="{}",
     )
-    assert schema.midpoint == 0.5
+    assert schema.midpoint == Decimal("0.5")
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +308,8 @@ async def test_ws_subscription_uses_assets_ids_and_logs_message():
     sub_msg = client._build_subscription_message()
     parsed = json.loads(sub_msg)
 
-    assert parsed["type"] == "subscribe"
+    assert parsed["type"] == "market"
+    assert parsed["custom_feature_enabled"] is True
     assert "assets_ids" in parsed, "must use 'assets_ids', not 'market_ids'"
     assert parsed["assets_ids"] == token_ids
     assert "market_ids" not in parsed, "must NOT contain 'market_ids'"

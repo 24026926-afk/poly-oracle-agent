@@ -58,12 +58,20 @@ class PolymarketClient:
 
     async def _fetch_raw_order_book(self, token_id: str) -> dict[str, Any]:
         """Fetch raw order book from pyclob SDK with strict timeout."""
-        from py_clob_client.client import ClobClient  # lazy import
+        host = self.host
 
-        clob = ClobClient(self.host)
+        def _sync_fetch() -> dict[str, Any]:
+            # Import and constructor both run in the thread pool so the event
+            # loop is never blocked by pyclob module-level side effects or
+            # any synchronous I/O the ClobClient constructor might perform.
+            from py_clob_client.client import ClobClient  # noqa: PLC0415
+
+            clob = ClobClient(host)
+            return clob.get_order_book(token_id)
+
         loop = asyncio.get_running_loop()
         book = await asyncio.wait_for(
-            loop.run_in_executor(None, clob.get_order_book, token_id),
+            loop.run_in_executor(None, _sync_fetch),
             timeout=self._FETCH_TIMEOUT,
         )
         return book

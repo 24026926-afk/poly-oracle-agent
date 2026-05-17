@@ -546,6 +546,7 @@ class Orchestrator:
         all_token_ids_set: set[str] = set()
         condition_by_token: dict[str, str] = {}
         yes_token_by_token: dict[str, str] = {}
+        token_ids_by_condition: dict[str, tuple[str | None, str | None]] = {}
 
         for market in deduped:
             token_ids = list(market.token_ids)
@@ -565,6 +566,8 @@ class Orchestrator:
 
             # token_ids[0] is the YES outcome token by Polymarket convention.
             yes_token = token_ids[0] if token_ids else None
+            no_token = token_ids[1] if len(token_ids) > 1 else None
+            token_ids_by_condition[market.condition_id] = (yes_token, no_token)
             if yes_token:
                 for token_id in token_ids:
                     condition_by_token[token_id] = market.condition_id
@@ -580,6 +583,7 @@ class Orchestrator:
 
         self.ws_client.set_assets_ids(all_token_ids)
         self.ws_client.set_token_id_mapping(yes_token_by_token)
+        self.ws_client.set_market_token_pairs(token_ids_by_condition)
         self.ws_client.set_condition_by_token(condition_by_token)
 
         if self.aggregator is not None:
@@ -1034,7 +1038,10 @@ class Orchestrator:
                     self._condition_by_token = {}
                     self.ws_client.set_assets_ids([])
                     self.ws_client.set_token_id_mapping({})
+                    self.ws_client.set_market_token_pairs({})
                     self.ws_client.set_condition_by_token({})
+                    if getattr(self.ws_client, "_ws", None) is not None:
+                        await self.ws_client.subscribe_batch([])
                     if self.aggregator is not None:
                         self.aggregator.clear_markets()
                         self.aggregator.condition_by_token = {}
@@ -1459,7 +1466,10 @@ class Orchestrator:
                         self._condition_by_token = {}
                         self.ws_client.set_assets_ids([])
                         self.ws_client.set_token_id_mapping({})
+                        self.ws_client.set_market_token_pairs({})
                         self.ws_client.set_condition_by_token({})
+                        if getattr(self.ws_client, "_ws", None) is not None:
+                            await self.ws_client.subscribe_batch([])
                         if self.aggregator is not None:
                             self.aggregator.clear_markets()
                             self.aggregator.condition_by_token = {}

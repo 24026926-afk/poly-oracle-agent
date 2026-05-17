@@ -376,21 +376,23 @@ class LLMBudgetConfig(BaseModel):
 
     enabled: bool = Field(default=False)
     hourly_call_limit: int = Field(
-        default=0, ge=0, description="Max LLM calls per hour (0=unlimited)"
+        default=0, ge=0, description="Max LLM calls per hour (0=no calls allowed)"
     )
     daily_call_limit: int = Field(
-        default=0, ge=0, description="Max LLM calls per day (0=unlimited)"
+        default=0, ge=0, description="Max LLM calls per day (0=no calls allowed)"
     )
     daily_token_limit: int = Field(
-        default=0, ge=0, description="Max total tokens per day (0=unlimited)"
+        default=0, ge=0, description="Max total tokens per day (0=no calls allowed)"
     )
     daily_cost_limit_usd: Decimal = Field(
         default=Decimal("0"),
         ge=0,
-        description="Max estimated cost per day in USD (0=unlimited)",
+        description="Max estimated cost per day in USD (0=no calls allowed)",
     )
     per_market_hourly_call_limit: int = Field(
-        default=0, ge=0, description="Max calls per market per hour (0=unlimited)"
+        default=0,
+        ge=0,
+        description="Max calls per market per hour (0=no calls allowed)",
     )
     fallback_tokens_per_call: int = Field(
         default=4096,

@@ -16,6 +16,7 @@ import json
 import random
 from collections.abc import Callable
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import structlog
@@ -39,6 +40,8 @@ logger = structlog.get_logger(__name__)
 
 _VALID_EVENTS = {"book", "price_change", "last_trade_price"}
 _HEARTBEAT_INTERVAL_S = 10
+_ZERO_PRICE = Decimal("0")
+_ONE_PRICE = Decimal("1")
 
 
 def _extract_asset_id(data: dict) -> str:
@@ -54,6 +57,45 @@ def _extract_asset_id(data: dict) -> str:
             if nested_asset_id:
                 return str(nested_asset_id)
     return ""
+
+
+def _price_to_decimal(value: Any) -> Decimal | None:
+    """Parse CLOB price fields without binary float arithmetic."""
+    if value is None:
+        return None
+    try:
+        price = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if price.is_nan():
+        return None
+    return price
+
+
+def _level_price(level: Any) -> Decimal | None:
+    if isinstance(level, dict):
+        return _price_to_decimal(level.get("price"))
+    return _price_to_decimal(level)
+
+
+def _best_bid_from_levels(levels: list[Any]) -> Decimal | None:
+    prices = [price for level in levels if (price := _level_price(level))]
+    positive = [price for price in prices if price > _ZERO_PRICE]
+    return max(positive) if positive else None
+
+
+def _best_ask_from_levels(levels: list[Any]) -> Decimal | None:
+    prices = [price for level in levels if (price := _level_price(level))]
+    positive = [price for price in prices if price > _ZERO_PRICE]
+    return min(positive) if positive else None
+
+
+def _normalize_no_quote_to_yes(
+    best_bid: Decimal,
+    best_ask: Decimal,
+) -> tuple[Decimal, Decimal]:
+    """Convert a NO-token quote range into the equivalent YES probability range."""
+    return _ONE_PRICE - best_ask, _ONE_PRICE - best_bid
 
 
 class CLOBWebSocketClient:
@@ -77,6 +119,9 @@ class CLOBWebSocketClient:
         self._assets_ids: list[str] = assets_ids or []
         self._token_id_mapping: dict[str, str] = token_id_to_yes_token_id or {}
         self._condition_by_token: dict[str, str] = {}
+        self._token_ids_by_condition: dict[str, tuple[str | None, str | None]] = {}
+        self._outcome_by_token: dict[str, str] = {}
+        self._subscribed_assets: set[str] = set()
         self._subscription_sent_at: float = 0.0
         self._aggregator_map: dict[str, Any] = {}
         self._ws: websockets.ClientConnection | None = None
@@ -182,20 +227,39 @@ class CLOBWebSocketClient:
         """Build the CLOB WebSocket subscription payload."""
         return json.dumps(
             {
-                "type": "subscribe",
-                "channel": "market",
                 "assets_ids": self._assets_ids,
+                "type": "market",
+                "custom_feature_enabled": True,
             }
         )
 
     def set_assets_ids(self, assets_ids: list[str]) -> None:
         """Update token IDs for subscription (e.g. after market rotation)."""
         self._assets_ids = assets_ids
+        active_assets = set(assets_ids)
+        self._aggregator_map = {
+            asset_id: aggregator
+            for asset_id, aggregator in self._aggregator_map.items()
+            if asset_id in active_assets
+        }
         self._health.active_subscribed_asset_count = len(assets_ids)
 
     def set_token_id_mapping(self, mapping: dict[str, str]) -> None:
         """Set the token_id → yes_token_id mapping for snapshot enrichment."""
         self._token_id_mapping = mapping
+
+    def set_market_token_pairs(
+        self,
+        mapping: dict[str, tuple[str | None, str | None]],
+    ) -> None:
+        """Set condition_id → (YES token, NO token) mapping for quote normalization."""
+        self._token_ids_by_condition = dict(mapping)
+        self._outcome_by_token = {}
+        for yes_token_id, no_token_id in self._token_ids_by_condition.values():
+            if yes_token_id:
+                self._outcome_by_token[yes_token_id] = "YES"
+            if no_token_id:
+                self._outcome_by_token[no_token_id] = "NO"
 
     def set_condition_by_token(self, mapping: dict[str, str]) -> None:
         """Set the token_id → condition_id routing map for diagnostics.
@@ -209,41 +273,99 @@ class CLOBWebSocketClient:
         """Register a DataAggregator for frame routing."""
         self._aggregator_map[asset_id] = aggregator
 
+    def _resolve_token_context(
+        self,
+        asset_id: str,
+        condition_id: str,
+    ) -> tuple[str | None, str | None, str]:
+        """Resolve canonical YES/NO token IDs and the incoming frame side."""
+        yes_token_id: str | None = None
+        no_token_id: str | None = None
+
+        token_pair = self._token_ids_by_condition.get(condition_id)
+        if token_pair is not None:
+            yes_token_id, no_token_id = token_pair
+
+        if asset_id and asset_id in self._token_id_mapping:
+            yes_token_id = self._token_id_mapping[asset_id]
+        elif condition_id and condition_id in self._token_id_mapping:
+            yes_token_id = self._token_id_mapping[condition_id]
+
+        if (
+            no_token_id is None
+            and asset_id
+            and yes_token_id
+            and asset_id != yes_token_id
+        ):
+            no_token_id = asset_id
+
+        outcome_token = self._outcome_by_token.get(asset_id, "YES")
+        if asset_id and asset_id in self._token_id_mapping and asset_id != yes_token_id:
+            outcome_token = "NO"
+
+        return yes_token_id, no_token_id, outcome_token
+
     async def subscribe_batch(self, assets_ids: list[str]) -> None:
-        """Subscribe to multiple assets via a single WebSocket connection.
+        """Synchronize asset subscriptions on an open WebSocket connection.
 
         Polymarket CLOB supports multiplexed subscriptions — one connection,
         many assets. This is the concurrency primitive for WI-32.
         """
-        if not assets_ids:
-            logger.warning(
-                "ws.subscribe_batch_empty",
-                message="No assets to subscribe to",
-            )
-            return
-
         ws = self._ws
         if ws is None:
+            self._assets_ids = list(dict.fromkeys(assets_ids))
+            self._subscribed_assets = set()
+            self._health.active_subscribed_asset_count = len(self._assets_ids)
             logger.warning(
                 "ws.subscribe_batch_no_connection",
                 message="WebSocket not yet connected — deferring subscription",
             )
             return
 
-        subscription_msg = json.dumps(
-            {
-                "type": "subscribe",
-                "assets_ids": assets_ids,
-                "event_types": ["book", "price_change", "last_trade_price"],
-            }
-        )
+        desired_assets = list(dict.fromkeys(assets_ids))
+        desired_set = set(desired_assets)
+        to_subscribe = [
+            asset_id
+            for asset_id in desired_assets
+            if asset_id not in self._subscribed_assets
+        ]
+        to_unsubscribe = sorted(self._subscribed_assets - desired_set)
 
-        await ws.send(subscription_msg)
-        self._health.active_subscribed_asset_count = len(assets_ids)
+        if to_unsubscribe:
+            await ws.send(
+                json.dumps(
+                    {
+                        "operation": "unsubscribe",
+                        "assets_ids": to_unsubscribe,
+                    }
+                )
+            )
+
+        if to_subscribe:
+            await ws.send(
+                json.dumps(
+                    {
+                        "operation": "subscribe",
+                        "assets_ids": to_subscribe,
+                    }
+                )
+            )
+
+        if not to_subscribe and not to_unsubscribe:
+            logger.debug(
+                "market_tracking.subscription_unchanged",
+                asset_count=len(desired_assets),
+            )
+
+        self._assets_ids = desired_assets
+        self._subscribed_assets = desired_set
+        self._health.active_subscribed_asset_count = len(desired_assets)
         logger.info(
             "market_tracking.subscribed_batch",
-            asset_count=len(assets_ids),
-            assets_ids=assets_ids,
+            asset_count=len(desired_assets),
+            subscribed_count=len(to_subscribe),
+            unsubscribed_count=len(to_unsubscribe),
+            assets_ids=desired_assets,
         )
 
     async def _stream(self) -> None:
@@ -271,6 +393,7 @@ class CLOBWebSocketClient:
             )
             self._subscription_sent_at = asyncio.get_event_loop().time()
             await ws.send(sub_msg)
+            self._subscribed_assets = set(self._assets_ids)
 
             # Start heartbeat task
             heartbeat_task = asyncio.create_task(self._heartbeat(ws))
@@ -285,6 +408,7 @@ class CLOBWebSocketClient:
                 except asyncio.CancelledError:
                     pass
                 self._ws = None
+                self._subscribed_assets = set()
 
     async def _heartbeat(self, ws: websockets.ClientConnection) -> None:
         """Send a heartbeat ping every 10 seconds with PONG timeout detection.
@@ -398,7 +522,15 @@ class CLOBWebSocketClient:
             aggregator.last_seen_utc = datetime.now(timezone.utc)
             return  # Routed — skip standard persistence path
 
-        if asset_id is not None and asset_id not in self._aggregator_map:
+        known_asset = bool(
+            asset_id
+            and (
+                asset_id in self._assets_ids
+                or asset_id in self._condition_by_token
+                or asset_id in self._token_id_mapping
+            )
+        )
+        if asset_id and not known_asset:
             logger.warning(
                 "ws.frame_unrouted",
                 asset_id=asset_id,
@@ -406,7 +538,7 @@ class CLOBWebSocketClient:
                 if isinstance(data, dict)
                 else "unknown",
             )
-        elif isinstance(data, dict) and "asset_id" not in data:
+        elif isinstance(data, dict) and "asset_id" not in data and not asset_id:
             logger.warning(
                 "ws.frame_unrouted",
                 asset_id=None,
@@ -431,7 +563,7 @@ class CLOBWebSocketClient:
         Handles three frame types:
         - last_trade_price: midpoint from last_trade_price
         - price_change: midpoint from best_bid/best_ask
-        - book: midpoint from bids[0]/asks[0] lists
+        - book: midpoint from best bid/max and best ask/min orderbook levels
 
         WI-32 fix: frames from stale (deactivated) tokens are dropped.
         """
@@ -478,75 +610,65 @@ class CLOBWebSocketClient:
             )
             return
 
-        # Resolve yes_token_id from the token_id mapping set by MarketDiscoveryEngine.
-        # no_token_id is populated later from Gamma market metadata (clobTokenIds[1]).
-        yes_token_id: str | None = None
-        no_token_id: str | None = None
-
         known_token = asset_id in self._token_id_mapping if asset_id else False
-        if asset_id and asset_id in self._token_id_mapping:
-            yes_token_id = self._token_id_mapping[asset_id]
-        elif condition_id and condition_id in self._token_id_mapping:
-            yes_token_id = self._token_id_mapping[condition_id]
+        yes_token_id, no_token_id, outcome_token = self._resolve_token_context(
+            asset_id=asset_id,
+            condition_id=condition_id,
+        )
 
         logger.debug(
             "snapshot_route_debug",
             token_id=asset_id,
             condition_id=condition_id,
             known_token=known_token,
+            outcome_token=outcome_token,
         )
 
         # Extract best_bid/best_ask based on frame type
-        best_bid = 0.0
-        best_ask = 0.0
+        best_bid = _ZERO_PRICE
+        best_ask = _ZERO_PRICE
         last_trade_price = None
 
         if event_type == "last_trade_price":
-            last_trade_price = data.get("price", 0.0)
+            last_trade_price = _price_to_decimal(data.get("price")) or _ZERO_PRICE
         elif event_type == "price_change":
             # Polymarket CLOB sends price_changes as an array; extract from first entry
             price_changes = data.get("price_changes", [])
             if price_changes and isinstance(price_changes, list):
                 first_change = price_changes[0]
                 if isinstance(first_change, dict):
-                    best_bid = float(first_change.get("best_bid", 0.0))
-                    best_ask = float(first_change.get("best_ask", 0.0))
+                    best_bid = (
+                        _price_to_decimal(first_change.get("best_bid")) or _ZERO_PRICE
+                    )
+                    best_ask = (
+                        _price_to_decimal(first_change.get("best_ask")) or _ZERO_PRICE
+                    )
             # Fall back to top-level fields if array is empty/missing
-            if best_bid == 0.0:
-                best_bid = data.get("best_bid", 0.0)
-            if best_ask == 0.0:
-                best_ask = data.get("best_ask", 0.0)
+            if best_bid == _ZERO_PRICE:
+                best_bid = _price_to_decimal(data.get("best_bid")) or _ZERO_PRICE
+            if best_ask == _ZERO_PRICE:
+                best_ask = _price_to_decimal(data.get("best_ask")) or _ZERO_PRICE
         elif event_type == "book":
-            # Try to extract from bids[0]/asks[0] lists first
+            # CLOB book arrays are not guaranteed best-first in live frames.
+            # Pick max bid and min ask so a full book cannot fabricate a
+            # midpoint near 0.5 from the deepest levels.
             bids = data.get("bids", [])
             asks = data.get("asks", [])
             if bids:
-                try:
-                    best_bid = float(
-                        bids[0].get("price", 0.0)
-                        if isinstance(bids[0], dict)
-                        else bids[0]
-                    )
-                except (ValueError, IndexError, TypeError):
-                    best_bid = 0.0
+                best_bid = _best_bid_from_levels(bids) or _ZERO_PRICE
             if asks:
-                try:
-                    best_ask = float(
-                        asks[0].get("price", 0.0)
-                        if isinstance(asks[0], dict)
-                        else asks[0]
-                    )
-                except (ValueError, IndexError, TypeError):
-                    best_ask = 0.0
+                best_ask = _best_ask_from_levels(asks) or _ZERO_PRICE
             # Fall back to top-level best_bid/best_ask if lists are empty
-            if best_bid == 0.0:
-                best_bid = data.get("best_bid", 0.0)
-            if best_ask == 0.0:
-                best_ask = data.get("best_ask", 0.0)
+            if best_bid == _ZERO_PRICE:
+                best_bid = _price_to_decimal(data.get("best_bid")) or _ZERO_PRICE
+            if best_ask == _ZERO_PRICE:
+                best_ask = _price_to_decimal(data.get("best_ask")) or _ZERO_PRICE
 
         # Guard: do not emit snapshot with midpoint=0 for frames that
         # should carry spread data.  Preserves last known midpoint downstream.
-        if event_type in ("price_change", "book") and (best_bid <= 0 or best_ask <= 0):
+        if event_type in ("price_change", "book") and (
+            best_bid <= _ZERO_PRICE or best_ask <= _ZERO_PRICE
+        ):
             logger.debug(
                 "ws_client.skip_no_spread",
                 event_type=event_type,
@@ -556,10 +678,36 @@ class CLOBWebSocketClient:
             )
             return
 
+        if event_type in ("price_change", "book") and best_bid > best_ask:
+            logger.warning(
+                "ws_client.skip_crossed_book",
+                event_type=event_type,
+                condition_id=condition_id,
+                best_bid=str(best_bid),
+                best_ask=str(best_ask),
+            )
+            return
+
+        if event_type in ("price_change", "book") and outcome_token == "NO":
+            best_bid, best_ask = _normalize_no_quote_to_yes(best_bid, best_ask)
+            if best_bid <= _ZERO_PRICE or best_ask <= _ZERO_PRICE:
+                logger.debug(
+                    "ws_client.skip_no_token_non_positive_yes_quote",
+                    event_type=event_type,
+                    condition_id=condition_id,
+                    best_bid=str(best_bid),
+                    best_ask=str(best_ask),
+                )
+                return
+
         # last_trade_price frames lack a full orderbook — do not treat as
         # complete market snapshots for evaluation.  They are useful for
         # price tracking but should not produce midpoint=0.0 or malformed EV inputs.
-        if event_type == "last_trade_price" and best_bid <= 0 and best_ask <= 0:
+        if (
+            event_type == "last_trade_price"
+            and best_bid <= _ZERO_PRICE
+            and best_ask <= _ZERO_PRICE
+        ):
             logger.debug(
                 "ws_client.skip_last_trade_no_book",
                 event_type=event_type,
@@ -575,7 +723,7 @@ class CLOBWebSocketClient:
                 best_bid=best_bid,
                 best_ask=best_ask,
                 last_trade_price=last_trade_price,
-                outcome_token=data.get("outcome_token", "YES"),
+                outcome_token="YES",
                 raw_ws_payload=raw_msg,
                 yes_token_id=yes_token_id,
                 no_token_id=no_token_id,

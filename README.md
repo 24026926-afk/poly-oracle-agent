@@ -117,9 +117,9 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `LLM_PROVIDER` | str | `anthropic` | No | LLM evaluation provider: `anthropic` (default) or `deepseek` |
-| `DEEPSEEK_API_KEY` | SecretStr | `""` | When provider=`deepseek` | API key for DeepSeek V4 Pro |
+| `DEEPSEEK_API_KEY` | SecretStr | `""` | When provider=`deepseek` | API key for DeepSeek |
 | `DEEPSEEK_BASE_URL` | str | `https://api.deepseek.com/anthropic` | No | DeepSeek Anthropic-compatible endpoint base URL |
-| `DEEPSEEK_MODEL` | str | `deepseek-v4-pro` | No | DeepSeek model identifier |
+| `DEEPSEEK_MODEL` | str | `deepseek-chat` | No | DeepSeek model identifier |
 | `DEEPSEEK_MAX_TOKENS` | int | `4096` | No | Max output tokens per DeepSeek call |
 | `DEEPSEEK_MAX_RETRIES` | int | `2` | No | Max retries on malformed DeepSeek responses |
 

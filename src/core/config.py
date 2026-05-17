@@ -412,27 +412,27 @@ class AppConfig(BaseSettings):
     llm_hourly_call_limit: int = Field(
         default=60,
         ge=0,
-        description="Max LLM provider calls per hour (0=unlimited)",
+        description="Max LLM provider calls per hour (0=no calls allowed)",
     )
     llm_daily_call_limit: int = Field(
         default=500,
         ge=0,
-        description="Max LLM provider calls per day (0=unlimited)",
+        description="Max LLM provider calls per day (0=no calls allowed)",
     )
     llm_daily_token_limit: int = Field(
-        default=0,
+        default=1000000,
         ge=0,
-        description="Max total tokens consumed per day (0=unlimited)",
+        description="Max total tokens consumed per day (0=no calls allowed)",
     )
     llm_daily_cost_limit_usd: Decimal = Field(
         default=Decimal("10"),
         ge=0,
-        description="Max estimated LLM cost per day in USD (0=unlimited)",
+        description="Max estimated LLM cost per day in USD (0=no calls allowed)",
     )
     llm_market_hourly_call_limit: int = Field(
-        default=0,
+        default=10,
         ge=0,
-        description="Max calls per market per hour (0=unlimited)",
+        description="Max calls per market per hour (0=no calls allowed)",
     )
     llm_repeated_hold_threshold: int = Field(
         default=5,
@@ -479,8 +479,8 @@ class AppConfig(BaseSettings):
         description="DeepSeek Anthropic-compatible endpoint base URL",
     )
     deepseek_model: str = Field(
-        default="deepseek-v4-pro",
-        description="DeepSeek model identifier",
+        default="deepseek-chat",
+        description="DeepSeek model identifier (deepseek-chat=V3, deepseek-reasoner=R1)",
     )
     deepseek_max_tokens: int = Field(
         default=4096,

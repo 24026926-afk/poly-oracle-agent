@@ -409,6 +409,20 @@ class ClaudeClient:
 
         # Start the background consumption loop
         task = asyncio.create_task(self._consume_queue())
+
+        def _on_consumer_done(t: asyncio.Task) -> None:
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error(
+                    "EvaluationConsumer crashed — queue will not drain.",
+                    error=str(exc),
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_on_consumer_done)
+
         try:
             while self._running:
                 await asyncio.sleep(1)
@@ -421,6 +435,7 @@ class ClaudeClient:
         self._running = False
 
     async def _consume_queue(self) -> None:
+        logger.info("EvaluationConsumer started.", provider=self._provider_name.value)
         while self._running:
             item_fetched = False
             try:

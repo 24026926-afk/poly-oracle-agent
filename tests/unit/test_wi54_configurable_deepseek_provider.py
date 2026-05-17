@@ -37,6 +37,14 @@ from src.schemas.llm import (
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch):
+    """Keep AppConfig provider-default assertions isolated from local .env."""
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-chat")
+
+
 def _mock_config(provider: str = "anthropic", **overrides):
     """Build a minimal AppConfig-like object for ClaudeClient tests."""
     cfg = MagicMock()
@@ -430,13 +438,13 @@ def test_app_config_deepseek_base_url_default():
 def test_app_config_exposes_deepseek_model_field():
     """AppConfig exposes deepseek_model with safe default."""
     cfg = AppConfig(anthropic_api_key="sk-test", dry_run=True)
-    assert cfg.deepseek_model == "deepseek-v4-pro"
+    assert cfg.deepseek_model == "deepseek-chat"
 
 
 def test_app_config_deepseek_model_default():
-    """deepseek_model defaults to deepseek-v4-pro."""
+    """deepseek_model defaults to deepseek-chat (DeepSeek-V3)."""
     cfg = AppConfig(anthropic_api_key="sk-test", dry_run=True)
-    assert cfg.deepseek_model == "deepseek-v4-pro"
+    assert cfg.deepseek_model == "deepseek-chat"
 
 
 def test_app_config_exposes_deepseek_max_tokens_field():

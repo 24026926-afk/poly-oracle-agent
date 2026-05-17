@@ -14,7 +14,7 @@
   - `LLM_PROVIDER=deepseek`
   - `DEEPSEEK_API_KEY=<your-key>`
   - `DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic`
-  - `DEEPSEEK_MODEL=deepseek-v4-pro`
+  - `DEEPSEEK_MODEL=deepseek-chat`
 - Historical market dataset built via `scripts/build_historical_dataset.py`
   in `data/historical/`.
 - `DRY_RUN=true` set in `.env`.

@@ -192,6 +192,10 @@ class TestComparisonConfig:
         assert cfg.json_validity_tolerance == Decimal("0.10")
         assert 0 <= cfg.json_validity_tolerance <= 1
 
+    def test_deepseek_model_default_matches_runtime_config(self):
+        cfg = _default_config()
+        assert cfg.deepseek_model == "deepseek-chat"
+
 
 # ===========================================================================
 # LLMProviderDecisionMetrics
