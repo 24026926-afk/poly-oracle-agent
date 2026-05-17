@@ -96,7 +96,7 @@ class LLMBudgetGuard:
         async with self._lock:
             self._refresh_windows()
 
-            # WI-52: Zero limits = no calls allowed (fail closed)
+            # WI-52: Zero limits are explicit kill switches when the guard is enabled.
             hourly_limit = self._config.llm_hourly_call_limit
             if hourly_limit == 0:
                 return self._block(

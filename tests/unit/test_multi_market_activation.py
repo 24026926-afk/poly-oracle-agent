@@ -96,6 +96,11 @@ async def test_activate_markets_multiple(test_config):
     assert orch.ws_client._token_id_mapping["no-2"] == "yes-2"
     assert orch.ws_client._token_id_mapping["yes-3"] == "yes-3"
     assert orch.ws_client._token_id_mapping["no-3"] == "yes-3"
+    assert orch.ws_client._token_ids_by_condition == {
+        "0xmarket001": ("yes-1", "no-1"),
+        "0xmarket002": ("yes-2", "no-2"),
+        "0xmarket003": ("yes-3", "no-3"),
+    }
 
     # orchestrator._condition_by_token maps tokens → condition_id (for routing)
     cbt = orch._condition_by_token
@@ -332,8 +337,8 @@ async def test_ws_client_processes_book_frame(test_config, db_session_factory):
     assert queue.qsize() == 1
     snapshot = queue.get_nowait()
     assert snapshot.condition_id == "0xtest123"
-    assert snapshot.best_bid == 0.45
-    assert snapshot.best_ask == 0.55
+    assert snapshot.best_bid == Decimal("0.45")
+    assert snapshot.best_ask == Decimal("0.55")
 
 
 # ---------------------------------------------------------------------------

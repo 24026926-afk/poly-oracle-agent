@@ -386,7 +386,7 @@ class TestAppConfigLLMCostGuard:
 
     def test_llm_daily_token_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_daily_token_limit == 0
+        assert cfg.llm_daily_token_limit == 1000000
 
     def test_llm_daily_cost_limit_default(self):
         cfg = _make_config()
@@ -394,7 +394,7 @@ class TestAppConfigLLMCostGuard:
 
     def test_llm_per_market_hourly_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_market_hourly_call_limit == 0
+        assert cfg.llm_market_hourly_call_limit == 10
 
     def test_llm_repeated_hold_threshold_default(self):
         cfg = _make_config()
@@ -439,6 +439,7 @@ class TestBudgetEnforcementUnit:
         )
         return LLMBudgetGuard(cfg)
 
+    @pytest.mark.asyncio
     async def test_blocks_primary_call_when_hourly_limit_exhausted(self, guard):
         # check_budget atomically reserves counter
         d1 = await guard.check_budget(call_type="primary")
@@ -707,7 +708,7 @@ class TestBudgetEnforcementUnit:
             llm_daily_token_limit=0,
             llm_daily_cost_limit_usd=Decimal("0"),
         )
-        # WI-52: Zero limits = no calls allowed (fail closed)
+        # WI-52: Zero limits are explicit kill switches when guard is enabled.
         guard = LLMBudgetGuard(cfg)
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is False
@@ -884,14 +885,14 @@ class TestLoggingAndMetrics:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=1,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=100,
         )
         guard = LLMBudgetGuard(cfg)
-        await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC,
-            model_name="t",
-            input_tokens=10,
-            output_tokens=5,
-        )
+        # Exhaust the single allowed hourly call, then assert the next is blocked
+        first = await guard.check_budget(call_type="primary")
+        assert first.allowed is True
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is False
         assert d.block_reason is not None

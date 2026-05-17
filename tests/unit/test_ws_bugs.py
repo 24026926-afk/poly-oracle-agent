@@ -6,6 +6,7 @@ Tests for WS client bugs: yes_token_id propagation, midpoint computation, INVALI
 
 import asyncio
 import json
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -139,6 +140,44 @@ async def test_ws_client_computes_midpoint_from_bids_asks():
 
 
 @pytest.mark.asyncio
+async def test_ws_client_uses_best_book_levels_not_first_levels():
+    """Book frames must use max bid/min ask, not array position."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+    )
+
+    msg = json.dumps(
+        {
+            "event_type": "book",
+            "market": "0xcond_unsorted",
+            "bids": [
+                {"price": "0.01", "size": "100"},
+                {"price": "0.08", "size": "100"},
+                {"price": "0.04", "size": "100"},
+            ],
+            "asks": [
+                {"price": "0.99", "size": "100"},
+                {"price": "0.10", "size": "100"},
+                {"price": "0.15", "size": "100"},
+            ],
+        }
+    )
+
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert snapshot.best_bid == Decimal("0.08")
+    assert snapshot.best_ask == Decimal("0.10")
+    assert snapshot.midpoint == Decimal("0.09")
+
+
+@pytest.mark.asyncio
 async def test_ws_client_computes_midpoint_from_best_bid_ask():
     """For price_change frames with best_bid/best_ask, midpoint must be computed."""
     queue: asyncio.Queue = asyncio.Queue()
@@ -187,9 +226,9 @@ async def test_ws_client_logs_outbound_messages():
 
     with patch("src.agents.ingestion.ws_client.logger"):
         msg = client._build_subscription_message()
-        # Verify that when a subscription is sent, it was logged
-        # (This would happen in _stream before await ws.send)
-        assert "subscribe" in msg
+        payload = json.loads(msg)
+        assert payload["type"] == "market"
+        assert payload["custom_feature_enabled"] is True
         assert "tok1" in msg
 
 
@@ -279,6 +318,128 @@ async def test_ws_client_no_token_maps_to_yes_token():
     assert snapshot.yes_token_id == "tok_yes", "NO token must resolve to YES token_id"
 
 
+@pytest.mark.asyncio
+async def test_ws_client_normalizes_no_token_price_change_to_yes_quote():
+    """NO token price changes must be inverted before snapshot emission."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        token_id_to_yes_token_id={
+            "tok_yes": "tok_yes",
+            "tok_no": "tok_yes",
+            "0xcond789": "tok_yes",
+        },
+    )
+    client.set_market_token_pairs({"0xcond789": ("tok_yes", "tok_no")})
+
+    msg = json.dumps(
+        {
+            "event_type": "price_change",
+            "market": "0xcond789",
+            "price_changes": [
+                {
+                    "asset_id": "tok_no",
+                    "best_bid": "0.90",
+                    "best_ask": "0.91",
+                }
+            ],
+        }
+    )
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert Decimal(str(snapshot.best_bid)) == Decimal("0.09")
+    assert Decimal(str(snapshot.best_ask)) == Decimal("0.10")
+    assert Decimal(str(snapshot.midpoint)) == Decimal("0.095")
+    assert snapshot.yes_token_id == "tok_yes"
+    assert snapshot.no_token_id == "tok_no"
+    assert snapshot.outcome_token == "YES"
+
+
+@pytest.mark.asyncio
+async def test_ws_client_normalizes_no_token_book_to_yes_quote():
+    """NO token full-book frames must not create mirrored YES volatility."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        token_id_to_yes_token_id={
+            "tok_yes": "tok_yes",
+            "tok_no": "tok_yes",
+            "0xcond_book": "tok_yes",
+        },
+    )
+    client.set_market_token_pairs({"0xcond_book": ("tok_yes", "tok_no")})
+
+    msg = json.dumps(
+        {
+            "event_type": "book",
+            "market": "0xcond_book",
+            "asset_id": "tok_no",
+            "bids": [{"price": "0.871", "size": "100"}],
+            "asks": [{"price": "0.880", "size": "100"}],
+        }
+    )
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert Decimal(str(snapshot.best_bid)) == Decimal("0.120")
+    assert Decimal(str(snapshot.best_ask)) == Decimal("0.129")
+    assert Decimal(str(snapshot.midpoint)) == Decimal("0.1245")
+    assert snapshot.yes_token_id == "tok_yes"
+    assert snapshot.no_token_id == "tok_no"
+
+
+@pytest.mark.asyncio
+async def test_ws_client_populates_no_token_id_for_yes_frames():
+    """YES-side frames should still carry the paired NO token for auditability."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        token_id_to_yes_token_id={
+            "tok_yes": "tok_yes",
+            "tok_no": "tok_yes",
+            "0xcond_yes": "tok_yes",
+        },
+    )
+    client.set_market_token_pairs({"0xcond_yes": ("tok_yes", "tok_no")})
+
+    msg = json.dumps(
+        {
+            "event_type": "price_change",
+            "market": "0xcond_yes",
+            "price_changes": [
+                {
+                    "asset_id": "tok_yes",
+                    "best_bid": "0.12",
+                    "best_ask": "0.13",
+                }
+            ],
+        }
+    )
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 1
+    snapshot = queue.get_nowait()
+    assert Decimal(str(snapshot.best_bid)) == Decimal("0.12")
+    assert Decimal(str(snapshot.best_ask)) == Decimal("0.13")
+    assert snapshot.yes_token_id == "tok_yes"
+    assert snapshot.no_token_id == "tok_no"
+
+
 # ---------------------------------------------------------------------------
 # BUG 2b: midpoint=0 suppression
 # ---------------------------------------------------------------------------
@@ -322,7 +483,7 @@ async def test_ws_client_parses_price_changes_array():
         best_ask=best_ask,
         raw_ws_payload='{"test": true}',
     )
-    assert schema.midpoint == 0.5
+    assert schema.midpoint == Decimal("0.5")
 
 
 @pytest.mark.asyncio
@@ -357,9 +518,9 @@ async def test_ws_client_resolves_nested_price_change_asset_id():
     assert queue.qsize() == 1
     snapshot = queue.get_nowait()
     assert snapshot.yes_token_id == "tok_nested_yes"
-    assert snapshot.best_bid == 0.48
-    assert snapshot.best_ask == 0.52
-    assert snapshot.midpoint == 0.5
+    assert snapshot.best_bid == Decimal("0.48")
+    assert snapshot.best_ask == Decimal("0.52")
+    assert snapshot.midpoint == Decimal("0.5")
 
 
 @pytest.mark.asyncio
@@ -403,6 +564,43 @@ async def test_ws_client_routes_nested_price_change_asset_id_to_aggregator():
     assert aggregator.frame_count == 1
     assert aggregator.last_seen_utc is not None
     assert queue.qsize() == 0
+
+
+@pytest.mark.asyncio
+async def test_ws_client_does_not_warn_unrouted_for_known_standard_path_token():
+    """Known active tokens may use the standard persistence path without aggregators."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+        assets_ids=["tok_known"],
+        token_id_to_yes_token_id={"tok_known": "tok_known"},
+    )
+    client.set_condition_by_token({"tok_known": "0xcond_known"})
+
+    msg = json.dumps(
+        {
+            "event_type": "price_change",
+            "market": "0xcond_known",
+            "price_changes": [
+                {
+                    "asset_id": "tok_known",
+                    "best_bid": "0.48",
+                    "best_ask": "0.52",
+                }
+            ],
+        }
+    )
+
+    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+        await client._handle_message(msg)
+
+    warning_events = [call.args[0] for call in mock_logger.warning.call_args_list]
+    assert "ws.frame_unrouted" not in warning_events
+    assert queue.qsize() == 1
 
 
 @pytest.mark.asyncio
@@ -453,3 +651,28 @@ async def test_ws_client_skips_book_with_empty_lists_and_no_fallback():
     await client._handle_message(msg)
 
     assert queue.qsize() == 0, "must not emit snapshot when book has no bids/asks"
+
+
+@pytest.mark.asyncio
+async def test_ws_client_skips_crossed_book():
+    """Crossed books must fail closed before snapshot emission."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+
+    client = CLOBWebSocketClient(
+        config=_mock_config(),
+        queue=queue,
+        db_session_factory=db,
+    )
+
+    msg = json.dumps(
+        {
+            "event_type": "book",
+            "market": "0xcond_crossed",
+            "bids": [{"price": "0.60", "size": "100"}],
+            "asks": [{"price": "0.40", "size": "100"}],
+        }
+    )
+    await client._handle_message(msg)
+
+    assert queue.qsize() == 0

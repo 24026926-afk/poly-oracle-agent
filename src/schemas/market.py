@@ -7,6 +7,7 @@ and Gamma REST API responses.
 
 import json
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -73,19 +74,39 @@ class MarketSnapshotSchema(BaseModel):
 
     condition_id: str = Field(..., min_length=1)
     question: str = Field(default="")
-    best_bid: float = Field(..., ge=0.0, le=1.0)
-    best_ask: float = Field(..., ge=0.0, le=1.0)
-    last_trade_price: Optional[float] = Field(default=None)
-    midpoint: float = Field(default=0.0)
+    best_bid: Decimal = Field(..., ge=Decimal("0"), le=Decimal("1"))
+    best_ask: Decimal = Field(..., ge=Decimal("0"), le=Decimal("1"))
+    last_trade_price: Optional[Decimal] = Field(default=None)
+    midpoint: Decimal = Field(default=Decimal("0"))
     outcome_token: str = Field(default="YES")
     raw_ws_payload: str = Field(..., min_length=1)
     yes_token_id: Optional[str] = Field(default=None)
     no_token_id: Optional[str] = Field(default=None)
 
+    @field_validator(
+        "best_bid", "best_ask", "last_trade_price", "midpoint", mode="before"
+    )
+    @classmethod
+    def _coerce_decimal_price(cls, v: object) -> Decimal | None:
+        if v is None:
+            return None
+        if isinstance(v, Decimal):
+            price = v
+        else:
+            try:
+                price = Decimal(str(v))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError("Price fields must be Decimal-compatible") from exc
+        if not price.is_finite():
+            raise ValueError("Price fields must be finite")
+        return price
+
     @model_validator(mode="after")
     def _compute_midpoint(self) -> "MarketSnapshotSchema":
-        computed = (self.best_bid + self.best_ask) / 2.0
-        object.__setattr__(self, "midpoint", round(computed, 6))
+        computed = ((self.best_bid + self.best_ask) / Decimal("2")).quantize(
+            Decimal("0.000001")
+        )
+        object.__setattr__(self, "midpoint", computed.normalize())
         return self
 
     model_config = {"frozen": True, "extra": "ignore"}

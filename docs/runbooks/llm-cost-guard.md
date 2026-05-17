@@ -15,7 +15,7 @@ All settings are in `.env` or environment variables. Recommended **paper-trading
 | `ENABLE_LLM_COST_GUARD` | `true` | Master enable |
 | `LLM_HOURLY_CALL_LIMIT` | `30` | Max calls/hour globally |
 | `LLM_DAILY_CALL_LIMIT` | `200` | Max calls/day globally |
-| `LLM_DAILY_TOKEN_LIMIT` | `0` | Unlimited (set if needed) |
+| `LLM_DAILY_TOKEN_LIMIT` | `1000000` | Max tokens/day globally |
 | `LLM_DAILY_COST_LIMIT_USD` | `5` | Max daily spend in USD |
 | `LLM_MARKET_HOURLY_CALL_LIMIT` | `10` | Max calls/hour per market |
 | `LLM_REPEATED_HOLD_THRESHOLD` | `5` | HOLDs before cooldown |
@@ -36,6 +36,8 @@ Before every primary evaluation and reflection call:
 3. **Daily token limit** — blocks if total tokens consumed >= limit
 4. **Daily cost limit** — blocks if estimated spend >= limit
 5. **Per-market hourly limit** — blocks if that market's hourly count >= limit
+
+For WI-52, a limit set to `0` is a hard stop for that dimension, not unlimited.
 
 All windows reset on their natural boundary (hourly = 1h, daily = 24h).
 

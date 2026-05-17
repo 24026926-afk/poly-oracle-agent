@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -63,7 +64,7 @@ async def test_ws_handle_message_enqueues_and_persists(
     row = queue.get_nowait()
     assert isinstance(row, MarketSnapshot)
     assert row.condition_id == "0xaaaa1111bbbb2222cccc3333dddd4444eeee5555"
-    assert row.midpoint == 0.5  # (0.45 + 0.55) / 2
+    assert row.midpoint == Decimal("0.5")  # (0.45 + 0.55) / 2
 
     # DB persistence assertion
     async with db_session_factory() as session:

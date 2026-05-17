@@ -65,6 +65,9 @@ async def test_activate_market_updates_ws_mapping_and_aggregator_context(test_co
         "no-token-001": "yes-token-001",
         "0xactivate001": "yes-token-001",
     }
+    assert orch.ws_client._token_ids_by_condition == {
+        "0xactivate001": ("yes-token-001", "no-token-001")
+    }
     # orchestrator._condition_by_token maps tokens → condition_id (for routing)
     assert orch._condition_by_token == {
         "yes-token-001": "0xactivate001",

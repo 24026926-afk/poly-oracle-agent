@@ -121,7 +121,7 @@ async def test_gather_all_tasks_fail():
 
 @pytest.mark.asyncio
 async def test_subscribe_batch_sends_multiplexed_message():
-    """subscribe_batch must send a single JSON message with all assets_ids."""
+    """subscribe_batch must send a Polymarket subscription update."""
     from src.agents.ingestion.ws_client import CLOBWebSocketClient
 
     mock_ws = AsyncMock()
@@ -138,9 +138,8 @@ async def test_subscribe_batch_sends_multiplexed_message():
     mock_ws.send.assert_awaited_once()
     sent_msg = mock_ws.send.call_args[0][0]
     payload = json.loads(sent_msg)
-    assert payload["type"] == "subscribe"
+    assert payload["operation"] == "subscribe"
     assert payload["assets_ids"] == ["t1", "t2", "t3"]
-    assert "event_types" in payload
 
 
 @pytest.mark.asyncio
@@ -162,8 +161,8 @@ async def test_subscribe_batch_empty_list_logs_warning():
 
 
 @pytest.mark.asyncio
-async def test_subscribe_batch_contains_correct_event_types():
-    """Subscription message must include book, price_change, last_trade_price."""
+async def test_subscribe_batch_unsubscribes_removed_assets():
+    """Subscription updates must unsubscribe assets removed by market rotation."""
     from src.agents.ingestion.ws_client import CLOBWebSocketClient
 
     mock_ws = AsyncMock()
@@ -174,12 +173,66 @@ async def test_subscribe_batch_contains_correct_event_types():
     client = CLOBWebSocketClient(cfg, mock_queue, mock_db_factory)
     client._ws = mock_ws  # type: ignore[assignment]
 
-    await client.subscribe_batch(["t1"])
+    client._subscribed_assets = {"t1", "t2", "t3"}
 
-    sent_msg = mock_ws.send.call_args[0][0]
-    payload = json.loads(sent_msg)
-    expected_events = {"book", "price_change", "last_trade_price"}
-    assert set(payload["event_types"]) == expected_events
+    await client.subscribe_batch(["t1", "t4"])
+
+    assert mock_ws.send.await_count == 2
+    first_payload = json.loads(mock_ws.send.await_args_list[0].args[0])
+    second_payload = json.loads(mock_ws.send.await_args_list[1].args[0])
+    assert first_payload == {
+        "operation": "unsubscribe",
+        "assets_ids": ["t2", "t3"],
+    }
+    assert second_payload == {
+        "operation": "subscribe",
+        "assets_ids": ["t4"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_subscribe_batch_empty_unsubscribes_all_assets():
+    """Empty subscription update must clear server-side subscriptions."""
+    from src.agents.ingestion.ws_client import CLOBWebSocketClient
+
+    mock_ws = AsyncMock()
+    mock_queue = asyncio.Queue()
+    mock_db_factory = MagicMock()
+
+    cfg = _make_test_config()
+    client = CLOBWebSocketClient(cfg, mock_queue, mock_db_factory)
+    client._ws = mock_ws  # type: ignore[assignment]
+    client._subscribed_assets = {"t1", "t2"}
+
+    await client.subscribe_batch([])
+
+    mock_ws.send.assert_awaited_once()
+    payload = json.loads(mock_ws.send.call_args.args[0])
+    assert payload == {
+        "operation": "unsubscribe",
+        "assets_ids": ["t1", "t2"],
+    }
+    assert client._subscribed_assets == set()
+    assert client._assets_ids == []
+
+
+def test_set_assets_ids_prunes_stale_aggregator_routes():
+    """Market rotation must not leave stale aggregator routes active."""
+    from src.agents.ingestion.ws_client import CLOBWebSocketClient
+
+    mock_queue = asyncio.Queue()
+    mock_db_factory = MagicMock()
+
+    cfg = _make_test_config()
+    client = CLOBWebSocketClient(cfg, mock_queue, mock_db_factory)
+    active_aggregator = MagicMock()
+    stale_aggregator = MagicMock()
+    client.register_aggregator("active-token", active_aggregator)
+    client.register_aggregator("stale-token", stale_aggregator)
+
+    client.set_assets_ids(["active-token"])
+
+    assert client._aggregator_map == {"active-token": active_aggregator}
 
 
 # ---------------------------------------------------------------------------
