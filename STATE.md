@@ -1,7 +1,7 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-17
-**Version:** 0.16.3
+**Version:** 0.16.4
 **Status:** Phase 16 COMPLETE — Operator Clarity and Runtime Audit Trail
 **Active WI:** none
 
@@ -30,8 +30,8 @@
 - **PRD:** `docs/PRD-v16.0.md`
 - **Completion Report:** `04_Archive/poly-oracle-agent/Phase-16/PHASE-16-COMPLETE.md`
 - **Close Date:** 2026-05-17
-- **Final Tests:** 2281 | **Coverage:** 93%
-- **Develop HEAD:** `ada8243`
+- **Final Tests:** 2283 | **Coverage:** 93%
+- **Develop HEAD:** `a587e8d`
 - **WIs Completed:** WI-56, WI-57, WI-58, WI-59, WI-60
 
 ---
@@ -91,7 +91,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2281 |
+| Total tests | 2283 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
