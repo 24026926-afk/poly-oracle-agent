@@ -327,7 +327,7 @@ async def test_ws_client_parses_price_changes_array():
 
 @pytest.mark.asyncio
 async def test_ws_client_resolves_nested_price_change_asset_id():
-    """Nested price_changes[].asset_id must resolve yes_token_id mappings."""
+    """Nested price_changes[].asset_id must resolve mappings and quotes."""
     queue: asyncio.Queue = asyncio.Queue()
     db = _mock_db_factory()
 
@@ -357,6 +357,9 @@ async def test_ws_client_resolves_nested_price_change_asset_id():
     assert queue.qsize() == 1
     snapshot = queue.get_nowait()
     assert snapshot.yes_token_id == "tok_nested_yes"
+    assert snapshot.best_bid == 0.48
+    assert snapshot.best_ask == 0.52
+    assert snapshot.midpoint == 0.5
 
 
 @pytest.mark.asyncio
@@ -392,6 +395,11 @@ async def test_ws_client_routes_nested_price_change_asset_id_to_aggregator():
     await client._handle_message(msg)
 
     aggregator.process_frame.assert_called_once()
+    routed_frame = aggregator.process_frame.call_args.args[0]
+    assert routed_frame["event_type"] == "price_change"
+    assert routed_frame["price_changes"][0]["asset_id"] == "tok_nested"
+    assert routed_frame["price_changes"][0]["best_bid"] == "0.48"
+    assert routed_frame["price_changes"][0]["best_ask"] == "0.52"
     assert aggregator.frame_count == 1
     assert aggregator.last_seen_utc is not None
     assert queue.qsize() == 0

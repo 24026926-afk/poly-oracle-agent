@@ -384,6 +384,13 @@ class AppConfig(BaseSettings):
     )
 
     # --- WI-32: Concurrent Market Tracking ---
+    max_active_markets: int = Field(
+        default=10,
+        description=(
+            "Maximum number of markets activated at startup for parallel "
+            "ingestion, context, evaluation, and execution.  Must be >= 1."
+        ),
+    )
     max_concurrent_markets: int = Field(
         default=15,
         description="Maximum number of markets tracked concurrently",

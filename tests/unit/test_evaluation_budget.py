@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.agents.evaluation.claude_client import ClaudeClient
+from src.agents.evaluation.claude_client import ClaudeClient, _compute_grok_budget
 from tests.conftest import APPROVED_REFLECTION_JSON
 
 
@@ -109,9 +109,26 @@ class _DryRunConfig:
         self.clob_rest_url = "http://localhost"
 
 
+class _GrokBudgetConfig:
+    def __init__(self, *, dry_run: bool) -> None:
+        self.dry_run = dry_run
+        self.grok_timeout_seconds = 2.0
+        self.grok_max_retries = 2
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+def test_grok_budget_uses_relaxed_dry_run_chain_budget():
+    """Dry-run Grok live calls should not inherit the 1.4s production cap."""
+    assert _compute_grok_budget(_GrokBudgetConfig(dry_run=True)) == 6.0
+
+
+def test_grok_budget_keeps_production_chain_cap():
+    """Live trading keeps Grok inside the 2s shared chain budget."""
+    assert _compute_grok_budget(_GrokBudgetConfig(dry_run=False)) == 1.4
 
 
 @pytest.mark.asyncio
