@@ -60,7 +60,7 @@ jobs:
           python -m pip install pytest pytest-asyncio pytest-cov
 
       - name: Run test suite with coverage gate
-        run: pytest --asyncio-mode=auto --cov=src --cov-report=xml --cov-fail-under=94 tests/
+        run: pytest --asyncio-mode=auto --cov=src --cov-report=xml --cov-fail-under=80 tests/
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

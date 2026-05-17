@@ -288,8 +288,7 @@ async def test_backtest_runner_replay_pipeline_and_metrics_contract(
         d for d in decisions if str(_decision_field(d, "gatekeeper_result")) == "PASSED"
     ]
     assert [
-        _as_decimal(_decision_field(d, "realized_pnl_usdc"))
-        for d in passed_decisions
+        _as_decimal(_decision_field(d, "realized_pnl_usdc")) for d in passed_decisions
     ] == [Decimal("5"), Decimal("-2")]
 
     failed_decisions = [

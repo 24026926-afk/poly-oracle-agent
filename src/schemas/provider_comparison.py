@@ -89,25 +89,32 @@ class LLMProviderComparisonConfig(BaseModel):
     end_date: Optional[str] = None
     initial_bankroll_usdc: Decimal = Field(default=Decimal("1000"), gt=0)
     enable_anthropic_sampling: bool = False
-    anthropic_sample_fraction: Decimal = Field(
-        default=Decimal("0"), ge=0, le=1
-    )
+    anthropic_sample_fraction: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     json_validity_tolerance: Decimal = Field(
-        default=Decimal("0.10"), ge=0, le=1,
+        default=Decimal("0.10"),
+        ge=0,
+        le=1,
         description="Max fraction of invalid JSON responses tolerated",
     )
     calibration_deviation_max: Decimal = Field(
-        default=Decimal("0.25"), ge=0, le=1,
+        default=Decimal("0.25"),
+        ge=0,
+        le=1,
     )
     ev_deviation_max: Decimal = Field(
-        default=Decimal("0.15"), ge=0, le=1,
+        default=Decimal("0.15"),
+        ge=0,
+        le=1,
     )
     cost_reduction_required: Decimal = Field(
-        default=Decimal("0.20"), ge=0, le=1,
+        default=Decimal("0.20"),
+        ge=0,
+        le=1,
         description="Min cost reduction fraction vs Anthropic for READY verdict",
     )
     latency_multiplier_max: Decimal = Field(
-        default=Decimal("3.0"), ge=Decimal("1.0"),
+        default=Decimal("3.0"),
+        ge=Decimal("1.0"),
         description="Max latency multiplier vs Anthropic baseline",
     )
     min_trades_for_verdict: int = Field(default=20, ge=1)
@@ -129,19 +136,23 @@ class LLMProviderComparisonConfig(BaseModel):
     )
     fallback_tokens_per_call: int = Field(default=4096, gt=0)
     cost_per_input_token_usd: Decimal = Field(
-        default=Decimal("0.0000015"), ge=0,
+        default=Decimal("0.0000015"),
+        ge=0,
         description="Cost per input token in USD (conservative default ~$1.50/M)",
     )
     cost_per_output_token_usd: Decimal = Field(
-        default=Decimal("0.000006"), ge=0,
+        default=Decimal("0.000006"),
+        ge=0,
         description="Cost per output token in USD (conservative default ~$6.00/M)",
     )
     anthropic_baseline_cost_usd: Decimal = Field(
-        default=Decimal("3.00"), gt=0,
+        default=Decimal("3.00"),
+        gt=0,
         description="Audit-grade Anthropic baseline cost in USD for cost comparison",
     )
     anthropic_baseline_latency_ms: float = Field(
-        default=1200.0, gt=0,
+        default=1200.0,
+        gt=0,
         description="Audit-grade Anthropic baseline mean latency in ms",
     )
     report_output_dir: str = Field(default="docs/backtests", min_length=1)
@@ -247,7 +258,9 @@ class LLMProviderCalibrationMetrics(BaseModel):
     avg_realized_return: Decimal = Field(default=_ZERO)
     ev_calibration_deviation: Decimal = Field(default=_ZERO, ge=0)
     outcome_coverage_fraction: Decimal = Field(
-        default=_ZERO, ge=0, le=1,
+        default=_ZERO,
+        ge=0,
+        le=1,
         description="Fraction of decisions with available historical outcomes",
     )
     has_outcome_data: bool = Field(default=False)
@@ -370,9 +383,7 @@ class LLMProviderCalibrationRecommendation(BaseModel):
     suggested_ev_threshold: Optional[Decimal] = Field(default=None, ge=0)
     suggested_max_output_tokens: Optional[int] = Field(default=None, gt=0)
     suggested_cooldown_seconds: Optional[int] = Field(default=None, gt=0)
-    suggested_budget_daily_cost_limit_usd: Optional[Decimal] = Field(
-        default=None, ge=0
-    )
+    suggested_budget_daily_cost_limit_usd: Optional[Decimal] = Field(default=None, ge=0)
     reasoning: str = Field(default="", min_length=0)
 
     @field_validator(
@@ -433,10 +444,17 @@ class LLMProviderComparisonRun(BaseModel):
 # ---------------------------------------------------------------------------
 
 _FORBIDDEN_SECRET_PATTERNS: list[str] = [
-    "sk-ant-", "sk-or-", "sk-ds-", "ankr-",          # API key prefixes
-    "xai-", "grok-",                                  # Grok key prefixes
-    "condition_id", "token_id",                       # high-cardinality ID field names
-    "prompt:", "reasoning:", "reasoning_log",          # raw prompt/reasoning field names
+    "sk-ant-",
+    "sk-or-",
+    "sk-ds-",
+    "ankr-",  # API key prefixes
+    "xai-",
+    "grok-",  # Grok key prefixes
+    "condition_id",
+    "token_id",  # high-cardinality ID field names
+    "prompt:",
+    "reasoning:",
+    "reasoning_log",  # raw prompt/reasoning field names
 ]
 
 # Regex patterns for CLOB token/condition IDs in free-form text — these are
@@ -475,9 +493,7 @@ class LLMProviderComparisonReport(BaseModel):
     @classmethod
     def _validate_run_config_dry_run(cls, value: LLMProviderComparisonRun) -> Any:
         if not value.config.dry_run:
-            raise ValueError(
-                "Report requires comparison config with dry_run=True"
-            )
+            raise ValueError("Report requires comparison config with dry_run=True")
         return value
 
     @model_validator(mode="after")

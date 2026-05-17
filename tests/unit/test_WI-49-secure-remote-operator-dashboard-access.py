@@ -41,6 +41,7 @@ from src.schemas.ops import (
 # Schema: DashboardRuntimeConfig
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDashboardRuntimeConfig:
     """Pydantic schema: DashboardRuntimeConfig — profile-gated dashboard service config."""
 
@@ -84,6 +85,7 @@ class TestDashboardRuntimeConfig:
 # Schema: DashboardDatabaseTarget
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDashboardDatabaseTarget:
     """Pydantic schema: DashboardDatabaseTarget — deployed SQLite DB target."""
 
@@ -124,6 +126,7 @@ class TestDashboardDatabaseTarget:
 # Schema: DashboardAccessMode
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDashboardAccessMode:
     """Enum/schema: DashboardAccessMode — LOCAL, SSH_TUNNEL, REVERSE_PROXY."""
 
@@ -148,6 +151,7 @@ class TestDashboardAccessMode:
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema: DashboardTunnelSpec
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestDashboardTunnelSpec:
     """Pydantic schema: DashboardTunnelSpec — SSH tunnel configuration."""
@@ -182,6 +186,7 @@ class TestDashboardTunnelSpec:
 # Schema: DashboardReadOnlyCheck
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDashboardReadOnlyCheck:
     """Pydantic schema: DashboardReadOnlyCheck — read-only SQLite enforcement."""
 
@@ -190,7 +195,9 @@ class TestDashboardReadOnlyCheck:
         assert check.passed is True
 
     def test_readonly_check_reason_field(self) -> None:
-        check = DashboardReadOnlyCheck(passed=True, reason="Read-only URI mode confirmed")
+        check = DashboardReadOnlyCheck(
+            passed=True, reason="Read-only URI mode confirmed"
+        )
         assert "Read-only" in check.reason
 
     def test_readonly_check_write_attempted_field(self) -> None:
@@ -209,6 +216,7 @@ class TestDashboardReadOnlyCheck:
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema: DashboardExposureCheck
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestDashboardExposureCheck:
     """Pydantic schema: DashboardExposureCheck — secret-free output verification."""
@@ -270,7 +278,12 @@ class TestDashboardExposureCheck:
     def test_exposure_check_clean_output_passes(self) -> None:
         check = DashboardExposureCheck(
             passed=True,
-            prohibited_patterns=["private_key", "api_key", "telegram_token", "raw_prompt"],
+            prohibited_patterns=[
+                "private_key",
+                "api_key",
+                "telegram_token",
+                "raw_prompt",
+            ],
         )
         assert check.passed is True
         assert len(check.violations_found) == 0
@@ -279,6 +292,7 @@ class TestDashboardExposureCheck:
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema: DashboardAccessValidationReport
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestDashboardAccessValidationReport:
     """Pydantic schema: DashboardAccessValidationReport — aggregate validation."""
@@ -343,6 +357,7 @@ class TestDashboardAccessValidationReport:
 # DB Path Configuration
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestDashboardDBPathConfiguration:
     """Dashboard DB path must be configurable via DASHBOARD_DB_PATH env var."""
 
@@ -359,6 +374,7 @@ class TestDashboardDBPathConfiguration:
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": tmp_path}):
                 import importlib
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
                 assert dash.DB_PATH == Path(tmp_path)
         finally:
@@ -370,6 +386,7 @@ class TestDashboardDBPathConfiguration:
             os.environ.pop("DASHBOARD_DB_PATH", None)
             import importlib
             import src.ui.dashboard as dash
+
             importlib.reload(dash)
             # Should fall back to the local default (relative to this repo)
             assert dash.DB_PATH.name == "poly_oracle.db"
@@ -381,6 +398,7 @@ class TestDashboardDBPathConfiguration:
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": str(nonexistent)}):
                 import importlib
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
                 # The file must not have been created by the module import
                 assert not nonexistent.exists()
@@ -398,6 +416,7 @@ class TestDashboardDBPathConfiguration:
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": str(abs_path)}):
                 import importlib
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
                 assert dash.DB_PATH.resolve() == abs_path.resolve()
 
@@ -405,6 +424,7 @@ class TestDashboardDBPathConfiguration:
 # ═══════════════════════════════════════════════════════════════════════════
 # Read-Only SQLite Enforcement
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestReadOnlySQLiteEnforcement:
     """src/ui/ must open SQLite in read-only mode; no write SQL verbs."""
@@ -515,8 +535,14 @@ class TestReadOnlySQLiteEnforcement:
         """Scan src/ui/ for forbidden SQL write verbs."""
         ui_dir = Path(__file__).resolve().parents[2] / "src" / "ui"
         forbidden = {
-            "INSERT", "UPDATE", "DELETE", "CREATE TABLE",
-            "DROP TABLE", "DROP INDEX", "ALTER TABLE", "REPLACE",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "CREATE TABLE",
+            "DROP TABLE",
+            "DROP INDEX",
+            "ALTER TABLE",
+            "REPLACE",
         }
         for py_file in ui_dir.glob("*.py"):
             source = py_file.read_text()
@@ -528,11 +554,19 @@ class TestReadOnlySQLiteEnforcement:
                     lines = source.split("\n")
                     for line in lines:
                         stripped = line.strip()
-                        if stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''"):
+                        if (
+                            stripped.startswith("#")
+                            or stripped.startswith('"""')
+                            or stripped.startswith("'''")
+                        ):
                             continue
                         if verb.upper() in stripped.upper():
                             # Only flag actual SQL execution patterns
-                            if ".execute(" in stripped or ".executemany(" in stripped or ".executescript(" in stripped:
+                            if (
+                                ".execute(" in stripped
+                                or ".executemany(" in stripped
+                                or ".executescript(" in stripped
+                            ):
                                 if verb.upper() in stripped.upper():
                                     pytest.fail(
                                         f"{py_file.name}: line contains {verb}: {stripped[:120]}"
@@ -555,13 +589,19 @@ class TestReadOnlySQLiteEnforcement:
                     continue
                 if ".executemany(" in stripped:
                     line_upper = stripped.upper()
-                    if any(v in line_upper for v in ("INSERT", "UPDATE", "DELETE", "REPLACE")):
-                        pytest.fail(f"{py_file.name}: executemany with write verb: {stripped[:120]}")
+                    if any(
+                        v in line_upper
+                        for v in ("INSERT", "UPDATE", "DELETE", "REPLACE")
+                    ):
+                        pytest.fail(
+                            f"{py_file.name}: executemany with write verb: {stripped[:120]}"
+                        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Compose Profile Gating
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestComposeProfileGating:
     """docker-compose.yml must have a profile-gated dashboard service."""
@@ -572,7 +612,9 @@ class TestComposeProfileGating:
         return compose_path.read_text()
 
     @staticmethod
-    def _service_has_profile(compose_text: str, service_name: str, profile_name: str) -> bool:
+    def _service_has_profile(
+        compose_text: str, service_name: str, profile_name: str
+    ) -> bool:
         """Check if a service block contains a profiles list with the given profile."""
         # Find the service block
         pattern = rf"^\s{{2}}{service_name}:.*?\n(?:^\s{{4}}.*\n)*"
@@ -581,10 +623,14 @@ class TestComposeProfileGating:
             return False
         block = match.group(0)
         # Check for profiles key containing the profile name
-        return bool(re.search(rf"profiles:\s*\n(\s{{6}}-.*\n)*\s{{6}}-\s+{profile_name}", block))
+        return bool(
+            re.search(rf"profiles:\s*\n(\s{{6}}-.*\n)*\s{{6}}-\s+{profile_name}", block)
+        )
 
     @staticmethod
-    def _service_has_volume(compose_text: str, service_name: str, volume_name: str) -> bool:
+    def _service_has_volume(
+        compose_text: str, service_name: str, volume_name: str
+    ) -> bool:
         """Check if a service block mounts the given named volume."""
         pattern = rf"^\s{{2}}{service_name}:.*?\n(?:^\s{{4}}.*\n)*"
         match = re.search(pattern, compose_text, re.MULTILINE)
@@ -604,7 +650,9 @@ class TestComposeProfileGating:
     def test_dashboard_not_started_by_default(self) -> None:
         compose_text = self._load_compose_text()
         # Orchestrator must NOT be profile-gated
-        orchestrator_block = re.search(r"  orchestrator:.*?\n(?:    .*\n)*", compose_text)
+        orchestrator_block = re.search(
+            r"  orchestrator:.*?\n(?:    .*\n)*", compose_text
+        )
         assert orchestrator_block is not None
         orch_text = orchestrator_block.group(0)
         assert "profiles:" not in orch_text, "orchestrator must not be profile-gated"
@@ -618,13 +666,15 @@ class TestComposeProfileGating:
 
     def test_dashboard_mounts_same_data_volume(self) -> None:
         compose_text = self._load_compose_text()
-        assert self._service_has_volume(compose_text, "orchestrator", "poly_oracle_data")
+        assert self._service_has_volume(
+            compose_text, "orchestrator", "poly_oracle_data"
+        )
         assert self._service_has_volume(compose_text, "dashboard", "poly_oracle_data")
 
     def test_dashboard_uses_data_poly_oracle_db_path(self) -> None:
         compose_text = self._load_compose_text()
         assert "DASHBOARD_DB_PATH: /data/poly_oracle.db" in compose_text or (
-            'DASHBOARD_DB_PATH=/data/poly_oracle.db' in compose_text
+            "DASHBOARD_DB_PATH=/data/poly_oracle.db" in compose_text
         ), "dashboard must set DASHBOARD_DB_PATH to /data/poly_oracle.db"
 
     def test_dashboard_binds_loopback_only(self) -> None:
@@ -641,6 +691,7 @@ class TestComposeProfileGating:
 # ═══════════════════════════════════════════════════════════════════════════
 # Secret-Free Output
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestSecretFreeOutput:
     """Dashboard must not expose secrets, keys, tokens, or raw private payloads."""
@@ -661,7 +712,7 @@ class TestSecretFreeOutput:
             source = py_file.read_text()
             for pattern, label in self._SECRET_PATTERNS:
                 for match in re.finditer(pattern, source):
-                    line = source[:match.start()].count("\n") + 1
+                    line = source[: match.start()].count("\n") + 1
                     violations.append(f"{py_file.name}:{line}: {label} pattern match")
         return violations
 
@@ -673,25 +724,36 @@ class TestSecretFreeOutput:
             if "os.environ" in source and "for" in source:
                 lines = source.split("\n")
                 for i, line in enumerate(lines):
-                    if "os.environ" in line and ("st." in line or "render" in line.lower()):
-                        pytest.fail(f"{py_file.name}:{i+1}: os.environ exposed in render path")
+                    if "os.environ" in line and (
+                        "st." in line or "render" in line.lower()
+                    ):
+                        pytest.fail(
+                            f"{py_file.name}:{i + 1}: os.environ exposed in render path"
+                        )
 
     def test_dashboard_does_not_display_wallet_private_key(self) -> None:
         violations = self._scan_ui_source()
         privkey_violations = [v for v in violations if "private_key" in v]
-        assert len(privkey_violations) == 0, f"Private key patterns found: {privkey_violations}"
+        assert len(privkey_violations) == 0, (
+            f"Private key patterns found: {privkey_violations}"
+        )
 
     def test_dashboard_does_not_display_api_keys(self) -> None:
         violations = self._scan_ui_source()
         apikey_violations = [v for v in violations if "api_key" in v]
-        assert len(apikey_violations) == 0, f"API key patterns found: {apikey_violations}"
+        assert len(apikey_violations) == 0, (
+            f"API key patterns found: {apikey_violations}"
+        )
 
     def test_dashboard_does_not_display_raw_prompt_text(self) -> None:
         ui_dir = Path(__file__).resolve().parents[2] / "src" / "ui"
         for py_file in ui_dir.glob("*.py"):
             source = py_file.read_text()
             # The dashboard must not import or reference prompt/instruction content
-            if "system_prompt" in source.lower() or "instruction_prompt" in source.lower():
+            if (
+                "system_prompt" in source.lower()
+                or "instruction_prompt" in source.lower()
+            ):
                 pytest.fail(f"{py_file.name} references prompt/instruction material")
 
     def test_dashboard_does_not_display_reasoning_text(self) -> None:
@@ -708,8 +770,11 @@ class TestSecretFreeOutput:
         for py_file in ui_dir.glob("*.py"):
             source = py_file.read_text()
             forbidden_in_metrics = [
-                "wallet_address", "wallet_private_key", "api_key",
-                "telegram_bot_token", "telegram_chat_id",
+                "wallet_address",
+                "wallet_private_key",
+                "api_key",
+                "telegram_bot_token",
+                "telegram_chat_id",
             ]
             for secret_field in forbidden_in_metrics:
                 if secret_field in source:
@@ -721,7 +786,7 @@ class TestSecretFreeOutput:
                             continue
                         if secret_field in stripped:
                             pytest.fail(
-                                f"{py_file.name}:{i+1}: secret field '{secret_field}' in non-comment line"
+                                f"{py_file.name}:{i + 1}: secret field '{secret_field}' in non-comment line"
                             )
 
 
@@ -729,10 +794,16 @@ class TestSecretFreeOutput:
 # SSH Tunnel Runbook
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSSHTunnelRunbook:
     """docs/runbooks/streamlit-ssh-tunnel.md must exist with required sections."""
 
-    _runbook_path = Path(__file__).resolve().parents[2] / "docs" / "runbooks" / "streamlit-ssh-tunnel.md"
+    _runbook_path = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "runbooks"
+        / "streamlit-ssh-tunnel.md"
+    )
 
     def test_runbook_file_exists(self) -> None:
         assert self._runbook_path.exists(), f"Runbook not found at {self._runbook_path}"
@@ -747,7 +818,9 @@ class TestSSHTunnelRunbook:
 
     def test_runbook_contains_shutdown_steps(self) -> None:
         content = self._runbook_path.read_text()
-        assert "Ctrl+C" in content or "stop" in content.lower(), "Runbook must include shutdown steps"
+        assert "Ctrl+C" in content or "stop" in content.lower(), (
+            "Runbook must include shutdown steps"
+        )
 
     def test_runbook_contains_verification_section(self) -> None:
         content = self._runbook_path.read_text()

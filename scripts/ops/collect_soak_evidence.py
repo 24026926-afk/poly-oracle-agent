@@ -22,15 +22,13 @@ Requirements: Python 3.12+ with project dependencies installed.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -65,20 +63,43 @@ _VERDICT_INCOMPLETE = "incomplete"
 # Secrets redaction patterns
 _REDACT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("api_key", re.compile(r"(?:api[_-]?key|apikey)\s*[=:]\s*\S+", re.IGNORECASE)),
-    ("private_key", re.compile(r"(?:private[_-]?key|wallet[_-]?key)\s*[=:]\s*\S+", re.IGNORECASE)),
+    (
+        "private_key",
+        re.compile(r"(?:private[_-]?key|wallet[_-]?key)\s*[=:]\s*\S+", re.IGNORECASE),
+    ),
     ("telegram_token", re.compile(r"\b\d{8,10}:[a-zA-Z0-9_-]{35,}\b")),
     ("rpc_url_credentials", re.compile(r"https?://[^:@]+:[^@]+@")),
     ("token_id", re.compile(r"\b\d{10,}\b")),
     ("condition_id", re.compile(r"0x[a-fA-F0-9]{64}\b")),
-    ("prompt_block", re.compile(r"(?:prompt_text|reasoning|system_prompt)\s*[=:]\s*.+", re.IGNORECASE)),
-    ("private_ip", re.compile(r"\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b")),
+    (
+        "prompt_block",
+        re.compile(
+            r"(?:prompt_text|reasoning|system_prompt)\s*[=:]\s*.+", re.IGNORECASE
+        ),
+    ),
+    (
+        "private_ip",
+        re.compile(
+            r"\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b"
+        ),
+    ),
 ]
 
 # Fields to scrub before writing reports
 _REDACT_FIELD_NAMES: set[str] = {
-    "api_key", "apikey", "api_secret", "secret", "password", "token",
-    "private_key", "wallet_key", "wallet_private_key", "mnemonic",
-    "passphrase", "chat_id", "bot_token",
+    "api_key",
+    "apikey",
+    "api_secret",
+    "secret",
+    "password",
+    "token",
+    "private_key",
+    "wallet_key",
+    "wallet_private_key",
+    "mnemonic",
+    "passphrase",
+    "chat_id",
+    "bot_token",
 }
 
 
@@ -99,8 +120,10 @@ def _redact_dict(obj: dict[str, Any]) -> dict[str, Any]:
             result[k] = _redact_dict(v)
         elif isinstance(v, list):
             result[k] = [
-                _redact_dict(item) if isinstance(item, dict)
-                else _redact_text(item) if isinstance(item, str)
+                _redact_dict(item)
+                if isinstance(item, dict)
+                else _redact_text(item)
+                if isinstance(item, str)
                 else item
                 for item in v
             ]
@@ -137,7 +160,9 @@ def _make_probe(
     return result
 
 
-def _http_get(url: str, *, timeout: float = _HTTP_TIMEOUT_SEC) -> tuple[int, str, dict[str, str]]:
+def _http_get(
+    url: str, *, timeout: float = _HTTP_TIMEOUT_SEC
+) -> tuple[int, str, dict[str, str]]:
     """HTTP GET returning (status_code, body_text, headers_dict)."""
     req = urllib.request.Request(url, method="GET")
     try:
@@ -189,7 +214,9 @@ def _probe_dry_run(target_host: str) -> tuple[bool, dict[str, Any]]:
         except OSError:
             reasons.append("Cannot read .env")
         else:
-            m = re.search(r"^DRY_RUN\s*=\s*(.+)$", content, re.MULTILINE | re.IGNORECASE)
+            m = re.search(
+                r"^DRY_RUN\s*=\s*(.+)$", content, re.MULTILINE | re.IGNORECASE
+            )
             if not m:
                 reasons.append("DRY_RUN key not found in .env")
             else:
@@ -217,9 +244,12 @@ def _probe_dry_run(target_host: str) -> tuple[bool, dict[str, Any]]:
 
     if not env_dry_run_ok:
         return False, _make_probe(
-            "dry_run_guard", _FAIL,
+            "dry_run_guard",
+            _FAIL,
             detail="; ".join(reasons) if reasons else "DRY_RUN not confirmed",
-            failure_reason="dry_run_false" if "not true" in str(reasons) else "dry_run_missing",
+            failure_reason="dry_run_false"
+            if "not true" in str(reasons)
+            else "dry_run_missing",
         )
 
     if not runtime_dry_run_ok:
@@ -229,7 +259,8 @@ def _probe_dry_run(target_host: str) -> tuple[bool, dict[str, Any]]:
             else "runtime_dry_run_unconfirmed"
         )
         return False, _make_probe(
-            "dry_run_guard", _FAIL,
+            "dry_run_guard",
+            _FAIL,
             detail="; ".join(reasons) if reasons else "Runtime dry_run not confirmed",
             failure_reason=runtime_reason,
         )
@@ -250,12 +281,14 @@ def _probe_duration(soak_start: datetime) -> tuple[float, dict[str, Any]]:
     duration_hours = (now - soak_start).total_seconds() / 3600.0
     if duration_hours < _MIN_SOAK_HOURS:
         return duration_hours, _make_probe(
-            "soak_duration", _FAIL,
+            "soak_duration",
+            _FAIL,
             detail=f"Soak duration {duration_hours:.1f}h below minimum {_MIN_SOAK_HOURS}h",
             failure_reason="duration_too_short",
         )
     return duration_hours, _make_probe(
-        "soak_duration", _PASS,
+        "soak_duration",
+        _PASS,
         detail=f"Soak duration: {duration_hours:.1f}h",
     )
 
@@ -289,23 +322,28 @@ def _probe_compose_service() -> tuple[dict[str, Any] | None, dict[str, Any]]:
     try:
         result = subprocess.run(
             ["docker", "compose", "ps", "orchestrator", "--format", "json"],
-            capture_output=True, timeout=_SUBPROCESS_TIMEOUT_SEC, text=True,
+            capture_output=True,
+            timeout=_SUBPROCESS_TIMEOUT_SEC,
+            text=True,
         )
     except subprocess.TimeoutExpired:
         return None, _make_probe(
-            "compose_service", _FAIL,
+            "compose_service",
+            _FAIL,
             detail="docker compose ps timed out",
             failure_reason="timeout",
         )
     except FileNotFoundError:
         return None, _make_probe(
-            "compose_service", _SKIPPED,
+            "compose_service",
+            _SKIPPED,
             detail="docker compose not available",
         )
 
     if result.returncode != 0 or not result.stdout.strip():
         return None, _make_probe(
-            "compose_service", _FAIL,
+            "compose_service",
+            _FAIL,
             detail="orchestrator service not running",
             failure_reason="service_not_running",
         )
@@ -314,7 +352,8 @@ def _probe_compose_service() -> tuple[dict[str, Any] | None, dict[str, Any]]:
         services = json.loads(result.stdout)
     except json.JSONDecodeError:
         return None, _make_probe(
-            "compose_service", _FAIL,
+            "compose_service",
+            _FAIL,
             detail="Could not parse compose ps output",
             failure_reason="parse_error",
         )
@@ -357,7 +396,8 @@ def _probe_compose_service() -> tuple[dict[str, Any] | None, dict[str, Any]]:
 
     probe_status = _PASS if service_info["running"] else _FAIL
     return service_info, _make_probe(
-        "compose_service", probe_status,
+        "compose_service",
+        probe_status,
         detail=f"Running={service_info['running']}, RestartCount={service_info['restart_count']}",
     )
 
@@ -430,7 +470,8 @@ def _probe_health(target_host: str) -> dict[str, Any]:
         failure_reason = "readyz_unknown_status"
 
     evidence["health_probe"] = _make_probe(
-        "health", probe_status,
+        "health",
+        probe_status,
         detail=detail,
         failure_reason=failure_reason,
     )
@@ -473,26 +514,33 @@ def _probe_metrics(target_host: str) -> dict[str, Any]:
         evidence["metrics_reachable"] = True
         evidence["metrics_status_code"] = status
         content_type = headers.get("content-type", "")
-        if status == 200 and "text/plain" in content_type and _is_valid_prometheus(body):
+        if (
+            status == 200
+            and "text/plain" in content_type
+            and _is_valid_prometheus(body)
+        ):
             evidence["prometheus_format_valid"] = True
     except urllib.error.URLError:
         evidence["metrics_reachable"] = False
 
     if not evidence["metrics_reachable"]:
         evidence["metrics_probe"] = _make_probe(
-            "metrics", _FAIL,
+            "metrics",
+            _FAIL,
             detail="Metrics endpoint unreachable",
             failure_reason="metrics_unreachable",
         )
     elif not evidence["prometheus_format_valid"]:
         evidence["metrics_probe"] = _make_probe(
-            "metrics", _FAIL,
+            "metrics",
+            _FAIL,
             detail="Metrics endpoint not serving valid Prometheus format",
             failure_reason="metrics_invalid",
         )
     else:
         evidence["metrics_probe"] = _make_probe(
-            "metrics", _PASS,
+            "metrics",
+            _PASS,
             detail="Metrics endpoint healthy",
         )
     return evidence
@@ -501,7 +549,9 @@ def _probe_metrics(target_host: str) -> dict[str, Any]:
 # ── Probe: Database Persistence ────────────────────────────────────────────
 
 
-def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) -> dict[str, Any]:
+def _probe_database(
+    db_path: str, soak_start: datetime, baseline_size: int = 0
+) -> dict[str, Any]:
     """Probe SQLite file and collect persistence evidence. Read-only.
 
     Uses baseline_size (bytes at soak start) to compute real growth delta.
@@ -521,7 +571,8 @@ def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) 
     path = Path(db_path)
     if not path.exists() or not path.is_file():
         evidence["db_probe"] = _make_probe(
-            "database", _FAIL,
+            "database",
+            _FAIL,
             detail=f"SQLite file not found: {db_path}",
             failure_reason="sqlite_missing",
         )
@@ -538,7 +589,9 @@ def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) 
     # SQLite datetime() rather than raw lexicographic ISO strings.
     soak_start_sqlite = soak_start.strftime("%Y-%m-%d %H:%M:%S")
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=_SQLITE_TIMEOUT_SEC)
+        conn = sqlite3.connect(
+            f"file:{db_path}?mode=ro", uri=True, timeout=_SQLITE_TIMEOUT_SEC
+        )
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
@@ -574,13 +627,15 @@ def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) 
         if "locked" in str(e).lower() or "database is locked" in str(e).lower():
             evidence["sqlite_locked"] = True
             evidence["db_probe"] = _make_probe(
-                "database", _FAIL,
+                "database",
+                _FAIL,
                 detail="SQLite database is locked",
                 failure_reason="sqlite_locked",
             )
             return evidence
         evidence["db_probe"] = _make_probe(
-            "database", _FAIL,
+            "database",
+            _FAIL,
             detail=f"SQLite error: {e}",
             failure_reason="sqlite_error",
         )
@@ -589,19 +644,25 @@ def _probe_database(db_path: str, soak_start: datetime, baseline_size: int = 0) 
     # Determine probe status
     if not evidence["db_grew"]:
         evidence["db_probe"] = _make_probe(
-            "database", _FAIL,
+            "database",
+            _FAIL,
             detail="SQLite file exists but shows no growth during soak",
             failure_reason="no_persistence_activity",
         )
-    elif evidence["recent_decision_count"] == 0 and evidence["recent_snapshot_count"] == 0:
+    elif (
+        evidence["recent_decision_count"] == 0
+        and evidence["recent_snapshot_count"] == 0
+    ):
         evidence["db_probe"] = _make_probe(
-            "database", _INCOMPLETE,
+            "database",
+            _INCOMPLETE,
             detail="DB file exists and grew but no soak-period decisions or snapshots found",
             failure_reason="no_agent_activity",
         )
     else:
         evidence["db_probe"] = _make_probe(
-            "database", _PASS,
+            "database",
+            _PASS,
             detail=f"DB OK: {evidence['db_file_size_bytes']} bytes (+{evidence['db_growth_bytes']}), "
             f"{evidence['recent_decision_count']} soak decisions, "
             f"{evidence['recent_snapshot_count']} soak snapshots",
@@ -620,7 +681,8 @@ def _probe_telegram(telegram_enabled: bool) -> dict[str, Any]:
             "status": _NOT_APPLICABLE,
             "detail": "Telegram alerts are disabled",
             "telegram_probe": _make_probe(
-                "telegram", _NOT_APPLICABLE,
+                "telegram",
+                _NOT_APPLICABLE,
                 detail="Telegram is not enabled",
             ),
         }
@@ -630,8 +692,12 @@ def _probe_telegram(telegram_enabled: bool) -> dict[str, Any]:
     if env_path.exists():
         try:
             content = env_path.read_text()
-            token_present = bool(re.search(r"^TELEGRAM_BOT_TOKEN\s*=\s*\S+", content, re.MULTILINE))
-            chat_id_present = bool(re.search(r"^TELEGRAM_CHAT_ID\s*=\s*\S+", content, re.MULTILINE))
+            token_present = bool(
+                re.search(r"^TELEGRAM_BOT_TOKEN\s*=\s*\S+", content, re.MULTILINE)
+            )
+            chat_id_present = bool(
+                re.search(r"^TELEGRAM_CHAT_ID\s*=\s*\S+", content, re.MULTILINE)
+            )
         except OSError:
             pass
 
@@ -640,14 +706,17 @@ def _probe_telegram(telegram_enabled: bool) -> dict[str, Any]:
             "enabled": True,
             "status": _PASS,
             "detail": "Telegram configuration present (token/chat_id redacted)",
-            "telegram_probe": _make_probe("telegram", _PASS, detail="Telegram configured"),
+            "telegram_probe": _make_probe(
+                "telegram", _PASS, detail="Telegram configured"
+            ),
         }
     return {
         "enabled": True,
         "status": _INCOMPLETE,
         "detail": "Telegram enabled but configuration incomplete",
         "telegram_probe": _make_probe(
-            "telegram", _INCOMPLETE,
+            "telegram",
+            _INCOMPLETE,
             detail="Telegram enabled but token or chat_id missing",
         ),
     }
@@ -680,7 +749,8 @@ def _probe_recovery(
             "recovery_method": None,
             "service_recovered": None,
             "recovery_probe": _make_probe(
-                "recovery", _INCOMPLETE,
+                "recovery",
+                _INCOMPLETE,
                 detail="Host reboot or container restart recovery was not tested",
             ),
         }
@@ -691,7 +761,8 @@ def _probe_recovery(
             "recovery_method": recovery_method,
             "service_recovered": None,
             "recovery_probe": _make_probe(
-                "recovery", _FAIL,
+                "recovery",
+                _FAIL,
                 detail=f"Unknown recovery method: {recovery_method}. "
                 f"Allowed: {', '.join(sorted(_ALLOWED_RECOVERY_METHODS))}",
                 failure_reason="invalid_recovery_method",
@@ -730,7 +801,8 @@ def _probe_recovery(
         "recovery_method": recovery_method,
         "service_recovered": True,
         "recovery_probe": _make_probe(
-            "recovery", _PASS,
+            "recovery",
+            _PASS,
             detail=f"Recovery verified after {recovery_method}",
         ),
     }
@@ -747,8 +819,14 @@ def _validate_report(report: dict[str, Any]) -> dict[str, Any]:
     is not available (stdlib-only constraint).
     """
     required_fields = {
-        "report_id", "target_host", "duration_hours", "dry_run_confirmed",
-        "verdict", "verdict_reason", "probes", "live_trading_authorized",
+        "report_id",
+        "target_host",
+        "duration_hours",
+        "dry_run_confirmed",
+        "verdict",
+        "verdict_reason",
+        "probes",
+        "live_trading_authorized",
         "exit_code",
     }
     missing = required_fields - set(report.keys())
@@ -787,7 +865,10 @@ def _compute_verdict(report: dict[str, Any]) -> tuple[str, str]:
 
     compose = next((p for p in probes if p["probe_name"] == "compose_service"), None)
     if compose and compose["status"] == _FAIL:
-        return _VERDICT_FAIL, f"Compose service check failed: {compose.get('detail', '')}"
+        return (
+            _VERDICT_FAIL,
+            f"Compose service check failed: {compose.get('detail', '')}",
+        )
 
     return _VERDICT_PASS, "All mandatory evidence gates passed"
 
@@ -834,78 +915,92 @@ def _write_markdown(report: dict[str, Any], path: Path) -> None:
 
     ss = redacted.get("service_status")
     if ss:
-        lines.extend([
-            "",
-            "## Service Status",
-            "",
-            f"- **Service:** {ss.get('service_name', 'N/A')}",
-            f"- **Running:** {ss.get('running', False)}",
-            f"- **Restart Count:** {ss.get('restart_count', 0)}",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Service Status",
+                "",
+                f"- **Service:** {ss.get('service_name', 'N/A')}",
+                f"- **Running:** {ss.get('running', False)}",
+                f"- **Restart Count:** {ss.get('restart_count', 0)}",
+            ]
+        )
 
     db = redacted.get("database_evidence")
     if db:
-        lines.extend([
-            "",
-            "## Database Persistence",
-            "",
-            f"- **File:** `{db.get('db_file_path', 'N/A')}`",
-            f"- **Size:** {db.get('db_file_size_bytes', 0)} bytes",
-            f"- **Grew:** {db.get('db_grew', False)} (+{db.get('db_growth_bytes', 0)} bytes)",
-            f"- **Soak Decisions:** {db.get('recent_decision_count', 0)}",
-            f"- **Soak Snapshots:** {db.get('recent_snapshot_count', 0)}",
-            f"- **Locked:** {db.get('sqlite_locked', False)}",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Database Persistence",
+                "",
+                f"- **File:** `{db.get('db_file_path', 'N/A')}`",
+                f"- **Size:** {db.get('db_file_size_bytes', 0)} bytes",
+                f"- **Grew:** {db.get('db_grew', False)} (+{db.get('db_growth_bytes', 0)} bytes)",
+                f"- **Soak Decisions:** {db.get('recent_decision_count', 0)}",
+                f"- **Soak Snapshots:** {db.get('recent_snapshot_count', 0)}",
+                f"- **Locked:** {db.get('sqlite_locked', False)}",
+            ]
+        )
 
     he = redacted.get("health_evidence")
     if he:
-        lines.extend([
-            "",
-            "## Health & Readiness",
-            "",
-            f"- **/healthz reachable:** {he.get('healthz_reachable', False)}",
-            f"- **/readyz reachable:** {he.get('readyz_reachable', False)}",
-            f"- **Readiness status:** {he.get('readyz_status', 'N/A')}",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Health & Readiness",
+                "",
+                f"- **/healthz reachable:** {he.get('healthz_reachable', False)}",
+                f"- **/readyz reachable:** {he.get('readyz_reachable', False)}",
+                f"- **Readiness status:** {he.get('readyz_status', 'N/A')}",
+            ]
+        )
 
     me = redacted.get("metrics_evidence")
     if me:
-        lines.extend([
-            "",
-            "## Metrics",
-            "",
-            f"- **/metrics reachable:** {me.get('metrics_reachable', False)}",
-            f"- **Prometheus format valid:** {me.get('prometheus_format_valid', False)}",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Metrics",
+                "",
+                f"- **/metrics reachable:** {me.get('metrics_reachable', False)}",
+                f"- **Prometheus format valid:** {me.get('prometheus_format_valid', False)}",
+            ]
+        )
 
     re_ev = redacted.get("recovery_evidence")
     if re_ev:
-        lines.extend([
-            "",
-            "## Recovery",
-            "",
-            f"- **Recovery tested:** {re_ev.get('recovery_tested', False)}",
-            f"- **Method:** {re_ev.get('recovery_method', 'N/A')}",
-            f"- **Service recovered:** {re_ev.get('service_recovered', 'N/A')}",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Recovery",
+                "",
+                f"- **Recovery tested:** {re_ev.get('recovery_tested', False)}",
+                f"- **Method:** {re_ev.get('recovery_method', 'N/A')}",
+                f"- **Service recovered:** {re_ev.get('service_recovered', 'N/A')}",
+            ]
+        )
 
     tg_status = redacted.get("telegram_status", "N/A")
     tg_enabled = redacted.get("telegram_enabled", False)
-    lines.extend([
-        "",
-        "## Telegram Alerts",
-        "",
-        f"- **Enabled:** {tg_enabled}",
-        f"- **Status:** {tg_status}",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Telegram Alerts",
+            "",
+            f"- **Enabled:** {tg_enabled}",
+            f"- **Status:** {tg_status}",
+        ]
+    )
 
-    lines.extend([
-        "",
-        "---",
-        "",
-        "*Report generated by `scripts/ops/collect_soak_evidence.py`*",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "*Report generated by `scripts/ops/collect_soak_evidence.py`*",
+            "",
+        ]
+    )
 
     path.write_text("\n".join(lines) + "\n")
 
@@ -927,27 +1022,34 @@ def main() -> None:
         description="Collect paper-trading soak-test evidence."
     )
     parser.add_argument(
-        "--soak-start", required=True,
+        "--soak-start",
+        required=True,
         help="ISO-8601 soak start timestamp (e.g. 2026-05-04T00:00:00Z)",
     )
     parser.add_argument(
-        "--target-host", default="127.0.0.1",
+        "--target-host",
+        default="127.0.0.1",
         help="Target host for HTTP probes (default: 127.0.0.1)",
     )
     parser.add_argument(
-        "--db-path", default="/data/poly_oracle.db",
+        "--db-path",
+        default="/data/poly_oracle.db",
         help="Path to the SQLite database (default: /data/poly_oracle.db)",
     )
     parser.add_argument(
-        "--db-baseline-size", type=int, required=True,
+        "--db-baseline-size",
+        type=int,
+        required=True,
         help="SQLite file size in bytes at soak start (for growth delta calculation)",
     )
     parser.add_argument(
-        "--telegram-enabled", action="store_true",
+        "--telegram-enabled",
+        action="store_true",
         help="Indicate Telegram alerting is enabled",
     )
     parser.add_argument(
-        "--recovery-tested", default=None,
+        "--recovery-tested",
+        default=None,
         help="Recovery method if tested (e.g. 'docker compose restart', 'host reboot')",
     )
     args = parser.parse_args()
@@ -1077,7 +1179,9 @@ def _write_report(report: dict[str, Any]) -> None:
 
     _log(f"Markdown report: {md_path}")
     _log(f"JSON report:     {json_path}")
-    _log(f"Verdict: {report.get('verdict', 'N/A')} — {report.get('verdict_reason', '')}")
+    _log(
+        f"Verdict: {report.get('verdict', 'N/A')} — {report.get('verdict_reason', '')}"
+    )
 
 
 if __name__ == "__main__":

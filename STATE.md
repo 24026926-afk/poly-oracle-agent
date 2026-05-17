@@ -1,9 +1,38 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-14
-**Version:** 0.15.4
-**Status:** Phase 15 COMPLETE — archived to `04_Archive/poly-oracle-agent/Phase-15/`
+**Last Updated:** 2026-05-17
+**Version:** 0.16.4
+**Status:** Phase 16 COMPLETE — Operator Clarity and Runtime Audit Trail
 **Active WI:** none
+
+---
+
+## Phase 16 Plan
+
+- **PRD:** `docs/PRD-v16.0.md`
+- **Planning Date:** 2026-05-14
+- **Objective:** Make every autonomous dry-run server run understandable, resumable, and reconstructable by a non-technical operator through a durable operational event ledger, deterministic human-readable narratives, incident replay, dashboard timeline visibility, and an automatic daily operations digest.
+- **Operational trigger:** The previous DigitalOcean paper-trading run exposed that technical stdout/Docker logs were ephemeral and hard to inspect, while the dashboard did not provide a durable chronological story of runtime behavior.
+- **Scope guard:** Live trading, `DRY_RUN=false` changes, live signing or broadcasting, Gatekeeper changes, LLM-generated narratives, historical Docker-log backfill, hash-chain ledgers, PostgreSQL migration, and public dashboard exposure remain out of scope.
+- **WIs completed:**
+  - **WI-56 — Operational Event Ledger:** COMPLETE. Added typed operational event schemas, Alembic migration `0006_add_operational_events.py`, append-only `OperationalEventRepository`, bounded async `OperationalEventBus`, readiness degradation for safety-critical ledger failures, low-cardinality event metrics, source hooks across orchestrator/evaluation/market discovery, and `docs/runbooks/operational-event-ledger.md`. MAAP findings resolved: no-market startup now flushes/shuts down cleanly, event ledger monitor task is owned, critical publish/persist failures fail closed, runtime hooks include LLM and market-quarantine events, overflow policy is typed, and `drop_diagnostic` preserves critical events over lower-priority queued data. 148 WI-specific tests; full regression 1972 passed; coverage 92%. Branch: `feat/wi-56-operational-event-ledger`, final commit: `57c5946`, merge commit: `27e1485`.
+  - **WI-57 — Deterministic Human Narratives:** COMPLETE. Added presentation-layer schemas in `src/schemas/ops.py` (`NarrativeRenderStatus`, `NarrativeRenderFailureReason`, `NarrativeTemplateKey`, `NarrativeInspectionHint`, `OperationalNarrative`, `DecisionNarrative`, `RuntimeNarrative`, `NarrativeRenderResult`) and the deterministic renderer `src/observability/operational_narratives.py` (`render_event`, `render_window`) which maps every `(event_type, reason_code)` family to a stable English template, augments only with secret-safe bounded payload fields, scans output for forbidden patterns, and returns typed `SUCCESS` / `FALLBACK` / `REDACTED` / `FAILED` statuses. Layer is read-only — no LLM calls, no DB writes, no execution path, no `dry_run` weakening, no Gatekeeper bypass. MAAP findings resolved: (1) parsed `payload_json` is recursively scanned for forbidden secret / high-cardinality content and fails closed to `REDACTED` even when the template would not surface those fields; (2) `decision_action` on `DecisionNarrative` is derived strictly from the typed `reason_code` via `_REASON_CODE_TO_DECISION_ACTION`, so a persisted payload claiming `SELL` against `reason_code=DECISION_BUY` can never contradict the typed reason code in the rendered narrative. 84 WI-specific tests (75 unit + 9 integration); full regression 2056 passed; coverage 93%. Branch: `feat/wi-57-deterministic-human-narratives`.
+  - **WI-58 — Incident Replay CLI:** COMPLETE. Read-only operator CLI that reconstructs bounded UTC time windows from the operational event ledger (WI-56) and renders deterministic, secret-safe narratives using the narrative layer (WI-57). Added `src/observability/incident_replay.py` (service layer with `run_replay()` entry point), `scripts/ops/replay.py` (~370-line CLI with secret-safe argument parsing and custom `_SafeArgParser` to scrub raw input from argparse errors), and `docs/runbooks/incident-replay.md` (operator runbook). Typed schemas: `IncidentReplayStatus`, `IncidentReplayFailureReason`, `IncidentReplayFilter`, `IncidentReplayRequest`, `IncidentReplayLine`, `IncidentReplaySummary`, `IncidentReplayReport`. CLI accepts `--from`/`--to` ISO-8601 timestamps (tz-aware UTC) and typed enum filters (severity, source, event-type, reason-code) with case-insensitive matching. Output is chronological, secret-safe (API keys, wallet addresses, token IDs, condition IDs, raw prompts, exception text redacted at multiple defense layers), and includes typed summary counts (total_events, warnings, errors, decisions_by_action, skips_by_reason, llm_calls, budget_blocks, provider_failures, readiness_changes). Exit codes: 0=success/empty/truncated, 2=invalid input, 3=repository/database failure. MAAP findings resolved: (1) invalid filter values echoed via `_safe_echo()` redaction, (2) --limit values outside [1, 1000] fail closed with LIMIT_OUT_OF_RANGE reason, (3) argparse error messages scrubbed by custom `_SafeArgParser.error()` override that runs all tokens through `_scrub_argparse_message()` before printing. 63 WI-specific unit tests + 6 integration tests; full regression 2132 passed; coverage 93%. Branch: `feat/wi-58-incident-replay-cli`, merge commit: `d77440e`.
+  - **WI-59 — Dashboard Activity Feed:** COMPLETE. Read-only activity feed service `src/observability/dashboard_activity_feed.py` that queries operational events from the WI-56 ledger, renders deterministic narratives via WI-57, and derives current-state from strict latest-wins semantics. Added `OperationalEventRecord`, `DashboardActivityFeedItem`, `DashboardCurrentState`, `DashboardActivityFeedResult` schemas to `src/schemas/ops.py`. Wired timeline and current-state panel renderers in `src/ui/dashboard.py` with `@st.cache_data(ttl=30)` caching. MAAP findings resolved: (1) HIGH — `_resolve_overall_state` fixed to strict latest-wins so newer recovery events always supersede stale degraded/stopped states; (2) MEDIUM — `_parse_sqlite_timestamp` returns `Optional[datetime]`; rows with NULL or malformed timestamps are dropped at data-ingress, never promoted with fabricated `now()` timestamps. Regression tests added for both findings plus secret-safe logging guard. 68 WI-specific unit tests + 40 integration tests; full regression 2200 passed; coverage 93%. Branch: `feat/wi-59-dashboard-activity-feed`, final commit: `248bb46`, merge commit: `b00d374`.
+  - **WI-60 — Daily Operations Digest:** COMPLETE. Added deterministic daily bot digest generation via `src/observability/daily_ops_digest.py`, operator CLI `scripts/ops/generate_daily_ops_digest.py`, typed digest schemas in `src/schemas/ops.py`, bounded operational-event pagination/read-cap handling in `OperationalEventRepository`, Telegram digest delivery support through `TelegramNotifier`, and `docs/runbooks/daily-operations-digest.md`. The digest writes only validated `03_Daily/YYYY-MM-DD-bot.md` paths, never overwrites manual daily notes, uses repository-backed event and position reads, preserves Decimal-native spend/PnL calculations, scans file and Telegram output for forbidden content, handles no-run/partial-run/read-cap states with typed results, and does not import LLM, Gatekeeper, signing, broadcasting, or order-routing paths. MAAP cleared. 77 WI-specific tests; full regression 2281 passed; coverage 93%. Branch: `feat/wi-60-daily-operations-digest`, final commit: `5559634`, merge commit: `ada8243`.
+- **WIs remaining:** none
+- **Deliverable boundary:** Per `AGENTS.md`, `/prd` created only `docs/PRD-v16.0.md` and updated `STATE.md`. WI business-logic and implementation-prompt deliverables must be generated one at a time via `/wi-start {WI}`.
+
+---
+
+## Phase 16 Archive
+
+- **PRD:** `docs/PRD-v16.0.md`
+- **Completion Report:** `04_Archive/poly-oracle-agent/Phase-16/PHASE-16-COMPLETE.md`
+- **Close Date:** 2026-05-17
+- **Final Tests:** 2283 | **Coverage:** 93%
+- **Develop HEAD:** `a587e8d`
+- **WIs Completed:** WI-56, WI-57, WI-58, WI-59, WI-60
 
 ---
 
@@ -62,10 +91,10 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 1824 |
+| Total tests | 2283 |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
-| DB | `poly_oracle.db` (SQLite, 4 tables, Alembic-managed, 5 migrations) |
+| DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
 
 Phase 14 planned 2026-05-06 — DigitalOcean 24/7 Paper-Trading Deployment:
 - `docs/PRD-v14.0.md` created as the Phase 14 planning source.

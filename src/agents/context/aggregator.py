@@ -34,6 +34,7 @@ logger = structlog.get_logger(__name__)
 @dataclass
 class _MarketState:
     """Per-market orderbook and emit tracking."""
+
     condition_id: str
     question: str = ""
     category: Optional[str] = None
@@ -262,8 +263,12 @@ class DataAggregator:
         if elapsed < self._dedupe_min_interval:
             last_fp = self._last_fingerprints.get(condition_id)
             if last_fp is not None:
-                midpoint_changed = abs(midpoint - last_fp.midpoint) >= self._dedupe_midpoint_delta
-                spread_changed = abs(spread - last_fp.spread) >= self._dedupe_spread_delta
+                midpoint_changed = (
+                    abs(midpoint - last_fp.midpoint) >= self._dedupe_midpoint_delta
+                )
+                spread_changed = (
+                    abs(spread - last_fp.spread) >= self._dedupe_spread_delta
+                )
 
                 if not midpoint_changed and not spread_changed:
                     return MarketEvaluationDedupeDecision(
@@ -406,9 +411,7 @@ class DataAggregator:
         price_moved = False
         if ms.last_emitted_midpoint is not None and ms.last_emitted_midpoint > 0:
             last_mid_dec = Decimal(str(ms.last_emitted_midpoint))
-            change_dec = (
-                abs(current_midpoint_dec - last_mid_dec) / last_mid_dec
-            )
+            change_dec = abs(current_midpoint_dec - last_mid_dec) / last_mid_dec
             threshold_dec = Decimal(str(self.PRICE_CHANGE_THRESHOLD))
             if change_dec >= threshold_dec:
                 price_moved = True
@@ -422,7 +425,9 @@ class DataAggregator:
             await self._emit_state_for_market(condition_id, current_midpoint)
 
     async def _emit_state_for_market(
-        self, condition_id: str, current_midpoint: Optional[float] = None,
+        self,
+        condition_id: str,
+        current_midpoint: Optional[float] = None,
     ) -> None:
         """Builds the market summary and pushes it to the output queue.
 
@@ -589,9 +594,7 @@ class DataAggregator:
         best_bid = ms.best_bid if ms else 0.0
         best_ask = ms.best_ask if ms else 0.0
         current_midpoint = (
-            (best_bid + best_ask) / 2.0
-            if best_bid > 0 and best_ask > 0
-            else 0.0
+            (best_bid + best_ask) / 2.0 if best_bid > 0 and best_ask > 0 else 0.0
         )
         spread = best_ask - best_bid
 

@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -31,6 +31,7 @@ UTC = timezone.utc
 # ===================================================================
 # Helpers
 # ===================================================================
+
 
 def _snapshot(**overrides) -> HistoricalSnapshotRecord:
     defaults = {
@@ -91,6 +92,7 @@ def _make_client(**kwargs) -> PolymarketHistoryClient:
 # Schema existence and structure
 # ===================================================================
 
+
 def test_historical_market_record_schema_exists():
     record = _market()
     assert isinstance(record, HistoricalMarketRecord)
@@ -147,6 +149,7 @@ def test_historical_data_skip_reason_schema_exists():
 # Decimal integrity — monetary / pricing fields
 # ===================================================================
 
+
 @pytest.mark.parametrize(
     "field_name",
     [
@@ -194,6 +197,7 @@ def test_historical_market_record_rejects_float_monetary_fields(field_name):
 # ===================================================================
 # Schema validation — required fields and edge cases
 # ===================================================================
+
 
 def test_historical_snapshot_record_requires_token_id():
     with pytest.raises(ValueError):
@@ -275,10 +279,14 @@ def test_historical_market_record_requires_condition_id():
 # Lookahead separation — outcomes vs point-in-time fields
 # ===================================================================
 
+
 def test_snapshot_record_separates_observable_fields_from_outcome_fields():
     """Snapshot must NOT carry resolution/outcome fields."""
     snap = _snapshot()
-    assert not hasattr(snap, "resolved_outcome") or snap.__class__.__name__ == "HistoricalSnapshotRecord"
+    assert (
+        not hasattr(snap, "resolved_outcome")
+        or snap.__class__.__name__ == "HistoricalSnapshotRecord"
+    )
     # Verify that resolved_outcome, resolved_outcome_price, realized_pnl_usdc
     # are NOT fields on HistoricalSnapshotRecord
     snap_fields = HistoricalSnapshotRecord.model_fields.keys()
@@ -312,6 +320,7 @@ def test_outcome_fields_not_accessible_before_simulated_market_close():
 # ===================================================================
 # Manifest generation
 # ===================================================================
+
 
 def test_manifest_includes_market_count():
     manifest = HistoricalDatasetManifest(
@@ -411,6 +420,7 @@ def test_manifest_reports_zero_eligible_markets_for_empty_source():
 # Skip / reject reasons
 # ===================================================================
 
+
 def test_skip_reason_has_typed_enum_code():
     skip = HistoricalDataSkipReason(
         code=SkipReasonCode.CROSSED_BOOK,
@@ -488,6 +498,7 @@ def test_duplicate_snapshot_produces_consistent_de_duplication():
 # PolymarketHistoryClient
 # ===================================================================
 
+
 def test_history_client_module_exists():
     client = _make_client()
     assert isinstance(client, PolymarketHistoryClient)
@@ -496,6 +507,7 @@ def test_history_client_module_exists():
 def test_history_client_uses_httpx_async_client():
     client = _make_client()
     import httpx
+
     assert client._http is not None
     # The client's _http is an httpx.AsyncClient
     assert isinstance(client._http, httpx.AsyncClient)
@@ -542,7 +554,12 @@ async def test_history_client_excludes_active_markets():
     client = _make_client()
     mock_resp = [
         {"id": "active", "closed": False, "resolved": False, "conditionId": "c1"},
-        {"id": "closed_resolved", "closed": True, "resolved": True, "conditionId": "c2"},
+        {
+            "id": "closed_resolved",
+            "closed": True,
+            "resolved": True,
+            "conditionId": "c2",
+        },
     ]
 
     with patch.object(client._http, "get") as mock_get:
@@ -561,6 +578,7 @@ async def test_history_client_excludes_active_markets():
 # ===================================================================
 # HistoricalDataset builder
 # ===================================================================
+
 
 def test_historical_dataset_module_exists():
     builder = HistoricalDatasetBuilder(
@@ -598,8 +616,10 @@ async def test_dataset_builder_excludes_active_open_markets():
         }
     ]
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=Path("/tmp/test_builder_exclude"),
@@ -639,8 +659,10 @@ async def test_dataset_builder_excludes_cancelled_markets():
         }
     ]
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=Path("/tmp/test_builder_cancel"),
@@ -679,8 +701,10 @@ async def test_dataset_builder_writes_backtest_loader_compatible_json(tmp_path):
         }
     ]
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=output_dir,
@@ -694,7 +718,11 @@ async def test_dataset_builder_writes_backtest_loader_compatible_json(tmp_path):
 
     # Verify file was written with correct naming convention
     json_files = sorted(output_dir.glob("*.json"))
-    loader_files = [f for f in json_files if f.name != "manifest.json" and not f.name.endswith("_outcomes.json")]
+    loader_files = [
+        f
+        for f in json_files
+        if f.name != "manifest.json" and not f.name.endswith("_outcomes.json")
+    ]
     assert len(loader_files) > 0
 
     # Verify the file can be read as JSON and has required fields
@@ -734,8 +762,10 @@ async def test_dataset_builder_naming_convention_matches_loader(tmp_path):
         }
     ]
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=output_dir,
@@ -747,6 +777,7 @@ async def test_dataset_builder_naming_convention_matches_loader(tmp_path):
     await client.close()
 
     import re
+
     pattern = re.compile(r"^.+_\d{4}-\d{2}-\d{2}\.json$")
 
     for f in output_dir.glob("*.json"):
@@ -758,6 +789,7 @@ async def test_dataset_builder_naming_convention_matches_loader(tmp_path):
 def test_dataset_builder_performs_no_db_writes():
     """Builder must not import or use database modules."""
     import inspect
+
     source = inspect.getsource(HistoricalDatasetBuilder)
     assert "Session" not in source
     assert "create_engine" not in source
@@ -767,6 +799,7 @@ def test_dataset_builder_performs_no_db_writes():
 def test_dataset_builder_performs_no_live_signing_or_broadcasting():
     """Builder must not import execution/signing components."""
     import inspect
+
     source = inspect.getsource(HistoricalDatasetBuilder)
     assert "sign" not in source.lower() or "sign" not in source
     assert "broadcast" not in source.lower()
@@ -777,22 +810,41 @@ def test_dataset_builder_performs_no_live_signing_or_broadcasting():
 # CLI script
 # ===================================================================
 
+
 def test_cli_script_module_exists():
     import importlib
+
     try:
         importlib.import_module("scripts.build_historical_dataset")
     except ModuleNotFoundError:
         # Try direct path load
-        import runpy
         from pathlib import Path
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "build_historical_dataset.py"
+
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "build_historical_dataset.py"
+        )
         assert script_path.exists(), f"CLI script not found at {script_path}"
 
 
 def test_cli_accepts_start_date_argument():
     from scripts.build_historical_dataset import parse_args
     import sys
-    with patch.object(sys, "argv", ["build_historical_dataset.py", "--start-date", "2025-01-01", "--end-date", "2025-12-31", "--output-dir", "/tmp"]):
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "build_historical_dataset.py",
+            "--start-date",
+            "2025-01-01",
+            "--end-date",
+            "2025-12-31",
+            "--output-dir",
+            "/tmp",
+        ],
+    ):
         args = parse_args()
         assert args.start_date == "2025-01-01"
 
@@ -800,7 +852,20 @@ def test_cli_accepts_start_date_argument():
 def test_cli_accepts_end_date_argument():
     from scripts.build_historical_dataset import parse_args
     import sys
-    with patch.object(sys, "argv", ["build_historical_dataset.py", "--start-date", "2025-01-01", "--end-date", "2025-06-30", "--output-dir", "/tmp"]):
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "build_historical_dataset.py",
+            "--start-date",
+            "2025-01-01",
+            "--end-date",
+            "2025-06-30",
+            "--output-dir",
+            "/tmp",
+        ],
+    ):
         args = parse_args()
         assert args.end_date == "2025-06-30"
 
@@ -808,7 +873,20 @@ def test_cli_accepts_end_date_argument():
 def test_cli_accepts_output_dir_argument():
     from scripts.build_historical_dataset import parse_args
     import sys
-    with patch.object(sys, "argv", ["build_historical_dataset.py", "--start-date", "2025-01-01", "--end-date", "2025-12-31", "--output-dir", "/custom/path"]):
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "build_historical_dataset.py",
+            "--start-date",
+            "2025-01-01",
+            "--end-date",
+            "2025-12-31",
+            "--output-dir",
+            "/custom/path",
+        ],
+    ):
         args = parse_args()
         assert args.output_dir == "/custom/path"
 
@@ -818,7 +896,11 @@ async def test_cli_exits_non_zero_on_source_failure_after_retries():
     """CLI must return non-zero exit code on unhandled exceptions."""
     client = _make_client()
 
-    with patch.object(client, "fetch_resolved_markets", side_effect=Exception("Simulated source failure")):
+    with patch.object(
+        client,
+        "fetch_resolved_markets",
+        side_effect=Exception("Simulated source failure"),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=Path("/tmp/test_fail"),
@@ -857,8 +939,10 @@ async def test_cli_writes_manifest_on_success(tmp_path):
         }
     ]
 
-    with patch.object(client, "fetch_resolved_markets", return_value=mock_markets), \
-         patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries):
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=mock_markets),
+        patch.object(client, "fetch_market_snapshots", return_value=mock_timeseries),
+    ):
         builder = HistoricalDatasetBuilder(
             client=client,
             output_dir=output_dir,
@@ -884,10 +968,12 @@ async def test_cli_writes_manifest_on_success(tmp_path):
 # Integration gate — BacktestDataLoader compatibility
 # ===================================================================
 
+
 def test_generated_snapshots_loadable_by_backtest_data_loader():
     """Snapshot dict format must be parseable by BacktestDataLoader requirements."""
     snap = _snapshot()
     from src.backtesting.historical_dataset import HistoricalDatasetBuilder
+
     snap_dict = HistoricalDatasetBuilder._snapshot_to_dict(
         snap, token_id="test-token", condition_id="cond-test-123"
     )
@@ -915,6 +1001,7 @@ def test_generated_snapshots_preserve_decimal_integrity():
         midpoint=Decimal("0.17901234456790123455"),
     )
     from src.backtesting.historical_dataset import HistoricalDatasetBuilder
+
     snap_dict = HistoricalDatasetBuilder._snapshot_to_dict(
         snap, token_id="precise-token", condition_id="cond-precise"
     )

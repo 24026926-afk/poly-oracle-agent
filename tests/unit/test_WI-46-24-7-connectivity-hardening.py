@@ -10,7 +10,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -31,6 +31,7 @@ from src.core.config import AppConfig
 
 
 # ── Schema Tests ───────────────────────────────────────────────────────────
+
 
 class TestWebSocketConnectionState:
     """ConnectionState enum validation."""
@@ -159,6 +160,7 @@ class TestMarketLifecycleState:
 
 # ── Reconnect & Backoff Tests ──────────────────────────────────────────────
 
+
 class TestReconnectBackoff:
     """Bounded exponential backoff with jitter."""
 
@@ -184,6 +186,7 @@ class TestReconnectBackoff:
     def test_backoff_includes_jitter(self) -> None:
         """Jitter produces values within expected range."""
         import random
+
         random.seed(42)
         backoff = 2.0
         jitter_pct = 0.25
@@ -203,6 +206,7 @@ class TestReconnectBackoff:
 
     def test_backoff_sleep_is_cancellable(self) -> None:
         """asyncio.sleep respects cancellation."""
+
         async def _test():
             task = asyncio.create_task(asyncio.sleep(10.0))
             await asyncio.sleep(0.01)
@@ -220,16 +224,23 @@ class TestReconnectHealthTracking:
     def config(self) -> AppConfig:
         return AppConfig()
 
-    def test_connection_state_transitions_to_connected_on_success(self, config: AppConfig) -> None:
+    def test_connection_state_transitions_to_connected_on_success(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
             db_session_factory=MagicMock(),
         )
         # Before connection, state is DISCONNECTED
-        assert client.get_health_snapshot().connection_state == WebSocketConnectionState.DISCONNECTED
+        assert (
+            client.get_health_snapshot().connection_state
+            == WebSocketConnectionState.DISCONNECTED
+        )
 
-    def test_connection_state_transitions_to_disconnected_on_close(self, config: AppConfig) -> None:
+    def test_connection_state_transitions_to_disconnected_on_close(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -238,7 +249,9 @@ class TestReconnectHealthTracking:
         snap = client.get_health_snapshot()
         assert snap.connection_state == WebSocketConnectionState.DISCONNECTED
 
-    def test_connection_state_transitions_to_reconnecting_during_backoff(self, config: AppConfig) -> None:
+    def test_connection_state_transitions_to_reconnecting_during_backoff(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -252,7 +265,9 @@ class TestReconnectHealthTracking:
             WebSocketConnectionState.RECONNECTING,
         )
 
-    def test_connection_state_transitions_to_degraded_on_consecutive_failures(self, config: AppConfig) -> None:
+    def test_connection_state_transitions_to_degraded_on_consecutive_failures(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -262,7 +277,9 @@ class TestReconnectHealthTracking:
         # Initially DISCONNECTED, not DEGRADED (0 consecutive failures)
         assert snap.connection_state == WebSocketConnectionState.DISCONNECTED
 
-    def test_last_connected_timestamp_updated_on_connect(self, config: AppConfig) -> None:
+    def test_last_connected_timestamp_updated_on_connect(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -300,7 +317,9 @@ class TestReconnectHealthTracking:
         snap = client.get_health_snapshot()
         assert snap.reconnect_count >= 0
 
-    def test_consecutive_failure_count_incremented_on_failure(self, config: AppConfig) -> None:
+    def test_consecutive_failure_count_incremented_on_failure(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -309,7 +328,9 @@ class TestReconnectHealthTracking:
         snap = client.get_health_snapshot()
         assert snap.consecutive_failure_count == 0
 
-    def test_consecutive_failure_count_resets_on_success(self, config: AppConfig) -> None:
+    def test_consecutive_failure_count_resets_on_success(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -319,7 +340,9 @@ class TestReconnectHealthTracking:
         snap = client.get_health_snapshot()
         assert snap.consecutive_failure_count == 0
 
-    def test_last_error_reason_recorded_without_sensitive_data(self, config: AppConfig) -> None:
+    def test_last_error_reason_recorded_without_sensitive_data(
+        self, config: AppConfig
+    ) -> None:
         client = CLOBWebSocketClient(
             config=config,
             queue=asyncio.Queue(),
@@ -328,7 +351,10 @@ class TestReconnectHealthTracking:
         snap = client.get_health_snapshot()
         # Error reason should not contain keys or secrets
         if snap.last_error_reason is not None:
-            assert "0x" not in snap.last_error_reason or "0x1111" not in snap.last_error_reason
+            assert (
+                "0x" not in snap.last_error_reason
+                or "0x1111" not in snap.last_error_reason
+            )
 
     def test_active_subscribed_asset_count_tracked(self, config: AppConfig) -> None:
         client = CLOBWebSocketClient(
@@ -342,6 +368,7 @@ class TestReconnectHealthTracking:
 
 
 # ── Market Closed / Inactive Handling ──────────────────────────────────────
+
 
 class TestMarketClosedHandling:
     """Market closed, inactive, expired cases do not trigger reconnect loops."""
@@ -388,7 +415,9 @@ class TestMarketClosedHandling:
         )
         assert reason.reason == MarketLifecycleState.UNKNOWN
 
-    def test_consecutive_closed_markets_does_not_degrade_connection_health(self) -> None:
+    def test_consecutive_closed_markets_does_not_degrade_connection_health(
+        self,
+    ) -> None:
         """Market lifecycle changes are not transport errors."""
         snap = WebSocketHealthSnapshot(
             connection_state=WebSocketConnectionState.CONNECTED,
@@ -399,6 +428,7 @@ class TestMarketClosedHandling:
 
 
 # ── PONG Timeout Tests ─────────────────────────────────────────────────────
+
 
 class TestPongTimeout:
     """PONG timeout detection triggers reconnect."""
@@ -450,6 +480,7 @@ class TestPongTimeout:
 
 
 # ── RuntimeHealthSnapshot Tests ────────────────────────────────────────────
+
 
 class TestRuntimeHealthSnapshot:
     """RuntimeHealthSnapshot schema."""
@@ -519,6 +550,7 @@ class TestHealthEndpointResponse:
 
 # ── Health Server Tests ────────────────────────────────────────────────────
 
+
 class TestHealthServerLiveness:
     """/healthz endpoint."""
 
@@ -530,7 +562,9 @@ class TestHealthServerLiveness:
         await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_healthz_returns_200_when_process_alive(self, server: HealthServer) -> None:
+    async def test_healthz_returns_200_when_process_alive(
+        self, server: HealthServer
+    ) -> None:
         reader, writer = await asyncio.open_connection(
             host="127.0.0.1", port=server._port
         )
@@ -544,7 +578,9 @@ class TestHealthServerLiveness:
         assert "200 OK" in decoded
 
     @pytest.mark.asyncio
-    async def test_healthz_returns_minimal_json_body(self, server: HealthServer) -> None:
+    async def test_healthz_returns_minimal_json_body(
+        self, server: HealthServer
+    ) -> None:
         reader, writer = await asyncio.open_connection(
             host="127.0.0.1", port=server._port
         )
@@ -560,7 +596,9 @@ class TestHealthServerLiveness:
         assert body["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_healthz_excludes_secrets_and_wallet(self, server: HealthServer) -> None:
+    async def test_healthz_excludes_secrets_and_wallet(
+        self, server: HealthServer
+    ) -> None:
         reader, writer = await asyncio.open_connection(
             host="127.0.0.1", port=server._port
         )
@@ -589,7 +627,9 @@ class TestHealthServerLiveness:
         assert "prompt" not in decoded.lower()
 
     @pytest.mark.asyncio
-    async def test_healthz_excludes_decision_reasoning(self, server: HealthServer) -> None:
+    async def test_healthz_excludes_decision_reasoning(
+        self, server: HealthServer
+    ) -> None:
         reader, writer = await asyncio.open_connection(
             host="127.0.0.1", port=server._port
         )
@@ -627,7 +667,9 @@ class TestHealthServerReadiness:
         return {"raw": decoded, "status_code": "200" if "200 OK" in decoded else "503"}
 
     @pytest.mark.asyncio
-    async def test_readyz_returns_200_when_db_and_ws_healthy(self, server: HealthServer) -> None:
+    async def test_readyz_returns_200_when_db_and_ws_healthy(
+        self, server: HealthServer
+    ) -> None:
         # No callbacks set → treats as healthy by default
         result = await self._get_readyz(server)
         assert result["status_code"] == "200"
@@ -658,7 +700,9 @@ class TestHealthServerReadiness:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_readyz_returns_503_when_db_unreachable(self, unused_tcp_port) -> None:
+    async def test_readyz_returns_503_when_db_unreachable(
+        self, unused_tcp_port
+    ) -> None:
         async def check_db() -> bool:
             return False
 
@@ -684,7 +728,9 @@ class TestHealthServerReadiness:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_readyz_returns_503_when_ws_disconnected(self, unused_tcp_port) -> None:
+    async def test_readyz_returns_503_when_ws_disconnected(
+        self, unused_tcp_port
+    ) -> None:
         async def get_health() -> RuntimeHealthSnapshot:
             return RuntimeHealthSnapshot(
                 ws_health=WebSocketHealthSnapshot(
@@ -722,8 +768,11 @@ class TestHealthServerReadiness:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_readyz_returns_200_within_grace_window_after_ws_disconnect(self, unused_tcp_port) -> None:
+    async def test_readyz_returns_200_within_grace_window_after_ws_disconnect(
+        self, unused_tcp_port
+    ) -> None:
         now = datetime.now(timezone.utc)
+
         async def get_health() -> RuntimeHealthSnapshot:
             return RuntimeHealthSnapshot(
                 ws_health=WebSocketHealthSnapshot(
@@ -762,7 +811,9 @@ class TestHealthServerReadiness:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_readyz_returns_503_when_no_assets_subscribed(self, unused_tcp_port) -> None:
+    async def test_readyz_returns_503_when_no_assets_subscribed(
+        self, unused_tcp_port
+    ) -> None:
         async def get_health() -> RuntimeHealthSnapshot:
             return RuntimeHealthSnapshot(
                 ws_health=WebSocketHealthSnapshot(
@@ -798,14 +849,18 @@ class TestHealthServerReadiness:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_readyz_returns_deterministic_status_codes(self, server: HealthServer) -> None:
+    async def test_readyz_returns_deterministic_status_codes(
+        self, server: HealthServer
+    ) -> None:
         # Same input → same output
         result1 = await self._get_readyz(server)
         result2 = await self._get_readyz(server)
         assert result1["status_code"] == result2["status_code"]
 
     @pytest.mark.asyncio
-    async def test_readyz_body_includes_reason_field_when_not_ready(self, unused_tcp_port) -> None:
+    async def test_readyz_body_includes_reason_field_when_not_ready(
+        self, unused_tcp_port
+    ) -> None:
         async def check_db() -> bool:
             return False
 
@@ -834,7 +889,9 @@ class TestHealthServerReadiness:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_readyz_excludes_secrets_and_wallet(self, server: HealthServer) -> None:
+    async def test_readyz_excludes_secrets_and_wallet(
+        self, server: HealthServer
+    ) -> None:
         reader, writer = await asyncio.open_connection(
             host="127.0.0.1", port=server._port
         )
@@ -853,7 +910,9 @@ class TestHealthServerLifecycle:
     """Health server start/stop through Orchestrator."""
 
     @pytest.mark.asyncio
-    async def test_health_server_starts_with_orchestrator(self, unused_tcp_port) -> None:
+    async def test_health_server_starts_with_orchestrator(
+        self, unused_tcp_port
+    ) -> None:
         srv = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv.start()
         try:
@@ -884,7 +943,9 @@ class TestHealthServerLifecycle:
             writer.close()
 
     @pytest.mark.asyncio
-    async def test_health_server_port_conflict_logs_error(self, unused_tcp_port) -> None:
+    async def test_health_server_port_conflict_logs_error(
+        self, unused_tcp_port
+    ) -> None:
         srv1 = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv1.start()
         try:
@@ -895,7 +956,9 @@ class TestHealthServerLifecycle:
             await srv1.stop()
 
     @pytest.mark.asyncio
-    async def test_health_server_shutdown_cleans_up_gracefully(self, unused_tcp_port) -> None:
+    async def test_health_server_shutdown_cleans_up_gracefully(
+        self, unused_tcp_port
+    ) -> None:
         srv = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv.start()
         await srv.stop()
@@ -903,10 +966,13 @@ class TestHealthServerLifecycle:
         await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_health_server_handles_concurrent_requests(self, unused_tcp_port) -> None:
+    async def test_health_server_handles_concurrent_requests(
+        self, unused_tcp_port
+    ) -> None:
         srv = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv.start()
         try:
+
             async def make_request():
                 reader, writer = await asyncio.open_connection(
                     host="127.0.0.1", port=unused_tcp_port
@@ -926,7 +992,9 @@ class TestHealthServerLifecycle:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_health_server_does_not_mutate_trading_state(self, unused_tcp_port) -> None:
+    async def test_health_server_does_not_mutate_trading_state(
+        self, unused_tcp_port
+    ) -> None:
         srv = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv.start()
         try:
@@ -943,7 +1011,9 @@ class TestHealthServerLifecycle:
             await srv.stop()
 
     @pytest.mark.asyncio
-    async def test_health_server_does_not_block_evaluation_queue(self, unused_tcp_port) -> None:
+    async def test_health_server_does_not_block_evaluation_queue(
+        self, unused_tcp_port
+    ) -> None:
         srv = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv.start()
         try:
@@ -976,44 +1046,54 @@ class TestHealthServerSecretsSafety:
         reader, writer = await asyncio.open_connection(
             host="127.0.0.1", port=server._port
         )
-        writer.write(
-            f"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode("utf-8")
-        )
+        writer.write(f"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode("utf-8"))
         await writer.drain()
         response = await asyncio.wait_for(reader.read(4096), timeout=2.0)
         writer.close()
         return response.decode("utf-8")
 
     @pytest.mark.asyncio
-    async def test_healthz_does_not_leak_wallet_address(self, server: HealthServer) -> None:
+    async def test_healthz_does_not_leak_wallet_address(
+        self, server: HealthServer
+    ) -> None:
         decoded = await self._get_response(server, "/healthz")
         assert "0x" not in decoded.lower()
 
     @pytest.mark.asyncio
-    async def test_healthz_does_not_leak_private_key(self, server: HealthServer) -> None:
+    async def test_healthz_does_not_leak_private_key(
+        self, server: HealthServer
+    ) -> None:
         decoded = await self._get_response(server, "/healthz")
         assert "private_key" not in decoded.lower()
         assert "secret" not in decoded.lower()
 
     @pytest.mark.asyncio
-    async def test_healthz_does_not_leak_grok_api_key(self, server: HealthServer) -> None:
+    async def test_healthz_does_not_leak_grok_api_key(
+        self, server: HealthServer
+    ) -> None:
         decoded = await self._get_response(server, "/healthz")
         assert "grok" not in decoded.lower()
         assert "xai" not in decoded.lower()
 
     @pytest.mark.asyncio
-    async def test_healthz_does_not_leak_claude_api_key(self, server: HealthServer) -> None:
+    async def test_healthz_does_not_leak_claude_api_key(
+        self, server: HealthServer
+    ) -> None:
         decoded = await self._get_response(server, "/healthz")
         assert "claude" not in decoded.lower()
         assert "anthropic" not in decoded.lower()
 
     @pytest.mark.asyncio
-    async def test_readyz_does_not_leak_raw_prompt_text(self, server: HealthServer) -> None:
+    async def test_readyz_does_not_leak_raw_prompt_text(
+        self, server: HealthServer
+    ) -> None:
         decoded = await self._get_response(server, "/readyz")
         assert "prompt" not in decoded.lower()
 
     @pytest.mark.asyncio
-    async def test_readyz_does_not_leak_raw_market_payloads(self, server: HealthServer) -> None:
+    async def test_readyz_does_not_leak_raw_market_payloads(
+        self, server: HealthServer
+    ) -> None:
         decoded = await self._get_response(server, "/readyz")
         assert "raw_ws_payload" not in decoded.lower()
 
@@ -1027,6 +1107,7 @@ class TestHealthServerSecretsSafety:
 
 
 # ── Shutdown / Cancellation Tests ──────────────────────────────────────────
+
 
 class TestGracefulShutdown:
     """Shutdown during reconnect or health request."""
@@ -1046,7 +1127,9 @@ class TestGracefulShutdown:
             await task
 
     @pytest.mark.asyncio
-    async def test_shutdown_during_health_request_completes_or_cancels_cleanly(self) -> None:
+    async def test_shutdown_during_health_request_completes_or_cancels_cleanly(
+        self,
+    ) -> None:
         async def health_request():
             await asyncio.sleep(0.05)
             return {"status": "ok"}
@@ -1056,7 +1139,9 @@ class TestGracefulShutdown:
         assert result["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_shutdown_leaves_no_background_health_tasks(self, unused_tcp_port) -> None:
+    async def test_shutdown_leaves_no_background_health_tasks(
+        self, unused_tcp_port
+    ) -> None:
         srv = HealthServer(host="127.0.0.1", port=unused_tcp_port)
         await srv.start()
         await srv.stop()
@@ -1073,6 +1158,7 @@ class TestGracefulShutdown:
 
 
 # ── Config Tests ───────────────────────────────────────────────────────────
+
 
 class TestHealthServerConfig:
     """Health server configuration fields."""

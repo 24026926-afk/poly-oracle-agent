@@ -81,7 +81,12 @@ async def test_activate_markets_multiple(test_config):
 
     # All 6 token IDs should be subscribed
     assert set(orch.ws_client._assets_ids) == {
-        "yes-1", "no-1", "yes-2", "no-2", "yes-3", "no-3",
+        "yes-1",
+        "no-1",
+        "yes-2",
+        "no-2",
+        "yes-3",
+        "no-3",
     }
 
     # ws_client._token_id_mapping maps tokens → yes_token_id (for snapshot enrichment)
@@ -171,7 +176,10 @@ async def test_aggregator_accepts_any_active_market(test_config):
     assert agg._markets["0xmarket002"].best_bid == 0.40
     assert agg._markets["0xmarket002"].best_ask == 0.60
     # Primary market (0xmarket001) is unchanged
-    assert agg._markets.get("0xmarket001") is None or agg._markets["0xmarket001"].best_bid == 0.0
+    assert (
+        agg._markets.get("0xmarket001") is None
+        or agg._markets["0xmarket001"].best_bid == 0.0
+    )
 
 
 @pytest.mark.asyncio
@@ -256,11 +264,13 @@ async def test_ws_client_drops_stale_asset_id_without_condition_id(
         token_id_to_yes_token_id={"tok-yes": "tok-yes"},
     )
     # Set up condition_by_token with only active tokens
-    client.set_condition_by_token({
-        "tok-yes": "0xactive",
-        "tok-no": "0xactive",
-        "0xactive": "0xactive",
-    })
+    client.set_condition_by_token(
+        {
+            "tok-yes": "0xactive",
+            "tok-no": "0xactive",
+            "0xactive": "0xactive",
+        }
+    )
 
     # Frame with stale asset_id and no condition_id
     frame = {
@@ -403,9 +413,13 @@ def test_config_defaults_support_multi_market():
     """Config defaults should enable market tracking with reasonable concurrency."""
     # Use _env_file=None to avoid .env file loading in tests
     import os
+
     for var in [
-        "ANTHROPIC_API_KEY", "POLYGON_RPC_URL", "WALLET_ADDRESS",
-        "WALLET_PRIVATE_KEY", "GROK_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "POLYGON_RPC_URL",
+        "WALLET_ADDRESS",
+        "WALLET_PRIVATE_KEY",
+        "GROK_API_KEY",
     ]:
         os.environ.pop(var, None)
 

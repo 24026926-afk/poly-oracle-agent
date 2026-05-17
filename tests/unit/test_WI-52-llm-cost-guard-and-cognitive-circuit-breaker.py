@@ -32,9 +32,11 @@ from src.observability.metrics import MetricsRegistry
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_config(**overrides: dict) -> "AppConfig":
+
+def _make_config(**overrides: dict) -> object:
     """Create an AppConfig with env isolation per memory guidance."""
     from src.core.config import AppConfig
+
     base = {
         "anthropic_api_key": "sk-test-key-for-testing-only-1234567890",
         "polygon_rpc_url": "https://rpc.ankr.com/polygon",
@@ -44,12 +46,18 @@ def _make_config(**overrides: dict) -> "AppConfig":
     }
     base.update(overrides)
     for key in [
-        "LLM_HOURLY_CALL_LIMIT", "LLM_DAILY_CALL_LIMIT",
-        "LLM_DAILY_TOKEN_LIMIT", "LLM_DAILY_COST_LIMIT_USD",
-        "LLM_MARKET_HOURLY_CALL_LIMIT", "LLM_REPEATED_HOLD_THRESHOLD",
-        "LLM_REPEATED_INVALID_THRESHOLD", "LLM_MARKET_COOLDOWN_SECONDS",
-        "LLM_FALLBACK_TOKENS_PER_CALL", "LLM_COST_PER_INPUT_TOKEN_USD",
-        "LLM_COST_PER_OUTPUT_TOKEN_USD", "ENABLE_LLM_COST_GUARD",
+        "LLM_HOURLY_CALL_LIMIT",
+        "LLM_DAILY_CALL_LIMIT",
+        "LLM_DAILY_TOKEN_LIMIT",
+        "LLM_DAILY_COST_LIMIT_USD",
+        "LLM_MARKET_HOURLY_CALL_LIMIT",
+        "LLM_REPEATED_HOLD_THRESHOLD",
+        "LLM_REPEATED_INVALID_THRESHOLD",
+        "LLM_MARKET_COOLDOWN_SECONDS",
+        "LLM_FALLBACK_TOKENS_PER_CALL",
+        "LLM_COST_PER_INPUT_TOKEN_USD",
+        "LLM_COST_PER_OUTPUT_TOKEN_USD",
+        "ENABLE_LLM_COST_GUARD",
     ]:
         try:
             del os.environ[key]
@@ -61,6 +69,7 @@ def _make_config(**overrides: dict) -> "AppConfig":
 # ---------------------------------------------------------------------------
 # Schema tests
 # ---------------------------------------------------------------------------
+
 
 class TestLLMProviderName:
     def test_valid_provider_names(self):
@@ -77,7 +86,9 @@ class TestLLMUsageRecord:
         rec = LLMUsageRecord(
             provider=LLMProviderName.ANTHROPIC,
             model_name="claude-sonnet-4-20250514",
-            input_tokens=1000, output_tokens=500, total_tokens=1500,
+            input_tokens=1000,
+            output_tokens=500,
+            total_tokens=1500,
             estimated_cost_usd=Decimal("0.0045"),
         )
         assert rec.input_tokens == 1000
@@ -85,22 +96,33 @@ class TestLLMUsageRecord:
 
     def test_usage_record_with_missing_fields_uses_estimated(self):
         rec = LLMUsageRecord(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=0, output_tokens=0, total_tokens=0, is_estimated=True,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
+            is_estimated=True,
         )
         assert rec.is_estimated is True
 
     def test_usage_record_with_malformed_fields_uses_estimated(self):
         rec = LLMUsageRecord(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=0, output_tokens=0, total_tokens=0, is_estimated=True,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
+            is_estimated=True,
         )
         assert rec.is_estimated is True
 
     def test_usage_record_cost_is_decimal(self):
         rec = LLMUsageRecord(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=0, output_tokens=0, total_tokens=0,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
             estimated_cost_usd=Decimal("0.001"),
         )
         assert isinstance(rec.estimated_cost_usd, Decimal)
@@ -108,8 +130,11 @@ class TestLLMUsageRecord:
     def test_usage_record_cost_is_not_float(self):
         with pytest.raises(ValidationError):
             LLMUsageRecord(
-                provider=LLMProviderName.ANTHROPIC, model_name="test",
-                input_tokens=0, output_tokens=0, total_tokens=0,
+                provider=LLMProviderName.ANTHROPIC,
+                model_name="test",
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
                 estimated_cost_usd=0.001,
             )
 
@@ -117,8 +142,11 @@ class TestLLMUsageRecord:
 class TestLLMBudgetConfig:
     def test_valid_budget_config(self):
         cfg = LLMBudgetConfig(
-            enabled=True, hourly_call_limit=60, daily_call_limit=500,
-            daily_token_limit=1000000, daily_cost_limit_usd=Decimal("10"),
+            enabled=True,
+            hourly_call_limit=60,
+            daily_call_limit=500,
+            daily_token_limit=1000000,
+            daily_cost_limit_usd=Decimal("10"),
         )
         assert cfg.enabled is True
 
@@ -167,7 +195,8 @@ class TestLLMBudgetWindow:
     def test_daily_window_expires(self):
         now = datetime.now(timezone.utc)
         w = LLMBudgetWindow(
-            daily_calls=50, daily_window_start_utc=now - timedelta(days=2),
+            daily_calls=50,
+            daily_window_start_utc=now - timedelta(days=2),
         )
         assert (now - w.daily_window_start_utc) > timedelta(days=1)
 
@@ -227,16 +256,28 @@ class TestLLMBudgetDecision:
 
 class TestLLMBudgetBlockReason:
     def test_hourly_exhausted_reason(self):
-        assert LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED.value == "hourly_call_limit_exhausted"
+        assert (
+            LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED.value
+            == "hourly_call_limit_exhausted"
+        )
 
     def test_daily_exhausted_reason(self):
-        assert LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED.value == "daily_call_limit_exhausted"
+        assert (
+            LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED.value
+            == "daily_call_limit_exhausted"
+        )
 
     def test_token_limit_exhausted_reason(self):
-        assert LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED.value == "daily_token_limit_exhausted"
+        assert (
+            LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED.value
+            == "daily_token_limit_exhausted"
+        )
 
     def test_cost_limit_exhausted_reason(self):
-        assert LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED.value == "daily_cost_limit_exhausted"
+        assert (
+            LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED.value
+            == "daily_cost_limit_exhausted"
+        )
 
 
 class TestMarketCognitiveState:
@@ -245,19 +286,30 @@ class TestMarketCognitiveState:
         assert s.consecutive_non_actionable == 3
 
     def test_tracks_repeated_skip_outcomes(self):
-        s = MarketCognitiveState(market_key="m", consecutive_non_actionable=5, last_outcome_type="skip")
+        s = MarketCognitiveState(
+            market_key="m", consecutive_non_actionable=5, last_outcome_type="skip"
+        )
         assert s.last_outcome_type == "skip"
 
     def test_tracks_malformed_json_outcomes(self):
-        s = MarketCognitiveState(market_key="m", consecutive_invalid=2, last_outcome_type="invalid_json")
+        s = MarketCognitiveState(
+            market_key="m", consecutive_invalid=2, last_outcome_type="invalid_json"
+        )
         assert s.consecutive_invalid == 2
 
     def test_tracks_provider_error_outcomes(self):
-        s = MarketCognitiveState(market_key="m", consecutive_invalid=3, last_outcome_type="provider_error")
+        s = MarketCognitiveState(
+            market_key="m", consecutive_invalid=3, last_outcome_type="provider_error"
+        )
         assert s.last_outcome_type == "provider_error"
 
     def test_resets_on_different_outcome(self):
-        s = MarketCognitiveState(market_key="m", consecutive_non_actionable=0, consecutive_invalid=0, last_outcome_type="buy")
+        s = MarketCognitiveState(
+            market_key="m",
+            consecutive_non_actionable=0,
+            consecutive_invalid=0,
+            last_outcome_type="buy",
+        )
         assert s.consecutive_non_actionable == 0
 
 
@@ -265,7 +317,8 @@ class TestMarketCooldownDecision:
     def test_cooldown_decision_active(self):
         future = datetime.now(timezone.utc) + timedelta(minutes=5)
         d = MarketCooldownDecision(
-            in_cooldown=True, cooldown_reason=MarketCooldownReason.REPEATED_HOLD,
+            in_cooldown=True,
+            cooldown_reason=MarketCooldownReason.REPEATED_HOLD,
             expires_at_utc=future,
         )
         assert d.in_cooldown is True
@@ -280,16 +333,22 @@ class TestMarketCooldownReason:
         assert MarketCooldownReason.REPEATED_HOLD.value == "repeated_hold"
 
     def test_repeated_invalid_json_reason(self):
-        assert MarketCooldownReason.REPEATED_INVALID_JSON.value == "repeated_invalid_json"
+        assert (
+            MarketCooldownReason.REPEATED_INVALID_JSON.value == "repeated_invalid_json"
+        )
 
     def test_repeated_low_confidence_reason(self):
-        assert MarketCooldownReason.REPEATED_LOW_CONFIDENCE.value == "repeated_low_confidence"
+        assert (
+            MarketCooldownReason.REPEATED_LOW_CONFIDENCE.value
+            == "repeated_low_confidence"
+        )
 
 
 class TestLLMCostGuardSnapshot:
     def test_snapshot_serializes(self):
         snap = LLMCostGuardSnapshot(
-            budget_enabled=True, budget_allowed=True,
+            budget_enabled=True,
+            budget_allowed=True,
             estimated_spend_usd=Decimal("2.50"),
         )
         assert snap.budget_enabled is True
@@ -297,7 +356,8 @@ class TestLLMCostGuardSnapshot:
 
     def test_snapshot_excludes_secrets(self):
         snap = LLMCostGuardSnapshot(
-            budget_enabled=True, budget_allowed=False,
+            budget_enabled=True,
+            budget_allowed=False,
             budget_block_reason=LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
         )
         dump = snap.model_dump()
@@ -309,6 +369,7 @@ class TestLLMCostGuardSnapshot:
 # ---------------------------------------------------------------------------
 # AppConfig LLM cost guard defaults
 # ---------------------------------------------------------------------------
+
 
 class TestAppConfigLLMCostGuard:
     def test_enable_llm_cost_guard_default(self):
@@ -364,12 +425,15 @@ class TestAppConfigLLMCostGuard:
 # Budget enforcement tests (unit)
 # ---------------------------------------------------------------------------
 
+
 class TestBudgetEnforcementUnit:
     @pytest.fixture
     def guard(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=2,
-            llm_daily_call_limit=10, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=2,
+            llm_daily_call_limit=10,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -379,18 +443,30 @@ class TestBudgetEnforcementUnit:
         # check_budget atomically reserves counter
         d1 = await guard.check_budget(call_type="primary")
         assert d1.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=100, output_tokens=50)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=100,
+            output_tokens=50,
+        )
         d2 = await guard.check_budget(call_type="primary")
         assert d2.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=100, output_tokens=50)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=100,
+            output_tokens=50,
+        )
         d3 = await guard.check_budget(call_type="primary")
         assert d3.allowed is False
         assert d3.block_reason == LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED
 
     async def test_blocks_primary_call_when_daily_limit_exhausted(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=100,
-            llm_daily_call_limit=3, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=3,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -405,8 +481,10 @@ class TestBudgetEnforcementUnit:
     async def test_blocks_primary_call_when_token_limit_exhausted(self):
         # Token limit must be > fallback (4096) for first call to pass
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=100,
-            llm_daily_call_limit=100, llm_daily_token_limit=5000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=5000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -414,38 +492,70 @@ class TestBudgetEnforcementUnit:
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
         # record_usage adjusts: reserved 4096, actual 100 -> delta = -3996
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=60,
+            output_tokens=40,
+        )
         # Second call reserves another 4096 -> total = 100 + 4096 = 4196 < 5000, allowed
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=60,
+            output_tokens=40,
+        )
         # Third call: 100 + 100 + 4096 = 4296 < 5000, allowed
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=60,
+            output_tokens=40,
+        )
         # Fourth call: 300 + 4096 = 4396 < 5000, allowed
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=60,
+            output_tokens=40,
+        )
         # Fifth call: 400 + 4096 = 4496 < 5000, allowed
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=60,
+            output_tokens=40,
+        )
         # Sixth call: 500 + 4096 = 4596 < 5000, allowed
         # ... keep going until blocked
         for _ in range(10):
             d = await guard.check_budget(call_type="primary")
             if not d.allowed:
                 break
-            await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+            await guard.record_usage(
+                provider=LLMProviderName.ANTHROPIC,
+                model_name="t",
+                input_tokens=60,
+                output_tokens=40,
+            )
         assert d.allowed is False
         assert d.block_reason == LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED
 
     async def test_blocks_primary_call_when_cost_limit_exhausted(self):
         # Cost limit < fallback cost (4.096) so first call is blocked
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=100,
-            llm_daily_call_limit=100, llm_daily_token_limit=10000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=10000000,
             llm_daily_cost_limit_usd=Decimal("4"),
             llm_cost_per_input_token_usd=Decimal("0.001"),
             llm_cost_per_output_token_usd=Decimal("0.001"),
@@ -466,8 +576,10 @@ class TestBudgetEnforcementUnit:
 
     async def test_blocks_reflection_call_when_daily_limit_exhausted(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=100,
-            llm_daily_call_limit=3, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=3,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -481,29 +593,43 @@ class TestBudgetEnforcementUnit:
     async def test_blocks_reflection_call_when_token_limit_exhausted(self):
         # Token limit must be > fallback (4096) for first call to pass
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=100,
-            llm_daily_call_limit=100, llm_daily_token_limit=5000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=5000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
         guard = LLMBudgetGuard(cfg)
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=60,
+            output_tokens=40,
+        )
         # Keep consuming until blocked
         for _ in range(20):
             d = await guard.check_budget(call_type="reflection")
             if not d.allowed:
                 break
-            await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=60, output_tokens=40)
+            await guard.record_usage(
+                provider=LLMProviderName.ANTHROPIC,
+                model_name="t",
+                input_tokens=60,
+                output_tokens=40,
+            )
         assert d.allowed is False
         assert d.block_reason == LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED
 
     async def test_blocks_reflection_call_when_cost_limit_exhausted(self):
         # Cost limit < fallback cost (4.096) so first call is blocked
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=100,
-            llm_daily_call_limit=100, llm_daily_token_limit=10000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=10000000,
             llm_daily_cost_limit_usd=Decimal("4"),
             llm_cost_per_input_token_usd=Decimal("0.001"),
             llm_cost_per_output_token_usd=Decimal("0.001"),
@@ -516,10 +642,12 @@ class TestBudgetEnforcementUnit:
     async def test_blocked_reflection_prevents_execution_routing(self):
         """Budget-blocked reflection returns conservative REJECTED — no execution."""
         from src.schemas.llm import ReflectionResponse, ReflectionVerdict
+
         # Simulate what ClaudeClient does when reflection is budget-blocked
         reflection = ReflectionResponse(
             verdict=ReflectionVerdict.REJECTED,
-            audit_note="BUDGET_BLOCKED_REFLECTION", latency_ms=0,
+            audit_note="BUDGET_BLOCKED_REFLECTION",
+            latency_ms=0,
         )
         assert reflection.verdict == ReflectionVerdict.REJECTED
         assert reflection.latency_ms == 0
@@ -527,26 +655,40 @@ class TestBudgetEnforcementUnit:
     async def test_allowed_primary_but_blocked_reflection_resolves_no_trade(self):
         """When primary is allowed but reflection blocked, result is no-trade."""
         from src.schemas.llm import ReflectionResponse, ReflectionVerdict
+
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=2,
-            llm_daily_call_limit=2, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=2,
+            llm_daily_call_limit=2,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
         guard = LLMBudgetGuard(cfg)
         d1 = await guard.check_budget(call_type="primary")
         assert d1.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=10, output_tokens=5)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=10,
+            output_tokens=5,
+        )
         d2 = await guard.check_budget(call_type="reflection")
         assert d2.allowed is True
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=10, output_tokens=5)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=10,
+            output_tokens=5,
+        )
         # Now both hourly and daily are exhausted
         d3 = await guard.check_budget(call_type="reflection")
         assert d3.allowed is False
         # Reflection blocked → conservative no-trade
         reflection = ReflectionResponse(
             verdict=ReflectionVerdict.REJECTED,
-            audit_note="BUDGET_BLOCKED_REFLECTION", latency_ms=0,
+            audit_note="BUDGET_BLOCKED_REFLECTION",
+            latency_ms=0,
         )
         assert reflection.verdict == ReflectionVerdict.REJECTED
 
@@ -559,8 +701,10 @@ class TestBudgetEnforcementUnit:
 
     async def test_zero_limit_means_no_calls_allowed(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=0,
-            llm_daily_call_limit=0, llm_daily_token_limit=0,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=0,
+            llm_daily_call_limit=0,
+            llm_daily_token_limit=0,
             llm_daily_cost_limit_usd=Decimal("0"),
         )
         # WI-52: Zero limits = no calls allowed (fail closed)
@@ -573,6 +717,7 @@ class TestBudgetEnforcementUnit:
 # ---------------------------------------------------------------------------
 # Cognitive cooldown tests (unit)
 # ---------------------------------------------------------------------------
+
 
 class TestCognitiveCooldownUnit:
     @pytest.fixture
@@ -634,7 +779,9 @@ class TestCognitiveCooldownUnit:
         assert d1.in_cooldown is True
         async with breaker._lock:
             state = breaker._states[mk]
-            state.cooldown_active_until_utc = datetime.now(timezone.utc) - timedelta(seconds=1)
+            state.cooldown_active_until_utc = datetime.now(timezone.utc) - timedelta(
+                seconds=1
+            )
         d2 = await breaker.check_cooldown(mk)
         assert d2.in_cooldown is False
 
@@ -644,13 +791,15 @@ class TestCognitiveCooldownUnit:
             await breaker.record_outcome(market_key=mk, outcome_type="hold")
         async with breaker._lock:
             state = breaker._states[mk]
-            state.cooldown_active_until_utc = datetime.now(timezone.utc) - timedelta(seconds=1)
+            state.cooldown_active_until_utc = datetime.now(timezone.utc) - timedelta(
+                seconds=1
+            )
         d = await breaker.check_cooldown(mk)
         assert d.in_cooldown is False
         await breaker.record_outcome(market_key=mk, outcome_type="buy")
 
     async def test_cooldown_is_in_memory_only(self, breaker):
-        assert not hasattr(breaker, '_db')
+        assert not hasattr(breaker, "_db")
         assert isinstance(breaker._states, dict)
 
 
@@ -658,13 +807,16 @@ class TestCognitiveCooldownUnit:
 # Usage accounting tests
 # ---------------------------------------------------------------------------
 
+
 class TestUsageAccounting:
     async def test_records_usage_on_successful_call(self):
         cfg = _make_config()
         guard = LLMBudgetGuard(cfg)
         usage = await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=1000, output_tokens=500,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=1000,
+            output_tokens=500,
         )
         assert usage.input_tokens == 1000
         assert usage.output_tokens == 500
@@ -675,8 +827,10 @@ class TestUsageAccounting:
         cfg = _make_config(llm_fallback_tokens_per_call=4096)
         guard = LLMBudgetGuard(cfg)
         usage = await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=None, output_tokens=None,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=None,
+            output_tokens=None,
         )
         assert usage.is_estimated is True
         assert usage.total_tokens == 4096
@@ -685,8 +839,10 @@ class TestUsageAccounting:
         cfg = _make_config(llm_fallback_tokens_per_call=2048)
         guard = LLMBudgetGuard(cfg)
         usage = await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=None, output_tokens=100,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=None,
+            output_tokens=100,
         )
         assert usage.is_estimated is True
 
@@ -694,15 +850,19 @@ class TestUsageAccounting:
         cfg = _make_config()
         guard = LLMBudgetGuard(cfg)
         usage = await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=None, output_tokens=None,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=None,
+            output_tokens=None,
         )
         assert usage.is_estimated is True
 
     async def test_provider_timeout_records_error_event_without_invented_tokens(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=10,
-            llm_daily_call_limit=10, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=10,
+            llm_daily_call_limit=10,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -718,18 +878,27 @@ class TestUsageAccounting:
 # Logging and metrics tests
 # ---------------------------------------------------------------------------
 
+
 class TestLoggingAndMetrics:
     async def test_budget_block_logged_with_reason_code(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=1,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=1,
         )
         guard = LLMBudgetGuard(cfg)
-        await guard.record_usage(provider=LLMProviderName.ANTHROPIC, model_name="t", input_tokens=10, output_tokens=5)
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=10,
+            output_tokens=5,
+        )
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is False
         assert d.block_reason is not None
 
-    async def test_cooldown_block_logged_with_reason_code(self,):
+    async def test_cooldown_block_logged_with_reason_code(
+        self,
+    ):
         cfg = _make_config(
             llm_repeated_hold_threshold=2,
             llm_market_cooldown_seconds=Decimal("60"),
@@ -744,7 +913,8 @@ class TestLoggingAndMetrics:
 
     async def test_logs_exclude_secrets(self):
         snap = LLMCostGuardSnapshot(
-            budget_enabled=True, budget_allowed=True,
+            budget_enabled=True,
+            budget_allowed=True,
             estimated_spend_usd=Decimal("1.0"),
         )
         dump = snap.model_dump()
@@ -802,14 +972,18 @@ class TestLoggingAndMetrics:
         reg = MetricsRegistry()
         await reg.record_llm_budget_block(reason="hourly_call_limit_exhausted")
         snap = await reg.snapshot()
-        blocks = [s for s in snap.samples if s.name == "poly_agent_llm_budget_blocks_total"]
+        blocks = [
+            s for s in snap.samples if s.name == "poly_agent_llm_budget_blocks_total"
+        ]
         assert any(int(s.value) > 0 for s in blocks)
 
     async def test_metrics_track_cooldown_blocks(self):
         reg = MetricsRegistry()
         await reg.record_llm_cooldown_block()
         snap = await reg.snapshot()
-        blocks = [s for s in snap.samples if s.name == "poly_agent_llm_cooldown_blocks_total"]
+        blocks = [
+            s for s in snap.samples if s.name == "poly_agent_llm_cooldown_blocks_total"
+        ]
         assert any(int(s.value) > 0 for s in blocks)
 
     async def test_metrics_track_token_usage(self):
@@ -823,14 +997,20 @@ class TestLoggingAndMetrics:
         reg = MetricsRegistry()
         await reg.record_llm_estimated_spend(cost_usd=Decimal("2.50"))
         snap = await reg.snapshot()
-        spends = [s for s in snap.samples if s.name == "poly_agent_llm_estimated_spend_usd_total"]
+        spends = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_estimated_spend_usd_total"
+        ]
         assert any(s.value >= Decimal("2") for s in spends)
 
     async def test_metrics_track_active_cooldown_count(self):
         reg = MetricsRegistry()
         await reg.set_active_cooldown_count(3)
         snap = await reg.snapshot()
-        gauges = [s for s in snap.samples if s.name == "poly_agent_active_cooldown_count"]
+        gauges = [
+            s for s in snap.samples if s.name == "poly_agent_active_cooldown_count"
+        ]
         assert any(int(s.value) == 3 for s in gauges)
 
 
@@ -838,11 +1018,14 @@ class TestLoggingAndMetrics:
 # Concurrency safety tests
 # ---------------------------------------------------------------------------
 
+
 class TestConcurrencySafety:
     async def test_concurrent_evaluations_respect_budget(self):
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=5,
-            llm_daily_call_limit=100, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=5,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -852,8 +1035,10 @@ class TestConcurrencySafety:
             d = await guard.check_budget(call_type="primary")
             if d.allowed:
                 await guard.record_usage(
-                    provider=LLMProviderName.ANTHROPIC, model_name="t",
-                    input_tokens=10, output_tokens=5,
+                    provider=LLMProviderName.ANTHROPIC,
+                    model_name="t",
+                    input_tokens=10,
+                    output_tokens=5,
                 )
             return d.allowed
 
@@ -884,12 +1069,15 @@ class TestConcurrencySafety:
 # Integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestLLMCostGuardIntegration:
     async def test_full_evaluation_path_with_budget_guard(self):
         """Budget guard allows call → records usage → subsequent call blocked."""
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=2,
-            llm_daily_call_limit=100, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=2,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -897,15 +1085,19 @@ class TestLLMCostGuardIntegration:
         d1 = await guard.check_budget(call_type="primary")
         assert d1.allowed is True
         usage = await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=500, output_tokens=200,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=500,
+            output_tokens=200,
         )
         assert usage.total_tokens == 700
         d2 = await guard.check_budget(call_type="primary")
         assert d2.allowed is True
         await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=500, output_tokens=200,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=500,
+            output_tokens=200,
         )
         d3 = await guard.check_budget(call_type="primary")
         assert d3.allowed is False
@@ -913,8 +1105,10 @@ class TestLLMCostGuardIntegration:
     async def test_full_reflection_path_with_budget_guard(self):
         """Budget guard allows reflection → records usage."""
         cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=2,
-            llm_daily_call_limit=100, llm_daily_token_limit=1000000,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=2,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
         )
@@ -922,14 +1116,18 @@ class TestLLMCostGuardIntegration:
         d1 = await guard.check_budget(call_type="reflection")
         assert d1.allowed is True
         await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=200, output_tokens=100,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=200,
+            output_tokens=100,
         )
         d2 = await guard.check_budget(call_type="reflection")
         assert d2.allowed is True
         await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="test",
-            input_tokens=200, output_tokens=100,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="test",
+            input_tokens=200,
+            output_tokens=100,
         )
         d3 = await guard.check_budget(call_type="reflection")
         assert d3.allowed is False
@@ -937,33 +1135,11 @@ class TestLLMCostGuardIntegration:
     async def test_budget_guard_integrates_with_llm_evaluation_response(self):
         """Budget block → no LLMEvaluationResponse produced → no execution."""
         from src.schemas.llm import ReflectionResponse, ReflectionVerdict
-        cfg = _make_config(
-            enable_llm_cost_guard=True, llm_hourly_call_limit=1,
-            llm_daily_call_limit=1, llm_daily_token_limit=1000000,
-            llm_daily_cost_limit_usd=Decimal("100"),
-            llm_market_hourly_call_limit=100,
-        )
-        guard = LLMBudgetGuard(cfg)
-        d = await guard.check_budget(call_type="primary")
-        assert d.allowed is True
-        await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="t",
-            input_tokens=10, output_tokens=5,
-        )
-        d = await guard.check_budget(call_type="reflection")
-        assert d.allowed is False
-        # Simulate ClaudeClient behavior: blocked reflection → REJECTED
-        reflection = ReflectionResponse(
-            verdict=ReflectionVerdict.REJECTED,
-            audit_note="BUDGET_BLOCKED_REFLECTION", latency_ms=0,
-        )
-        assert reflection.verdict == ReflectionVerdict.REJECTED
 
-    async def test_cost_guard_does_not_weaken_dry_run(self):
-        """Cost guard operates independently of dry_run flag."""
         cfg = _make_config(
-            dry_run=True, enable_llm_cost_guard=True,
-            llm_hourly_call_limit=1, llm_daily_call_limit=1,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=1,
+            llm_daily_call_limit=1,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
             llm_market_hourly_call_limit=100,
@@ -972,8 +1148,40 @@ class TestLLMCostGuardIntegration:
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is True
         await guard.record_usage(
-            provider=LLMProviderName.ANTHROPIC, model_name="t",
-            input_tokens=10, output_tokens=5,
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=10,
+            output_tokens=5,
+        )
+        d = await guard.check_budget(call_type="reflection")
+        assert d.allowed is False
+        # Simulate ClaudeClient behavior: blocked reflection → REJECTED
+        reflection = ReflectionResponse(
+            verdict=ReflectionVerdict.REJECTED,
+            audit_note="BUDGET_BLOCKED_REFLECTION",
+            latency_ms=0,
+        )
+        assert reflection.verdict == ReflectionVerdict.REJECTED
+
+    async def test_cost_guard_does_not_weaken_dry_run(self):
+        """Cost guard operates independently of dry_run flag."""
+        cfg = _make_config(
+            dry_run=True,
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=1,
+            llm_daily_call_limit=1,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=100,
+        )
+        guard = LLMBudgetGuard(cfg)
+        d = await guard.check_budget(call_type="primary")
+        assert d.allowed is True
+        await guard.record_usage(
+            provider=LLMProviderName.ANTHROPIC,
+            model_name="t",
+            input_tokens=10,
+            output_tokens=5,
         )
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is False
@@ -983,6 +1191,6 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(enable_llm_cost_guard=True)
         guard = LLMBudgetGuard(cfg)
         # No methods that could sign or broadcast exist
-        assert not hasattr(guard, 'sign')
-        assert not hasattr(guard, 'broadcast')
-        assert not hasattr(guard, 'execute')
+        assert not hasattr(guard, "sign")
+        assert not hasattr(guard, "broadcast")
+        assert not hasattr(guard, "execute")

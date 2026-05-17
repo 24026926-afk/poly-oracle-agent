@@ -13,6 +13,18 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.observability.dashboard_activity_feed import (
+    DEFAULT_ACTIVITY_LIMIT,
+    derive_current_state,  # noqa: F401 - re-exported dashboard helper
+    fetch_activity_feed as _fetch_activity_feed_impl,
+    format_activity_row_html,
+)
+from src.schemas.ops import (
+    DashboardActivityFeedFilter,
+    DashboardActivityFeedResult,
+    DashboardActivityFeedStatus,
+)
+
 
 st.set_page_config(
     page_title="Poly-Oracle Command Center",
@@ -38,6 +50,7 @@ def _resolve_db_uri() -> str:
     """
     db_abs = DB_PATH.resolve()
     return f"file:{db_abs}?mode=ro"
+
 
 SURFACE_BASE = "#0D0D0D"
 SURFACE_PANEL = "#111111"
@@ -811,7 +824,9 @@ def fetch_metrics() -> dict[str, object]:
                               AND COALESCE(closed_at_utc, recorded_at_utc) >= datetime('now', '-1 day')
                             """
                         ).fetchone()
-                        metrics["pnl_delta"] = to_decimal(pnl_delta[0] if pnl_delta else ZERO)
+                        metrics["pnl_delta"] = to_decimal(
+                            pnl_delta[0] if pnl_delta else ZERO
+                        )
 
                         exposure_delta = conn.execute(
                             """
@@ -864,7 +879,9 @@ def fetch_metrics() -> dict[str, object]:
                 row = conn.execute("SELECT COUNT(*) FROM decisions").fetchone()
                 metrics["total_decisions"] = int(row[0] or 0) if row else 0
             elif "agent_decision_logs" in tables:
-                row = conn.execute("SELECT COUNT(*) FROM agent_decision_logs").fetchone()
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM agent_decision_logs"
+                ).fetchone()
                 metrics["total_decisions"] = int(row[0] or 0) if row else 0
     except Exception:
         pass
@@ -990,6 +1007,30 @@ def fetch_market_watch() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def fetch_activity_feed(
+    *,
+    limit: int = DEFAULT_ACTIVITY_LIMIT,
+    filter: DashboardActivityFeedFilter | None = None,
+) -> DashboardActivityFeedResult:
+    """Read the WI-56 operational event ledger and return a typed activity feed.
+
+    Wraps the read-only activity feed service so the dashboard module
+    binds to the dashboard's resolved ``DB_PATH``. The function is
+    intentionally synchronous because Streamlit's runtime is sync and
+    the existing dashboard read pattern (sqlite ``mode=ro`` URI) is
+    preserved.
+    """
+    return _fetch_activity_feed_impl(DB_PATH, limit=limit, filter=filter)
+
+
+@st.cache_data(ttl=30)
+def fetch_activity_feed_cached(
+    limit: int = DEFAULT_ACTIVITY_LIMIT,
+) -> DashboardActivityFeedResult:
+    """Streamlit-cached wrapper around ``fetch_activity_feed``."""
+    return fetch_activity_feed(limit=limit)
+
+
 @st.cache_data(ttl=30)
 def fetch_pnl_timeseries() -> tuple[pd.DataFrame, bool]:
     tables = set(fetch_table_names())
@@ -1009,8 +1050,12 @@ def fetch_pnl_timeseries() -> tuple[pd.DataFrame, bool]:
                     conn,
                 )
             if not pnl_df.empty:
-                pnl_df["timestamp"] = pd.to_datetime(pnl_df["timestamp"], errors="coerce")
-                pnl_df["pnl_usdc"] = pd.to_numeric(pnl_df["pnl_usdc"], errors="coerce").fillna(0)
+                pnl_df["timestamp"] = pd.to_datetime(
+                    pnl_df["timestamp"], errors="coerce"
+                )
+                pnl_df["pnl_usdc"] = pd.to_numeric(
+                    pnl_df["pnl_usdc"], errors="coerce"
+                ).fillna(0)
                 pnl_df["pnl_usdc"] = pnl_df["pnl_usdc"].cumsum()
                 return pnl_df.dropna(subset=["timestamp"]), False
         except Exception:
@@ -1030,7 +1075,9 @@ def fetch_pnl_timeseries() -> tuple[pd.DataFrame, bool]:
     return mock_df, True
 
 
-def format_delta_tag(value: Decimal, kind: str, tone_override: str | None = None) -> str:
+def format_delta_tag(
+    value: Decimal, kind: str, tone_override: str | None = None
+) -> str:
     if kind == "currency":
         text = f"{value:+,.2f} USDC"
     elif kind == "percentage_points":
@@ -1072,7 +1119,9 @@ def build_metric_card(
 
 def render_terminal_header(vitals: dict[str, object], refreshed_at: datetime) -> None:
     status_value = str(vitals.get("db_connection", "OFFLINE"))
-    status_class = "status-dot-online" if status_value == "ONLINE" else "status-dot-error"
+    status_class = (
+        "status-dot-online" if status_value == "ONLINE" else "status-dot-error"
+    )
     latency_ms = vitals.get("latency_ms")
     latency_label = f"{latency_ms:.2f} ms" if isinstance(latency_ms, float) else "n/a"
 
@@ -1116,7 +1165,7 @@ def render_terminal_header(vitals: dict[str, object], refreshed_at: datetime) ->
                     <div class="rail-row">
                         <span class="rail-key">Refreshed</span>
                         <span>:</span>
-                        <span class="rail-value">{escape(refreshed_at.strftime('%Y-%m-%d %H:%M:%S'))}</span>
+                        <span class="rail-value">{escape(refreshed_at.strftime("%Y-%m-%d %H:%M:%S"))}</span>
                     </div>
                     <div class="rail-row">
                         <span class="rail-key">Database</span>
@@ -1160,7 +1209,7 @@ def render_sidebar(vitals: dict[str, object], refreshed_at: datetime) -> None:
                 <div class="vital-row">
                     <span class="vital-key">refresh</span>
                     <span>:</span>
-                    <span class="vital-value">{escape(refreshed_at.strftime('%H:%M:%S'))}</span>
+                    <span class="vital-value">{escape(refreshed_at.strftime("%H:%M:%S"))}</span>
                 </div>
                 <div class="vital-row">
                     <span class="vital-key">db file</span>
@@ -1218,7 +1267,9 @@ def render_metrics(metrics: dict[str, object]) -> None:
                 label="open exposure",
                 value=format_usdc(exposure),
                 value_tone="neutral",
-                delta_html=format_delta_tag(exposure_delta, "currency", tone_override="neutral"),
+                delta_html=format_delta_tag(
+                    exposure_delta, "currency", tone_override="neutral"
+                ),
                 hint="Live capital currently deployed across open positions.",
                 meta="fresh open flow",
             ),
@@ -1517,13 +1568,15 @@ def render_decision_table() -> None:
     )
     if "expected_value" in normalized_df.columns:
         normalized_df["expected_value_pct"] = (
-            pd.to_numeric(normalized_df["expected_value"], errors="coerce").fillna(0) * 100
+            pd.to_numeric(normalized_df["expected_value"], errors="coerce").fillna(0)
+            * 100
         )
     else:
         normalized_df["expected_value_pct"] = 0.0
     if "kelly_fraction" in normalized_df.columns:
         normalized_df["kelly_pct"] = (
-            pd.to_numeric(normalized_df["kelly_fraction"], errors="coerce").fillna(0) * 100
+            pd.to_numeric(normalized_df["kelly_fraction"], errors="coerce").fillna(0)
+            * 100
         )
     else:
         normalized_df["kelly_pct"] = 0.0
@@ -1547,7 +1600,9 @@ def render_decision_table() -> None:
             "kelly_pct": "kelly",
         }
     )
-    display_df["confidence"] = display_df["confidence"].map(lambda value: f"{value:.2f}%")
+    display_df["confidence"] = display_df["confidence"].map(
+        lambda value: f"{value:.2f}%"
+    )
     display_df["ev"] = display_df["ev"].map(lambda value: f"{value:.2f}%")
     display_df["kelly"] = display_df["kelly"].map(lambda value: f"{value:.2f}%")
 
@@ -1587,13 +1642,24 @@ def render_market_watch() -> None:
         return
 
     display_df = markets_df.copy()
-    display_df["yes_price"] = pd.to_numeric(display_df.get("yes_price"), errors="coerce").fillna(0)
-    display_df["no_price"] = pd.to_numeric(display_df.get("no_price"), errors="coerce").fillna(0)
-    display_df["volume_24h"] = pd.to_numeric(display_df.get("volume_24h"), errors="coerce").fillna(0)
-    display_df["end_date"] = pd.to_datetime(display_df.get("end_date"), errors="coerce").dt.strftime(
-        "%Y-%m-%d %H:%M:%S"
+    display_df["yes_price"] = pd.to_numeric(
+        display_df.get("yes_price"), errors="coerce"
+    ).fillna(0)
+    display_df["no_price"] = pd.to_numeric(
+        display_df.get("no_price"), errors="coerce"
+    ).fillna(0)
+    display_df["volume_24h"] = pd.to_numeric(
+        display_df.get("volume_24h"), errors="coerce"
+    ).fillna(0)
+    display_df["end_date"] = pd.to_datetime(
+        display_df.get("end_date"), errors="coerce"
+    ).dt.strftime("%Y-%m-%d %H:%M:%S")
+    display_df["status"] = (
+        display_df.get("status", pd.Series(dtype="object"))
+        .fillna("UNKNOWN")
+        .astype(str)
+        .str.upper()
     )
-    display_df["status"] = display_df.get("status", pd.Series(dtype="object")).fillna("UNKNOWN").astype(str).str.upper()
 
     watch_df = display_df[
         [
@@ -1621,6 +1687,134 @@ def render_market_watch() -> None:
     )
 
 
+def render_current_state_panel(result: DashboardActivityFeedResult) -> None:
+    """Render the WI-59 'What is the bot doing right now?' panel."""
+    st.markdown(
+        """
+        <div class="section-stack">
+            <div class="section-kicker">Runtime narrative</div>
+            <section class="section-shell">
+                <div class="section-head">
+                    <div>
+                        <h2 class="section-title">What is the bot doing right now?</h2>
+                        <p class="section-caption">Latest typed lifecycle, readiness, ingestion, evaluation, decision, execution, and alert state.</p>
+                    </div>
+                    <div class="section-meta">read only / typed events / wi-57 narratives</div>
+                </div>
+            </section>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    state = result.current_state
+    if state is None:
+        render_empty_state(
+            "Runtime state is unknown.",
+            "No operational events have been recorded yet, so the dashboard cannot infer current state.",
+        )
+        return
+
+    rows: list[tuple[str, str | None]] = [
+        ("Lifecycle", state.lifecycle_summary),
+        ("Readiness", state.readiness_summary),
+        ("WebSocket", state.websocket_summary),
+        ("LLM / provider", state.llm_summary),
+        ("Decision", state.decision_summary),
+        ("Execution", state.execution_summary),
+        ("Circuit breaker", state.circuit_breaker_summary),
+    ]
+    body_rows = ""
+    for label, value in rows:
+        text = value if value else "n/a"
+        body_rows += (
+            "<tr>"
+            f'<td style="padding:8px 12px;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.07em">{escape(label)}</td>'
+            f'<td style="padding:8px 12px;color:#ccc;font-size:12px">{escape(text)}</td>'
+            "</tr>"
+        )
+    overall = escape(state.overall_state)
+    body_html = f"""
+    <div class="table-shell">
+        <div class="table-scroll">
+            <table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08);color:#555;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Category</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Latest</th>
+                    </tr>
+                </thead>
+                <tbody>{body_rows}</tbody>
+            </table>
+        </div>
+    </div>
+    <div class="metrics-note">Overall: {overall}.</div>
+    """
+    st.markdown(body_html, unsafe_allow_html=True)
+
+
+def render_activity_timeline(result: DashboardActivityFeedResult) -> None:
+    """Render the WI-59 activity timeline section."""
+    st.markdown(
+        """
+        <div class="section-stack">
+            <div class="section-kicker">Operational ledger</div>
+            <section class="section-shell">
+                <div class="section-head">
+                    <div>
+                        <h2 class="section-title">Activity timeline</h2>
+                        <p class="section-caption">Recent typed runtime events, rendered with deterministic plain-English summaries.</p>
+                    </div>
+                    <div class="section-meta">recent first / bounded window / secret safe</div>
+                </div>
+            </section>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if result.status == DashboardActivityFeedStatus.MISSING_TABLE:
+        render_empty_state(
+            "Operational event ledger is unavailable.",
+            "The operational_events table is not provisioned in this deployment yet. Older or freshly provisioned environments will show no timeline.",
+        )
+        return
+    if result.status == DashboardActivityFeedStatus.DATABASE_UNAVAILABLE:
+        render_empty_state(
+            "Operational event ledger is unreachable.",
+            "The dashboard could not reach the read-only ledger database. Check the deployment health.",
+        )
+        return
+    if result.status == DashboardActivityFeedStatus.EMPTY_WINDOW or not result.items:
+        render_empty_state(
+            "No recent operational activity.",
+            "The ledger exists but has no rows in the recent window yet. The agent may be idle or freshly started.",
+        )
+        return
+
+    rows_html = "".join(format_activity_row_html(item) for item in result.items)
+    table_html = f"""
+    <div class="table-shell">
+        <div class="table-scroll">
+            <table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px;color:#ccc;font-variant-numeric:tabular-nums">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08);color:#555;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Timestamp (UTC)</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Severity</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Source</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Event / Reason</th>
+                        <th style="padding:8px 12px;text-align:left;font-weight:400">Summary</th>
+                    </tr>
+                </thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+    </div>
+    <div class="chart-note">Showing {len(result.items)} recent events.</div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
 THEME_RULE_COUNT = inject_terminal_theme()
 REFRESHED_AT = datetime.now()
 SYSTEM_VITALS = get_system_vitals()
@@ -1635,6 +1829,15 @@ with left_col:
 
 with right_col:
     render_metrics(fetch_metrics())
+
+ACTIVITY_FEED_RESULT = fetch_activity_feed_cached()
+
+state_left, state_right = st.columns([1, 1], gap="large")
+with state_left:
+    render_current_state_panel(ACTIVITY_FEED_RESULT)
+
+with state_right:
+    render_activity_timeline(ACTIVITY_FEED_RESULT)
 
 lower_left, lower_right = st.columns([1.08, 0.92], gap="large")
 

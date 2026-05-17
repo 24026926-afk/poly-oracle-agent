@@ -8,7 +8,7 @@ type safety.  A module-level ``get_config()`` singleton ensures exactly one
 """
 
 import warnings
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 from decimal import Decimal
 from functools import lru_cache
@@ -549,6 +549,44 @@ class AppConfig(BaseSettings):
         description="When queue is full, coalesce by market instead of dropping",
     )
 
+    # --- WI-56: Operational Event Ledger ---
+    enable_operational_event_ledger: bool = Field(
+        default=False,
+        description="Master enable for the operational event ledger (append-only audit trail)",
+    )
+    event_ledger_queue_size: int = Field(
+        default=1000,
+        ge=100,
+        le=100000,
+        description="Maximum capacity of the bounded event bus asyncio.Queue",
+    )
+    event_ledger_batch_size: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Maximum number of events to flush in a single batch write",
+    )
+    event_ledger_flush_interval_sec: Decimal = Field(
+        default=Decimal("10"),
+        ge=Decimal("1"),
+        le=Decimal("300"),
+        description="Seconds between periodic batch flushes from the event bus",
+    )
+    event_ledger_shutdown_flush_timeout_sec: Decimal = Field(
+        default=Decimal("30"),
+        ge=Decimal("1"),
+        le=Decimal("120"),
+        description="Maximum seconds to wait for final flush during shutdown",
+    )
+    event_ledger_overflow_policy: Literal[
+        "drop_oldest",
+        "drop_newest",
+        "drop_diagnostic",
+    ] = Field(
+        default="drop_oldest",
+        description="Overflow policy: drop_oldest, drop_newest, or drop_diagnostic",
+    )
+
     @field_validator(
         "llm_daily_cost_limit_usd",
         "llm_market_cooldown_seconds",
@@ -659,6 +697,8 @@ class AppConfig(BaseSettings):
         "dedupe_min_evaluation_interval_sec",
         "dedupe_midpoint_delta",
         "dedupe_spread_delta",
+        "event_ledger_flush_interval_sec",
+        "event_ledger_shutdown_flush_timeout_sec",
         mode="before",
     )
     @classmethod

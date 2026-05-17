@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
 from src.agents.evaluation.grok_client import (
     GrokClient,
@@ -24,6 +24,7 @@ from src.schemas.llm import MarketCategory, SentimentResponse
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
 
 def _make_live_client(
     *,
@@ -57,11 +58,13 @@ def _make_mock_response(
         "choices": [
             {
                 "message": {
-                    "content": json.dumps({
-                        "sentiment_score": sentiment_score,
-                        "tweet_volume_delta": tweet_volume_delta,
-                        "top_narrative_summary": top_narrative_summary,
-                    }),
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": sentiment_score,
+                            "tweet_volume_delta": tweet_volume_delta,
+                            "top_narrative_summary": top_narrative_summary,
+                        }
+                    ),
                 },
             },
         ],
@@ -94,6 +97,7 @@ _STANDARD_CALL_ARGS = dict(
 
 # ── Mock mode preservation (AC #1) ──────────────────────────────────────────
 
+
 def test_mock_mode_returns_deterministic_sentiment():
     client = GrokClient(
         api_key=SecretStr(""),
@@ -121,6 +125,7 @@ def test_mock_mode_makes_no_http_calls():
 
 
 # ── Config validation (AC #2, #3, #7) ──────────────────────────────────────
+
 
 def test_grok_live_enabled_defaults_false(monkeypatch):
     """Schema default is False; env_file + environ overload must not mask this gate."""
@@ -196,6 +201,7 @@ def test_grok_max_retries_config_field_exists():
 
 # ── Live mode – HTTP behavior (AC #2) ──────────────────────────────────────
 
+
 def test_live_mode_posts_to_configured_endpoint():
     resp = _make_mock_response()
     mock_client = _make_mock_async_client(resp)
@@ -242,6 +248,7 @@ def test_live_mode_no_retry_on_4xx():
 
 
 # ── Failure → NEUTRAL_SENTIMENT (AC #3) ────────────────────────────────────
+
 
 def test_http_timeout_returns_neutral_sentiment():
     mock_client = MagicMock(spec=httpx.AsyncClient)
@@ -324,7 +331,17 @@ def test_missing_required_fields_returns_neutral():
 def test_schema_validation_error_returns_neutral():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": 2.5, "tweet_volume_delta": 5, "top_narrative_summary": "x" * 10})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": 2.5,
+                            "tweet_volume_delta": 5,
+                            "top_narrative_summary": "x" * 10,
+                        }
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -350,12 +367,17 @@ def test_unexpected_exception_returns_neutral():
 
 # ── Response parsing (AC #3, AC #6) ────────────────────────────────────────
 
+
 def test_extract_json_from_markdown_code_block():
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = 200
     resp.json.return_value = {
         "choices": [
-            {"message": {"content": '```json\n{"sentiment_score": 0.8, "tweet_volume_delta": 20, "top_narrative_summary": "Strong bullish signals detected."}\n```'}},
+            {
+                "message": {
+                    "content": '```json\n{"sentiment_score": 0.8, "tweet_volume_delta": 20, "top_narrative_summary": "Strong bullish signals detected."}\n```'
+                }
+            },
         ],
     }
     resp.raise_for_status = MagicMock()
@@ -372,7 +394,11 @@ def test_extract_json_from_plain_text():
     resp.status_code = 200
     resp.json.return_value = {
         "choices": [
-            {"message": {"content": '{"sentiment_score": -0.3, "tweet_volume_delta": -5, "top_narrative_summary": "Bearish momentum building."}'}},
+            {
+                "message": {
+                    "content": '{"sentiment_score": -0.3, "tweet_volume_delta": -5, "top_narrative_summary": "Bearish momentum building."}'
+                }
+            },
         ],
     }
     resp.raise_for_status = MagicMock()
@@ -385,7 +411,15 @@ def test_extract_json_from_plain_text():
 
 
 def test_non_json_response_returns_neutral():
-    body = {"choices": [{"message": {"content": "I think the market is bullish today. No JSON here."}}]}
+    body = {
+        "choices": [
+            {
+                "message": {
+                    "content": "I think the market is bullish today. No JSON here."
+                }
+            }
+        ]
+    }
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = 200
     resp.json.return_value = body
@@ -400,7 +434,17 @@ def test_non_json_response_returns_neutral():
 def test_sentiment_score_out_of_range_rejected():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": 1.5, "tweet_volume_delta": 5, "top_narrative_summary": "x" * 10})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": 1.5,
+                            "tweet_volume_delta": 5,
+                            "top_narrative_summary": "x" * 10,
+                        }
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -417,7 +461,17 @@ def test_sentiment_score_out_of_range_rejected():
 def test_sentiment_score_negative_out_of_range_rejected():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": -1.5, "tweet_volume_delta": 5, "top_narrative_summary": "x" * 10})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": -1.5,
+                            "tweet_volume_delta": 5,
+                            "top_narrative_summary": "x" * 10,
+                        }
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -434,7 +488,17 @@ def test_sentiment_score_negative_out_of_range_rejected():
 def test_tweet_volume_delta_not_integer_rejected():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": 0.5, "tweet_volume_delta": "high", "top_narrative_summary": "x" * 10})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": 0.5,
+                            "tweet_volume_delta": "high",
+                            "top_narrative_summary": "x" * 10,
+                        }
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -451,7 +515,17 @@ def test_tweet_volume_delta_not_integer_rejected():
 def test_top_narrative_summary_too_short_rejected():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": 0.5, "tweet_volume_delta": 5, "top_narrative_summary": "short"})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": 0.5,
+                            "tweet_volume_delta": 5,
+                            "top_narrative_summary": "short",
+                        }
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -468,7 +542,17 @@ def test_top_narrative_summary_too_short_rejected():
 def test_top_narrative_summary_too_long_rejected():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": 0.5, "tweet_volume_delta": 5, "top_narrative_summary": "x" * 350})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "sentiment_score": 0.5,
+                            "tweet_volume_delta": 5,
+                            "top_narrative_summary": "x" * 350,
+                        }
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -485,7 +569,13 @@ def test_top_narrative_summary_too_long_rejected():
 def test_missing_top_narrative_summary_rejected():
     body = {
         "choices": [
-            {"message": {"content": json.dumps({"sentiment_score": 0.5, "tweet_volume_delta": 5})}},
+            {
+                "message": {
+                    "content": json.dumps(
+                        {"sentiment_score": 0.5, "tweet_volume_delta": 5}
+                    )
+                }
+            },
         ],
     }
     resp = MagicMock(spec=httpx.Response)
@@ -500,6 +590,7 @@ def test_missing_top_narrative_summary_rejected():
 
 
 # ── Safety invariants (AC #4, #5, #7, #8) ──────────────────────────────────
+
 
 def test_api_key_not_logged_in_structured_logs():
     """Verify that _build_payload never includes key in logged data and that
@@ -549,12 +640,14 @@ def test_live_sentiment_only_for_eligible_categories():
     client = _make_live_client(http_client=mock_client)
 
     # SPORTS — gated in GrokClient, returns NEUTRAL, no HTTP call
-    result = asyncio.run(client.analyze_sentiment(
-        condition_id="cond_002",
-        market_title="Super Bowl winner",
-        market_category=MarketCategory.SPORTS,
-        reference_timestamp_utc="2026-05-05T12:00:00Z",
-    ))
+    result = asyncio.run(
+        client.analyze_sentiment(
+            condition_id="cond_002",
+            market_title="Super Bowl winner",
+            market_category=MarketCategory.SPORTS,
+            reference_timestamp_utc="2026-05-05T12:00:00Z",
+        )
+    )
     assert result == NEUTRAL_SENTIMENT
     mock_client.post.assert_not_called()
 
@@ -565,6 +658,7 @@ def test_neutral_response_has_sentiment_score_zero():
 
 
 # ── Decimal integrity (invariant from PRD) ──────────────────────────────────
+
 
 def test_live_response_float_sentiment_score_rejected():
     """Raw Python float rejected at schema boundary; use Decimal or str."""

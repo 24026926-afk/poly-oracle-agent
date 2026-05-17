@@ -10,7 +10,6 @@ breaker transitions. Dispatch is non-blocking and best-effort.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -22,7 +21,6 @@ from src.schemas.ops import (
     OperationalAlert,
     OperationalAlertConfig,
     OperationalAlertDispatchResult,
-    OperationalAlertEvaluation,
     OperationalAlertSeverity,
     OperationalAlertState,
     OperationalAlertStatus,
@@ -69,8 +67,7 @@ class OperationalAlertBridge:
 
         # Per-type state tracking for sustained thresholds and cooldown
         self._states: dict[OperationalAlertType, OperationalAlertState] = {
-            at: OperationalAlertState(alert_type=at)
-            for at in OperationalAlertType
+            at: OperationalAlertState(alert_type=at) for at in OperationalAlertType
         }
 
         # Track circuit breaker previous state for transition detection
@@ -131,9 +128,7 @@ class OperationalAlertBridge:
         results: list[OperationalAlertDispatchResult] = []
 
         # 1. Readiness degraded
-        results.append(
-            await self._evaluate_readiness_degraded(readiness_ready, now)
-        )
+        results.append(await self._evaluate_readiness_degraded(readiness_ready, now))
 
         # 2. WebSocket stale
         results.append(
@@ -141,9 +136,7 @@ class OperationalAlertBridge:
         )
 
         # 3. Circuit breaker transitions
-        results.extend(
-            await self._evaluate_circuit_breaker(circuit_breaker_state, now)
-        )
+        results.extend(await self._evaluate_circuit_breaker(circuit_breaker_state, now))
 
         return results
 
@@ -167,7 +160,7 @@ class OperationalAlertBridge:
             severity=OperationalAlertSeverity.INFO,
             first_seen_at_utc=now,
             reason_code="process_started",
-            message=f"Poly-Oracle Agent started. DRY_RUN active. Service: poly-oracle-agent.",
+            message="Poly-Oracle Agent started. DRY_RUN active. Service: poly-oracle-agent.",
         )
         return await self._dispatch(alert, now)
 

@@ -22,7 +22,6 @@ from src.schemas.provider_comparison import (
     LLMProviderCalibrationRecommendation,
     LLMProviderComparisonConfig,
     LLMProviderComparisonReport,
-    LLMProviderComparisonResult,
     LLMProviderComparisonRun,
     LLMProviderCostMetrics,
     LLMProviderDecisionMetrics,
@@ -117,9 +116,8 @@ def derive_readiness_verdict(
     # Gate 4: Cost must be lower than baseline by required fraction
     if baseline_cost_usd > _ZERO:
         cost_reduction = (
-            (baseline_cost_usd - cost_metrics.total_estimated_cost_usd)
-            / baseline_cost_usd
-        )
+            baseline_cost_usd - cost_metrics.total_estimated_cost_usd
+        ) / baseline_cost_usd
         if cost_reduction < config.cost_reduction_required:
             reasons.append(LLMProviderReadinessReason.COST_EXCEEDS_BASELINE)
             return (
@@ -147,7 +145,10 @@ def derive_readiness_verdict(
             )
 
     # Gate 6: Confidence calibration
-    if calibration_metrics.confidence_calibration_deviation > config.calibration_deviation_max:
+    if (
+        calibration_metrics.confidence_calibration_deviation
+        > config.calibration_deviation_max
+    ):
         reasons.append(LLMProviderReadinessReason.WEAK_CONFIDENCE_CALIBRATION)
 
     # Gate 7: EV calibration (where outcomes exist)
@@ -156,7 +157,10 @@ def derive_readiness_verdict(
             reasons.append(LLMProviderReadinessReason.WEAK_EV_CALIBRATION)
 
     # Gate 8: Gatekeeper pass rate threshold
-    if decision_metrics.gatekeeper_pass_rate < Decimal("0.5") and decision_metrics.total_calls > 0:
+    if (
+        decision_metrics.gatekeeper_pass_rate < Decimal("0.5")
+        and decision_metrics.total_calls > 0
+    ):
         reasons.append(LLMProviderReadinessReason.GATEKEEPER_FAILURE_RATE_HIGH)
 
     # If any calibration/quality issues, needs recalibration
@@ -232,10 +236,9 @@ def derive_calibration_recommendation(
     ):
         # Recommend adjusted confidence threshold based on observed win rates
         if calibration_metrics.confidence_bucket_observed_win_rate:
-            avg_win = (
-                sum(calibration_metrics.confidence_bucket_observed_win_rate, _ZERO)
-                / len(calibration_metrics.confidence_bucket_observed_win_rate)
-            )
+            avg_win = sum(
+                calibration_metrics.confidence_bucket_observed_win_rate, _ZERO
+            ) / len(calibration_metrics.confidence_bucket_observed_win_rate)
             suggestions["suggested_confidence_threshold"] = avg_win
             reason_parts.append(
                 f"Confidence calibration deviation "
@@ -248,7 +251,8 @@ def derive_calibration_recommendation(
         and calibration_metrics.ev_calibration_deviation > config.ev_deviation_max
     ):
         suggestions["suggested_ev_threshold"] = max(
-            _ZERO, calibration_metrics.avg_ev - calibration_metrics.ev_calibration_deviation
+            _ZERO,
+            calibration_metrics.avg_ev - calibration_metrics.ev_calibration_deviation,
         )
         reason_parts.append(
             f"EV calibration deviation "
@@ -265,7 +269,9 @@ def derive_calibration_recommendation(
                 "consider increasing max output tokens"
             )
 
-    suggestions["reasoning"] = "; ".join(reason_parts) if reason_parts else "No changes recommended"
+    suggestions["reasoning"] = (
+        "; ".join(reason_parts) if reason_parts else "No changes recommended"
+    )
 
     if not any(
         suggestions[k] is not None

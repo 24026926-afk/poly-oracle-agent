@@ -50,6 +50,7 @@ class TestDashboardDBPathEndToEnd:
 
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": str(db_path)}):
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
 
                 conn = dash.get_connection()
@@ -66,6 +67,7 @@ class TestDashboardDBPathEndToEnd:
 
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": str(nonexistent)}):
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
 
                 # The file must not exist after import
@@ -76,6 +78,7 @@ class TestDashboardDBPathEndToEnd:
         with mock.patch.dict(os.environ, {}, clear=True):
             os.environ.pop("DASHBOARD_DB_PATH", None)
             import src.ui.dashboard as dash
+
             importlib.reload(dash)
 
             assert dash.DB_PATH.name == "poly_oracle.db"
@@ -102,6 +105,7 @@ class TestReadOnlyEnforcementEndToEnd:
 
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": str(db_path)}):
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
 
                 conn = dash.get_connection()
@@ -122,6 +126,7 @@ class TestReadOnlyEnforcementEndToEnd:
 
             with mock.patch.dict(os.environ, {"DASHBOARD_DB_PATH": str(db_path)}):
                 import src.ui.dashboard as dash
+
                 importlib.reload(dash)
 
                 conn = dash.get_connection()
@@ -147,7 +152,12 @@ class TestDashboardAccessValidationReportEndToEnd:
         )
         exp = DashboardExposureCheck(
             passed=True,
-            prohibited_patterns=["private_key", "api_key", "telegram_token", "raw_prompt"],
+            prohibited_patterns=[
+                "private_key",
+                "api_key",
+                "telegram_token",
+                "raw_prompt",
+            ],
             violations_found=[],
         )
         tunnel = DashboardTunnelSpec(
@@ -250,6 +260,7 @@ class TestSecretFreeOutputEndToEnd:
             source = py_file.read_text()
             # No 64-char hex strings that look like private keys
             import re
+
             if re.search(r"0x[a-fA-F0-9]{64}", source):
                 pytest.fail(f"{py_file.name} contains private-key-like hex string")
 
@@ -263,8 +274,12 @@ class TestSecretFreeOutputEndToEnd:
                 if stripped.startswith("#"):
                     continue
                 # Must not iterate os.environ for rendering
-                if "os.environ" in stripped and ("st." in stripped or "markdown" in stripped.lower()):
-                    pytest.fail(f"{py_file.name}:{i+1}: os.environ exposed in UI path")
+                if "os.environ" in stripped and (
+                    "st." in stripped or "markdown" in stripped.lower()
+                ):
+                    pytest.fail(
+                        f"{py_file.name}:{i + 1}: os.environ exposed in UI path"
+                    )
 
 
 # ── Runbook Presence (end-to-end) ──────────────────────────────────────────
@@ -273,7 +288,12 @@ class TestSecretFreeOutputEndToEnd:
 class TestRunbookEndToEnd:
     """SSH tunnel runbook must exist and contain required operational sections."""
 
-    _runbook_path = Path(__file__).resolve().parents[2] / "docs" / "runbooks" / "streamlit-ssh-tunnel.md"
+    _runbook_path = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "runbooks"
+        / "streamlit-ssh-tunnel.md"
+    )
 
     def test_runbook_exists_and_readable(self) -> None:
         assert self._runbook_path.exists()

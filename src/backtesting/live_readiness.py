@@ -139,9 +139,7 @@ def _confidence_calibration_acceptable(
             continue
 
         populated += 1
-        avg_confidence = sum(
-            (d.confidence for d in bucket_d), _ZERO
-        ) / len(bucket_d)
+        avg_confidence = sum((d.confidence for d in bucket_d), _ZERO) / len(bucket_d)
         wins = sum(1 for d in bucket_d if d.realized_pnl_usdc > _ZERO)
         observed_win_rate = Decimal(wins) / Decimal(len(bucket_d))
 
@@ -174,9 +172,8 @@ def _ev_calibration_acceptable(
         return True
 
     avg_ev = sum((d.ev for d in buy_decisions), _ZERO) / len(buy_decisions)
-    avg_position = (
-        sum((d.position_size_usdc for d in buy_decisions), _ZERO)
-        / len(buy_decisions)
+    avg_position = sum((d.position_size_usdc for d in buy_decisions), _ZERO) / len(
+        buy_decisions
     )
     if avg_position <= _ZERO:
         return True
@@ -200,6 +197,5 @@ def verdict_from_string(value: str) -> LiveReadinessVerdict:
         if member.value == upper:
             return member
     raise ValueError(
-        f"Unknown verdict '{value}'. "
-        f"Valid: {[v.value for v in LiveReadinessVerdict]}"
+        f"Unknown verdict '{value}'. Valid: {[v.value for v in LiveReadinessVerdict]}"
     )

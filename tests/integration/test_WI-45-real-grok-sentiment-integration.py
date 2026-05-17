@@ -21,6 +21,7 @@ from src.schemas.llm import GrokFailureReason, MarketCategory, SentimentResponse
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
+
 def _make_mock_httpx_response(*, status: int = 200, content: str = "") -> MagicMock:
     body = {
         "choices": [
@@ -39,19 +40,23 @@ def _make_mock_httpx_response(*, status: int = 200, content: str = "") -> MagicM
 
 
 def _valid_sentiment_json() -> str:
-    return json.dumps({
-        "sentiment_score": 0.72,
-        "tweet_volume_delta": 25,
-        "top_narrative_summary": "Growing bullish momentum across crypto channels.",
-    })
+    return json.dumps(
+        {
+            "sentiment_score": 0.72,
+            "tweet_volume_delta": 25,
+            "top_narrative_summary": "Growing bullish momentum across crypto channels.",
+        }
+    )
 
 
 def _neutral_sentiment_json() -> str:
-    return json.dumps({
-        "sentiment_score": 0.0,
-        "tweet_volume_delta": 0,
-        "top_narrative_summary": "No significant sentiment detected in the last 60 minutes.",
-    })
+    return json.dumps(
+        {
+            "sentiment_score": 0.0,
+            "tweet_volume_delta": 0,
+            "top_narrative_summary": "No significant sentiment detected in the last 60 minutes.",
+        }
+    )
 
 
 def _make_live_client(*, max_retries: int = 2) -> GrokClient:
@@ -75,6 +80,7 @@ _STANDARD_ARGS = dict(
 
 
 # ── integration: GrokClient live path ──────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_full_live_flow_returns_parsed_sentiment():
@@ -200,10 +206,13 @@ async def test_claude_client_audit_trail_neutral_fallback():
     mock_log.assert_called_once()
     call_kwargs = mock_log.call_args[1]
     assert call_kwargs["status"] == "FALLBACK"
-    assert call_kwargs["reason"] == "missing_key"  # typed GrokFailureReason from GrokClient
+    assert (
+        call_kwargs["reason"] == "missing_key"
+    )  # typed GrokFailureReason from GrokClient
 
 
 # ── integration: GrokFailureReason via GrokClient log path ─────────────────
+
 
 @pytest.mark.asyncio
 async def test_grok_client_uses_typed_failure_reason_missing_key():
@@ -224,6 +233,7 @@ async def test_grok_client_uses_typed_failure_reason_missing_key():
 
 
 # ── integration: mock mode still works ─────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_mock_mode_integration():
@@ -248,6 +258,7 @@ async def test_mock_mode_integration():
 
 
 # ── integration: SentimentResponse float rejection ─────────────────────────
+
 
 def test_sentiment_response_rejects_raw_float():
     """SentimentResponse._parse_decimal rejects raw Python float at boundary."""

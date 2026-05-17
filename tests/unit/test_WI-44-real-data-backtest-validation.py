@@ -15,8 +15,6 @@ from pathlib import Path
 
 import pytest
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
 from src.backtesting.live_readiness import (
     LiveReadinessVerdict,
     derive_verdict,
@@ -24,7 +22,6 @@ from src.backtesting.live_readiness import (
 )
 from src.backtesting.validation_report import (
     BacktestActionDistribution,
-    BacktestCalibrationBucket,
     BacktestDataQualitySummary,
     BacktestValidationReport,
     _compute_calibration_buckets,
@@ -37,6 +34,7 @@ from src.schemas.execution import (
     BacktestReport,
 )
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
 
@@ -211,16 +209,20 @@ class TestBacktestValidationReport:
         config = _make_config()
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
             for _ in range(25)
         ]
         report = _make_report(
-            config=config, total_trades=25,
-            net_pnl_usdc=Decimal("12.5"), decisions=decisions,
+            config=config,
+            total_trades=25,
+            net_pnl_usdc=Decimal("12.5"),
+            decisions=decisions,
         )
         result = build_validation_report(
             report, data_dir="/tmp", total_snapshots_replayed=25
@@ -312,13 +314,17 @@ class TestBacktestValidationReport:
     def test_report_includes_realized_ev_calibration(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                ev=Decimal("0.05"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                ev=Decimal("0.05"),
+                realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(20)
         ]
         report = _make_report(
-            total_trades=20, net_pnl_usdc=Decimal("100"), decisions=decisions,
+            total_trades=20,
+            net_pnl_usdc=Decimal("100"),
+            decisions=decisions,
         )
         result = build_validation_report(
             report, data_dir="/tmp", total_snapshots_replayed=20
@@ -373,14 +379,18 @@ class TestVerdictDerivation:
         decisions = [
             _make_decision(
                 token_id="tok_a",
-                decision=True, action="BUY",
-                confidence=Decimal("0.8"), ev=Decimal("0.05"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.8"),
+                ev=Decimal("0.05"),
                 realized_pnl_usdc=Decimal("-2"),
             )
             for _ in range(25)
         ]
         report = _make_report(
-            total_trades=25, net_pnl_usdc=Decimal("-50"), decisions=decisions,
+            total_trades=25,
+            net_pnl_usdc=Decimal("-50"),
+            decisions=decisions,
         )
         verdict = derive_verdict(report, min_trades=20, total_loaded=25)
         assert verdict == LiveReadinessVerdict.FAIL_NEGATIVE_PNL
@@ -388,11 +398,15 @@ class TestVerdictDerivation:
     def test_excessive_drawdown_yields_fail_drawdown(self):
         config = _make_config(initial_bankroll_usdc=Decimal("1000"))
         report = _make_report(
-            config=config, total_trades=30, net_pnl_usdc=Decimal("5"),
+            config=config,
+            total_trades=30,
+            net_pnl_usdc=Decimal("5"),
             max_drawdown_usdc=Decimal("400"),
         )
         verdict = derive_verdict(
-            report, min_trades=20, max_drawdown_pct=Decimal("0.30"),
+            report,
+            min_trades=20,
+            max_drawdown_pct=Decimal("0.30"),
             total_loaded=30,
         )
         assert verdict == LiveReadinessVerdict.FAIL_DRAWDOWN
@@ -402,15 +416,19 @@ class TestVerdictDerivation:
         decisions = [
             _make_decision(
                 token_id="tok_a",
-                decision=True, action="BUY",
-                confidence=Decimal("0.9"), ev=Decimal("0.05"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.9"),
+                ev=Decimal("0.05"),
                 realized_pnl_usdc=Decimal("-3"),  # all losing trades
             )
             for _ in range(25)
         ]
         report = _make_report(
-            total_trades=25, net_pnl_usdc=Decimal("-75"),
-            max_drawdown_usdc=Decimal("75"), decisions=decisions,
+            total_trades=25,
+            net_pnl_usdc=Decimal("-75"),
+            max_drawdown_usdc=Decimal("75"),
+            decisions=decisions,
         )
         verdict = derive_verdict(report, min_trades=20, total_loaded=25)
         # Negative PnL hits first
@@ -421,8 +439,10 @@ class TestVerdictDerivation:
         decisions = [
             _make_decision(
                 token_id="tok_a",
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.30"),  # optimistic EV
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.30"),  # optimistic EV
                 position_size_usdc=Decimal("10"),
                 realized_pnl_usdc=Decimal("1"),
             )
@@ -432,7 +452,8 @@ class TestVerdictDerivation:
             total_trades=25,
             # realized return = (25/25) / 10 = 0.10 vs EV 0.30 → deviation 0.20 > 0.15
             net_pnl_usdc=Decimal("25"),
-            max_drawdown_usdc=Decimal("10"), decisions=decisions,
+            max_drawdown_usdc=Decimal("10"),
+            decisions=decisions,
         )
         verdict = derive_verdict(report, min_trades=20, total_loaded=25)
         assert verdict == LiveReadinessVerdict.FAIL_WEAK_CALIBRATION
@@ -446,8 +467,10 @@ class TestVerdictDerivation:
         decisions = [
             _make_decision(
                 token_id="tok_a",
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
@@ -455,8 +478,10 @@ class TestVerdictDerivation:
         ] + [
             _make_decision(
                 token_id="tok_a",
-                decision=True, action="BUY",
-                confidence=Decimal("0.8"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.8"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
@@ -464,11 +489,13 @@ class TestVerdictDerivation:
         ]
         config = _make_config(initial_bankroll_usdc=Decimal("1000"))
         report = _make_report(
-            config=config, total_trades=25,
+            config=config,
+            total_trades=25,
             # 25 trades × 0.5 USDC = 12.5 net PnL
             # realized return = (12.5/25) / 12.5 = 0.04 ≈ avg_ev 0.04
             net_pnl_usdc=Decimal("12.5"),
-            max_drawdown_usdc=Decimal("3"), sharpe_ratio=Decimal("1.2"),
+            max_drawdown_usdc=Decimal("3"),
+            sharpe_ratio=Decimal("1.2"),
             decisions=decisions,
         )
         verdict = derive_verdict(report, min_trades=20, total_loaded=25)
@@ -478,16 +505,20 @@ class TestVerdictDerivation:
         decisions = [
             _make_decision(
                 token_id="tok_a",
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(30)
         ]
         config = _make_config()
         report = _make_report(
-            config=config, total_trades=30,
-            net_pnl_usdc=Decimal("150"), decisions=decisions,
+            config=config,
+            total_trades=30,
+            net_pnl_usdc=Decimal("150"),
+            decisions=decisions,
         )
         v1 = derive_verdict(report, min_trades=20, total_loaded=30)
         v2 = derive_verdict(report, min_trades=20, total_loaded=30)
@@ -538,8 +569,10 @@ class TestValidationReportContent:
     def test_report_includes_confidence_calibration_buckets(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.75"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.75"),
+                realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(10)
         ]
@@ -557,12 +590,16 @@ class TestValidationReportContent:
     def test_report_includes_average_ev(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                ev=Decimal("0.04"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                ev=Decimal("0.04"),
+                realized_pnl_usdc=Decimal("5"),
             ),
             _make_decision(
-                decision=True, action="BUY",
-                ev=Decimal("0.06"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                ev=Decimal("0.06"),
+                realized_pnl_usdc=Decimal("5"),
             ),
         ]
         report = _make_report(total_trades=2, decisions=decisions)
@@ -635,6 +672,7 @@ class TestSafetyInvariants:
         import inspect as _ins
         import src.backtesting.validation_report as vr_mod
         import src.backtesting.live_readiness as lr_mod
+
         source_vr = _ins.getsource(vr_mod)
         source_lr = _ins.getsource(lr_mod)
         assert "TransactionSigner" not in source_vr
@@ -644,6 +682,7 @@ class TestSafetyInvariants:
         import inspect as _ins
         import src.backtesting.validation_report as vr_mod
         import src.backtesting.live_readiness as lr_mod
+
         source_vr = _ins.getsource(vr_mod)
         source_lr = _ins.getsource(lr_mod)
         assert "broadcast" not in source_vr.lower()
@@ -701,8 +740,10 @@ class TestDecimalIntegrity:
     def test_ev_calculation_returns_decimal(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                ev=Decimal("0.05"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                ev=Decimal("0.05"),
+                realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(3)
         ]
@@ -715,8 +756,10 @@ class TestDecimalIntegrity:
     def test_no_raw_float_in_calibration_math(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.75"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.75"),
+                realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(10)
         ]
@@ -762,16 +805,22 @@ class TestCalibrationBuckets:
     def test_bucket_assignment_correct(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.15"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.15"),
+                realized_pnl_usdc=Decimal("5"),
             ),
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.75"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.75"),
+                realized_pnl_usdc=Decimal("5"),
             ),
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.95"), realized_pnl_usdc=Decimal("5"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.95"),
+                realized_pnl_usdc=Decimal("5"),
             ),
         ]
         buckets = _compute_calibration_buckets(
@@ -855,7 +904,9 @@ class TestCliScript:
         report = _make_report(total_trades=0)
         dq = BacktestDataQualitySummary(total_loaded=0)
         result = build_validation_report(
-            report, data_dir="/nonexistent", total_snapshots_replayed=0,
+            report,
+            data_dir="/nonexistent",
+            total_snapshots_replayed=0,
             data_quality=dq,
         )
         assert result.verdict == LiveReadinessVerdict.FAIL_DATA_QUALITY
@@ -863,8 +914,10 @@ class TestCliScript:
     def test_cli_writes_json_report_to_output_path(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
@@ -872,9 +925,12 @@ class TestCliScript:
         ]
         config = _make_config()
         report = _make_report(
-            config=config, total_trades=25,
-            net_pnl_usdc=Decimal("12.5"), max_drawdown_usdc=Decimal("3"),
-            sharpe_ratio=Decimal("1.1"), decisions=decisions,
+            config=config,
+            total_trades=25,
+            net_pnl_usdc=Decimal("12.5"),
+            max_drawdown_usdc=Decimal("3"),
+            sharpe_ratio=Decimal("1.1"),
+            decisions=decisions,
         )
         result = build_validation_report(
             report, data_dir="/tmp/test_data", total_snapshots_replayed=25
@@ -888,8 +944,10 @@ class TestCliScript:
     def test_cli_writes_markdown_report(self):
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
@@ -897,8 +955,10 @@ class TestCliScript:
         ]
         config = _make_config()
         report = _make_report(
-            config=config, total_trades=25,
-            net_pnl_usdc=Decimal("12.5"), decisions=decisions,
+            config=config,
+            total_trades=25,
+            net_pnl_usdc=Decimal("12.5"),
+            decisions=decisions,
         )
         result = build_validation_report(
             report, data_dir="/tmp/test_data", total_snapshots_replayed=25
@@ -991,19 +1051,21 @@ class TestNoOptimizationInvariant:
 
         decisions = [
             _make_decision(
-                decision=True, action="BUY",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                decision=True,
+                action="BUY",
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(25)
         ]
         report = _make_report(
-            config=config, total_trades=25,
-            net_pnl_usdc=Decimal("100"), decisions=decisions,
+            config=config,
+            total_trades=25,
+            net_pnl_usdc=Decimal("100"),
+            decisions=decisions,
         )
-        build_validation_report(
-            report, data_dir="/tmp", total_snapshots_replayed=25
-        )
+        build_validation_report(report, data_dir="/tmp", total_snapshots_replayed=25)
         assert config.kelly_fraction == original_kelly
         assert config.min_confidence == original_conf
 
@@ -1011,18 +1073,14 @@ class TestNoOptimizationInvariant:
         config = _make_config(kelly_fraction=Decimal("0.25"))
         original = config.kelly_fraction
         report = _make_report(config=config, total_trades=25)
-        build_validation_report(
-            report, data_dir="/tmp", total_snapshots_replayed=25
-        )
+        build_validation_report(report, data_dir="/tmp", total_snapshots_replayed=25)
         assert config.kelly_fraction == original
 
     def test_validation_does_not_mutate_confidence_thresholds(self):
         config = _make_config(min_confidence=Decimal("0.75"))
         original = config.min_confidence
         report = _make_report(config=config, total_trades=25)
-        build_validation_report(
-            report, data_dir="/tmp", total_snapshots_replayed=25
-        )
+        build_validation_report(report, data_dir="/tmp", total_snapshots_replayed=25)
         assert config.min_confidence == original
 
 

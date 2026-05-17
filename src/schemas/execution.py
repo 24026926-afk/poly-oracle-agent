@@ -281,7 +281,9 @@ class BacktestDecision(BaseModel):
     # break-even outcomes are valid resolved outcomes.
     outcome_resolved: bool = False
 
-    @field_validator("position_size_usdc", "ev", "confidence", "realized_pnl_usdc", mode="before")
+    @field_validator(
+        "position_size_usdc", "ev", "confidence", "realized_pnl_usdc", mode="before"
+    )
     @classmethod
     def _reject_float_financials(cls, value: Any) -> Any:
         if isinstance(value, float):

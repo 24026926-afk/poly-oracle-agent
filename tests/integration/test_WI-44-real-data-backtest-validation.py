@@ -16,12 +16,9 @@ from pathlib import Path
 
 import pytest
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-from src.backtesting.live_readiness import LiveReadinessVerdict, derive_verdict
+from src.backtesting.live_readiness import LiveReadinessVerdict
 from src.backtesting.validation_report import (
     BacktestDataQualitySummary,
-    BacktestValidationReport,
     build_validation_report,
 )
 from src.schemas.execution import (
@@ -31,6 +28,7 @@ from src.schemas.execution import (
     BacktestReport,
 )
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _ZERO = Decimal("0")
 
 
@@ -120,7 +118,8 @@ class TestValidationPipelineE2E:
         decisions = [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
@@ -128,7 +127,8 @@ class TestValidationPipelineE2E:
         ] + [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.8"), ev=Decimal("0.04"),
+                confidence=Decimal("0.8"),
+                ev=Decimal("0.04"),
                 position_size_usdc=Decimal("12.5"),
                 realized_pnl_usdc=Decimal("0.5"),
             )
@@ -147,7 +147,9 @@ class TestValidationPipelineE2E:
         )
         dq = BacktestDataQualitySummary(total_loaded=100)
         result = build_validation_report(
-            report, data_dir="/tmp/data", total_snapshots_replayed=100,
+            report,
+            data_dir="/tmp/data",
+            total_snapshots_replayed=100,
             data_quality=dq,
         )
         assert result.verdict == LiveReadinessVerdict.PASS
@@ -160,17 +162,22 @@ class TestValidationPipelineE2E:
         decisions = [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 realized_pnl_usdc=Decimal("4"),
             )
             for _ in range(3)
         ]
         report = _make_report(
-            total_trades=3, net_pnl_usdc=Decimal("12"), decisions=decisions,
+            total_trades=3,
+            net_pnl_usdc=Decimal("12"),
+            decisions=decisions,
         )
         dq = BacktestDataQualitySummary(total_loaded=10)
         result = build_validation_report(
-            report, data_dir="/tmp/data", total_snapshots_replayed=10,
+            report,
+            data_dir="/tmp/data",
+            total_snapshots_replayed=10,
             data_quality=dq,
         )
         assert result.verdict == LiveReadinessVerdict.FAIL_INSUFFICIENT_TRADES
@@ -180,13 +187,16 @@ class TestValidationPipelineE2E:
         decisions = [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 realized_pnl_usdc=Decimal("-5"),
             )
             for _ in range(30)
         ]
         report = _make_report(
-            total_trades=30, net_pnl_usdc=Decimal("-150"), decisions=decisions,
+            total_trades=30,
+            net_pnl_usdc=Decimal("-150"),
+            decisions=decisions,
         )
         result = build_validation_report(
             report, data_dir="/tmp/data", total_snapshots_replayed=50
@@ -199,7 +209,8 @@ class TestValidationPipelineE2E:
         decisions = [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(30)
@@ -220,10 +231,13 @@ class TestValidationPipelineE2E:
         """High malformed data fraction → FAIL_DATA_QUALITY."""
         report = _make_report(total_trades=0)
         dq = BacktestDataQualitySummary(
-            total_loaded=100, malformed_count=15,
+            total_loaded=100,
+            malformed_count=15,
         )
         result = build_validation_report(
-            report, data_dir="/tmp/data", total_snapshots_replayed=100,
+            report,
+            data_dir="/tmp/data",
+            total_snapshots_replayed=100,
             data_quality=dq,
         )
         assert result.verdict == LiveReadinessVerdict.FAIL_DATA_QUALITY
@@ -233,7 +247,8 @@ class TestValidationPipelineE2E:
         decisions = [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.75"), ev=Decimal("0.05"),
+                confidence=Decimal("0.75"),
+                ev=Decimal("0.05"),
                 realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(25)
@@ -285,7 +300,8 @@ class TestValidationPipelineE2E:
         decisions = [
             _make_decision(
                 token_id="mkt_a",
-                confidence=Decimal("0.7"), ev=Decimal("0.04"),
+                confidence=Decimal("0.7"),
+                ev=Decimal("0.04"),
                 realized_pnl_usdc=Decimal("5"),
             )
             for _ in range(20)
@@ -331,9 +347,7 @@ class TestCliIntegration:
             from scripts.run_real_data_backtest import _ALLOWED_OUTPUT_PARENT
         finally:
             sys.path.pop(0)
-        ok_path = (
-            Path.cwd() / _ALLOWED_OUTPUT_PARENT / "phase13_baseline.json"
-        )
+        ok_path = Path.cwd() / _ALLOWED_OUTPUT_PARENT / "phase13_baseline.json"
         # Should not raise ValueError
         ok_path.resolve().relative_to(Path.cwd() / _ALLOWED_OUTPUT_PARENT)
 
@@ -346,9 +360,7 @@ class TestCliIntegration:
             sys.path.pop(0)
         bad_path = Path("/tmp/evil.json")
         with pytest.raises(ValueError):
-            bad_path.resolve().relative_to(
-                Path.cwd() / _ALLOWED_OUTPUT_PARENT
-            )
+            bad_path.resolve().relative_to(Path.cwd() / _ALLOWED_OUTPUT_PARENT)
 
     def test_markdown_report_uses_str_not_float(self):
         """Markdown writer must not call float() on Decimal fields."""
@@ -359,6 +371,7 @@ class TestCliIntegration:
             sys.path.pop(0)
 
         import inspect
+
         source = inspect.getsource(_write_markdown_report)
         assert "float(" not in source, (
             "Markdown report must not use float() for Decimal metrics"
@@ -392,8 +405,10 @@ class TestCliIntegration:
             proc = await _asyncio_mod.create_subprocess_exec(
                 sys.executable,
                 str(_PROJECT_ROOT / "scripts" / "run_real_data_backtest.py"),
-                "--data-dir", str(data_dir),
-                "--output", str(output),
+                "--data-dir",
+                str(data_dir),
+                "--output",
+                str(output),
                 stdout=_asyncio_mod.subprocess.PIPE,
                 stderr=_asyncio_mod.subprocess.PIPE,
                 cwd=str(_PROJECT_ROOT),
