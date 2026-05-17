@@ -42,7 +42,7 @@ logger = structlog.get_logger(__name__)
 NEUTRAL_SENTIMENT = SentimentResponse(
     sentiment_score=Decimal("0.0"),
     tweet_volume_delta=0,
-    top_narrative_summary="Sentiment unavailable in 2.0s window; neutral fallback applied.",
+    top_narrative_summary="Sentiment unavailable within configured window; neutral fallback applied.",
 )
 
 # Deterministic mock fixture for tests and local runs
@@ -51,6 +51,8 @@ _MOCK_SENTIMENT = SentimentResponse(
     tweet_volume_delta=12,
     top_narrative_summary="Moderate positive sentiment detected across social channels in the last 60 minutes.",
 )
+
+_MAX_NARRATIVE_SUMMARY_CHARS = 320
 
 GROK_TIMEOUT_SECONDS: float = 2.0
 GROK_TOTAL_BUDGET_SECONDS: float = 4.0  # conservative default for 2 retries × 2s
@@ -72,10 +74,11 @@ Market details:
 
 Instructions:
 1. Estimate directional sentiment and participation momentum.
+   Put the most important conclusion first.
 2. Return exactly one JSON object with these keys:
    - "sentiment_score": float in [-1.0, 1.0] (-1 = bearish, +1 = bullish)
    - "tweet_volume_delta": signed integer percent delta vs prior 60-min baseline
-   - "top_narrative_summary": 1-2 sentence summary of dominant narrative (10-320 chars)
+   - "top_narrative_summary": 1-2 sentence summary of dominant narrative (10-320 chars, never longer)
 """
 
 
@@ -358,6 +361,8 @@ class GrokClient:
 
             # Parse with Decimal to avoid float entering Pydantic boundary
             data = json.loads(json_str, parse_float=Decimal)
+            if isinstance(data, dict):
+                _coerce_narrative_summary(data)
             return SentimentResponse.model_validate(data)
 
         finally:
@@ -379,6 +384,37 @@ class GrokClient:
 
 class _SafetyRefusalError(Exception):
     """Raised when Grok API returns a content-filtering / safety refusal."""
+
+
+def _coerce_narrative_summary(data: dict[str, Any]) -> None:
+    """Soft-truncate oversized Grok narratives before schema validation.
+
+    Grok occasionally returns useful sentiment with a summary over the schema
+    budget.  Preserve the typed signal by shortening only that presentation
+    field; missing, short, or non-string summaries still fail validation.
+    """
+    value = data.get("top_narrative_summary")
+    if not isinstance(value, str):
+        return
+    data["top_narrative_summary"] = _truncate_narrative_summary(value)
+
+
+def _truncate_narrative_summary(text: str) -> str:
+    stripped = text.strip()
+    if len(stripped) <= _MAX_NARRATIVE_SUMMARY_CHARS:
+        return stripped
+
+    candidate = stripped[:_MAX_NARRATIVE_SUMMARY_CHARS]
+    min_boundary = _MAX_NARRATIVE_SUMMARY_CHARS // 2
+    boundary = max(
+        candidate.rfind(". "),
+        candidate.rfind("! "),
+        candidate.rfind("? "),
+    )
+    if boundary >= min_boundary:
+        return candidate[: boundary + 1].strip()
+
+    return stripped[: _MAX_NARRATIVE_SUMMARY_CHARS - 3].rstrip() + "..."
 
 
 _SAFETY_REFUSAL_PATTERNS = (

@@ -337,6 +337,7 @@ class LLMBudgetBlockReason(str, Enum):
     """Typed reasons for LLM budget blocks."""
 
     HOURLY_CALL_LIMIT_EXHAUSTED = "hourly_call_limit_exhausted"
+    REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED = "reflection_hourly_call_limit_exhausted"
     DAILY_CALL_LIMIT_EXHAUSTED = "daily_call_limit_exhausted"
     DAILY_TOKEN_LIMIT_EXHAUSTED = "daily_token_limit_exhausted"
     DAILY_COST_LIMIT_EXHAUSTED = "daily_cost_limit_exhausted"
@@ -451,6 +452,8 @@ class LLMBudgetWindow(BaseModel):
     model_config = {"frozen": False}
 
     hourly_calls: int = Field(default=0, ge=0)
+    primary_hourly_calls: int = Field(default=0, ge=0)
+    reflection_hourly_calls: int = Field(default=0, ge=0)
     daily_calls: int = Field(default=0, ge=0)
     hourly_window_start_utc: Optional[datetime] = None
     daily_window_start_utc: Optional[datetime] = None

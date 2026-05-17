@@ -181,6 +181,34 @@ async def test_crypto_triggers_grok_sentiment_call(
     assert str(_MOCK_SENTIMENT.tweet_volume_delta) in prompt_text
 
 
+@pytest.mark.asyncio
+async def test_crypto_skips_grok_when_primary_budget_exhausted(
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
+):
+    """Eligible markets must not spend Grok calls when primary LLM is blocked."""
+    budget_config = test_config.model_copy(
+        update={
+            "enable_llm_cost_guard": True,
+            "llm_hourly_call_limit": 0,
+            "llm_reflection_hourly_call_limit": 1000,
+        }
+    )
+    client, _, out_q = _setup_client(budget_config, mock_anthropic_buy_json)
+
+    with patch.object(
+        client._grok_client,
+        "analyze_sentiment",
+        wraps=client._grok_client.analyze_sentiment,
+    ) as spy:
+        await client._process_evaluation(_crypto_market_item())
+        spy.assert_not_called()
+
+    client.client.messages.create.assert_not_called()
+    assert out_q.qsize() == 0
+
+
 # ---------------------------------------------------------------------------
 # Test 2: POLITICS triggers Grok call (real GrokClient, mock mode)
 # ---------------------------------------------------------------------------

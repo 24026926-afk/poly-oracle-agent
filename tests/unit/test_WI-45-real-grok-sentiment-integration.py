@@ -18,6 +18,7 @@ from src.agents.evaluation.grok_client import (
     GrokClient,
     NEUTRAL_SENTIMENT,
     _MOCK_SENTIMENT,
+    _truncate_narrative_summary,
 )
 from src.core.config import AppConfig
 from src.schemas.llm import MarketCategory, SentimentResponse
@@ -189,13 +190,27 @@ def test_missing_api_key_whitespace_only_returns_neutral():
     assert result == NEUTRAL_SENTIMENT
 
 
-def test_grok_timeout_seconds_config_field_exists():
-    cfg = AppConfig()
+def test_grok_timeout_seconds_config_field_exists(monkeypatch):
+    monkeypatch.delenv("GROK_TIMEOUT_SECONDS", raising=False)
+    cfg = AppConfig(
+        _env_file=None,
+        anthropic_api_key="sk-test",
+        polygon_rpc_url="https://test",
+        wallet_address="0x" + "0" * 40,
+        wallet_private_key="0x" + "1" * 64,
+    )
     assert cfg.grok_timeout_seconds == 2.0
 
 
-def test_grok_max_retries_config_field_exists():
-    cfg = AppConfig()
+def test_grok_max_retries_config_field_exists(monkeypatch):
+    monkeypatch.delenv("GROK_MAX_RETRIES", raising=False)
+    cfg = AppConfig(
+        _env_file=None,
+        anthropic_api_key="sk-test",
+        polygon_rpc_url="https://test",
+        wallet_address="0x" + "0" * 40,
+        wallet_private_key="0x" + "1" * 64,
+    )
     assert cfg.grok_max_retries == 2
 
 
@@ -539,7 +554,15 @@ def test_top_narrative_summary_too_short_rejected():
     assert result == NEUTRAL_SENTIMENT
 
 
-def test_top_narrative_summary_too_long_rejected():
+def test_top_narrative_summary_too_long_recovered_by_truncation():
+    long_summary = (
+        "Bullish crypto discourse leads the market narrative as traders point to "
+        "ETF inflows and stronger liquidity. "
+        "Secondary discussion focuses on volatility around macro data and short-term "
+        "profit taking, but the dominant tone remains constructive across major "
+        "accounts and market commentators. "
+        "This extra sentence pushes the response over the schema limit."
+    )
     body = {
         "choices": [
             {
@@ -548,7 +571,7 @@ def test_top_narrative_summary_too_long_rejected():
                         {
                             "sentiment_score": 0.5,
                             "tweet_volume_delta": 5,
-                            "top_narrative_summary": "x" * 350,
+                            "top_narrative_summary": long_summary,
                         }
                     )
                 }
@@ -563,7 +586,35 @@ def test_top_narrative_summary_too_long_rejected():
     client = _make_live_client(http_client=mock_client)
 
     result = asyncio.run(client.analyze_sentiment(**_STANDARD_CALL_ARGS))
-    assert result == NEUTRAL_SENTIMENT
+    assert result is not NEUTRAL_SENTIMENT
+    assert len(result.top_narrative_summary) <= 320
+    assert result.top_narrative_summary.endswith(".")
+
+
+def test_truncate_narrative_summary_uses_sentence_boundary():
+    long_summary = (
+        "The dominant narrative is bullish and centers on real participation. "
+        "A second sentence adds supporting context without changing the conclusion. "
+        "This third sentence is intentionally long and should be removed when the "
+        "helper finds a clean sentence boundary before the schema limit. "
+        + "TAILMARKER"
+        * 20
+    )
+
+    result = _truncate_narrative_summary(long_summary)
+
+    assert len(result) <= 320
+    assert result.endswith(".")
+    assert "TAILMARKER" not in result
+
+
+def test_truncate_narrative_summary_without_boundary_uses_ascii_ellipsis():
+    long_summary = "x" * 500
+
+    result = _truncate_narrative_summary(long_summary)
+
+    assert len(result) == 320
+    assert result.endswith("...")
 
 
 def test_missing_top_narrative_summary_rejected():

@@ -512,6 +512,7 @@ class ClaudeClient:
         category: MarketCategory,
         market_state: Dict[str, Any],
         snapshot_id: str,
+        market_key: str,
     ) -> SentimentResponse:
         """Stage A: fetch sentiment from Grok for eligible categories.
 
@@ -523,6 +524,30 @@ class ClaudeClient:
             self._log_sentiment(
                 status="SKIPPED",
                 reason="SKIPPED_CATEGORY",
+                sentiment=NEUTRAL_SENTIMENT,
+                snapshot_id=snapshot_id,
+            )
+            return NEUTRAL_SENTIMENT
+
+        budget_decision = await self._budget_guard.peek_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        if not budget_decision.allowed:
+            reason = (
+                budget_decision.block_reason.value
+                if budget_decision.block_reason
+                else "unknown"
+            )
+            logger.info(
+                "grok_skipped_due_to_llm_budget",
+                market_key=_hash_market_key(market_key),
+                reason=reason,
+                snapshot_id=snapshot_id,
+            )
+            self._log_sentiment(
+                status="SKIPPED",
+                reason="PRIMARY_BUDGET_EXHAUSTED",
                 sentiment=NEUTRAL_SENTIMENT,
                 snapshot_id=snapshot_id,
             )
@@ -616,11 +641,17 @@ class ClaudeClient:
         # Stage 0: Route market category
         category = await self._route_market(market_state)
 
-        # Stage A: Fetch sentiment
-        sentiment = await self._fetch_sentiment(category, market_state, snapshot_id)
-
-        # WI-52: Derive market key for budget/cooldown tracking
+        # WI-52: Derive market key before optional Grok work so wasted sentiment
+        # calls can be skipped when primary LLM budget is already exhausted.
         market_key = market_state.get("condition_id", "unknown")
+
+        # Stage A: Fetch sentiment
+        sentiment = await self._fetch_sentiment(
+            category,
+            market_state,
+            snapshot_id,
+            market_key=market_key,
+        )
 
         # WI-52: Check cognitive cooldown before any provider call
         cooldown_decision = await self._cognitive_breaker.check_cooldown(market_key)

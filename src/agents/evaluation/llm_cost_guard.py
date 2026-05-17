@@ -90,108 +90,201 @@ class LLMBudgetGuard:
         WI-52: Zero limits mean NO calls allowed when guard is enabled.
         WI-52: Check and counter reservation are atomic under the lock.
         """
-        if not self._config.enable_llm_cost_guard:
+        if not self._guard_enabled():
             return LLMBudgetDecision(allowed=True, call_type=call_type)
 
         async with self._lock:
             self._refresh_windows()
-
-            # WI-52: Zero limits are explicit kill switches when the guard is enabled.
-            hourly_limit = self._config.llm_hourly_call_limit
-            if hourly_limit == 0:
-                return self._block(
-                    LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED, call_type
-                )
-            if self._global_window.hourly_calls >= hourly_limit:
-                return self._block(
-                    LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED, call_type
-                )
-
-            daily_limit = self._config.llm_daily_call_limit
-            if daily_limit == 0:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED, call_type
-                )
-            if self._global_window.daily_calls >= daily_limit:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED, call_type
-                )
-
-            token_limit = self._config.llm_daily_token_limit
-            if token_limit == 0:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type
-                )
-            if self._total_tokens_consumed >= token_limit:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type
-                )
-
-            cost_limit = self._config.llm_daily_cost_limit_usd
-            if cost_limit == 0:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type
-                )
-            if self._total_cost_usd >= cost_limit:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type
-                )
-
-            per_market_limit = self._config.llm_market_hourly_call_limit
-            if per_market_limit == 0:
-                return self._block(
-                    LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED, call_type
-                )
-            if market_key is not None:
-                market_calls = self._per_market_hourly.get(market_key, 0)
-                if market_calls >= per_market_limit:
-                    return self._block(
-                        LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED,
-                        call_type,
-                    )
-
-            # WI-52: Atomic counter + token/cost reservation — prevents concurrent bypass
-            fallback = self._config.llm_fallback_tokens_per_call
-            cost_per_input = Decimal(str(self._config.llm_cost_per_input_token_usd))
-            cost_per_output = Decimal(str(self._config.llm_cost_per_output_token_usd))
-            reserved_tokens = fallback
-            reserved_cost = (cost_per_input * (fallback // 2)) + (
-                cost_per_output * (fallback - fallback // 2)
+            return self._evaluate_budget_locked(
+                call_type=call_type,
+                market_key=market_key,
+                reserve=True,
             )
 
-            # Check if reserving this call would exceed token/cost limits
-            if (
-                token_limit > 0
-                and (self._total_tokens_consumed + reserved_tokens) > token_limit
-            ):
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED, call_type
-                )
-            if cost_limit > 0 and (self._total_cost_usd + reserved_cost) > cost_limit:
-                return self._block(
-                    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED, call_type
-                )
+    async def peek_budget(
+        self,
+        *,
+        call_type: str = "primary",
+        market_key: Optional[str] = None,
+    ) -> LLMBudgetDecision:
+        """Return current allow/block decision without reserving a provider call.
 
-            self._global_window = LLMBudgetWindow(
-                hourly_calls=self._global_window.hourly_calls + 1,
-                daily_calls=self._global_window.daily_calls + 1,
-                hourly_window_start=self._hourly_window_start,
-                daily_window_start=self._daily_window_start,
-            )
-            if market_key is not None:
-                current = self._per_market_hourly.get(market_key, 0)
-                self._per_market_hourly[market_key] = current + 1
-
-            # Reserve token/cost budget atomically
-            self._total_tokens_consumed += reserved_tokens
-            self._total_cost_usd += reserved_cost
-            self._estimated_spend_usd += reserved_cost
-
-            # Emit call metric (fire-and-forget)
-            if self._metrics is not None:
-                asyncio.ensure_future(self._emit_metrics_for_call(call_type))
-
+        This is intentionally non-mutating.  It is used only for upstream work
+        that would be wasted if the downstream primary call is already blocked.
+        Callers must still use ``check_budget`` immediately before any paid LLM
+        provider request.
+        """
+        if not self._guard_enabled():
             return LLMBudgetDecision(allowed=True, call_type=call_type)
+
+        async with self._lock:
+            self._refresh_windows()
+            return self._evaluate_budget_locked(
+                call_type=call_type,
+                market_key=market_key,
+                reserve=False,
+            )
+
+    def _evaluate_budget_locked(
+        self,
+        *,
+        call_type: str,
+        market_key: Optional[str],
+        reserve: bool,
+    ) -> LLMBudgetDecision:
+        # WI-52: Zero limits are explicit kill switches when the guard is enabled.
+        hourly_limit, hourly_calls, hourly_reason = self._hourly_state(call_type)
+        if hourly_limit == 0:
+            return self._block(hourly_reason, call_type, emit=reserve)
+        if hourly_calls >= hourly_limit:
+            return self._block(hourly_reason, call_type, emit=reserve)
+
+        daily_limit = self._config.llm_daily_call_limit
+        if daily_limit == 0:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+        if self._global_window.daily_calls >= daily_limit:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+
+        token_limit = self._config.llm_daily_token_limit
+        if token_limit == 0:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+        if self._total_tokens_consumed >= token_limit:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+
+        cost_limit = self._config.llm_daily_cost_limit_usd
+        if cost_limit == 0:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+        if self._total_cost_usd >= cost_limit:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+
+        per_market_limit = self._config.llm_market_hourly_call_limit
+        if per_market_limit == 0:
+            return self._block(
+                LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+        if market_key is not None:
+            market_calls = self._per_market_hourly.get(market_key, 0)
+            if market_calls >= per_market_limit:
+                return self._block(
+                    LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED,
+                    call_type,
+                    emit=reserve,
+                )
+
+        fallback = self._config.llm_fallback_tokens_per_call
+        cost_per_input = Decimal(str(self._config.llm_cost_per_input_token_usd))
+        cost_per_output = Decimal(str(self._config.llm_cost_per_output_token_usd))
+        reserved_tokens = fallback
+        reserved_cost = (cost_per_input * (fallback // 2)) + (
+            cost_per_output * (fallback - fallback // 2)
+        )
+
+        # Check if reserving this call would exceed token/cost limits
+        if (
+            token_limit > 0
+            and (self._total_tokens_consumed + reserved_tokens) > token_limit
+        ):
+            return self._block(
+                LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+        if cost_limit > 0 and (self._total_cost_usd + reserved_cost) > cost_limit:
+            return self._block(
+                LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
+                call_type,
+                emit=reserve,
+            )
+
+        if not reserve:
+            return LLMBudgetDecision(allowed=True, call_type=call_type)
+
+        # WI-52: Atomic counter + token/cost reservation prevents concurrent bypass.
+        self._reserve_call(
+            call_type=call_type,
+            market_key=market_key,
+            reserved_tokens=reserved_tokens,
+            reserved_cost=reserved_cost,
+        )
+
+        # Emit call metric (fire-and-forget)
+        if self._metrics is not None:
+            asyncio.ensure_future(self._emit_metrics_for_call(call_type))
+
+        return LLMBudgetDecision(allowed=True, call_type=call_type)
+
+    def _hourly_state(self, call_type: str) -> tuple[int, int, LLMBudgetBlockReason]:
+        if call_type == "reflection":
+            return (
+                self._config.llm_reflection_hourly_call_limit,
+                self._global_window.reflection_hourly_calls,
+                LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED,
+            )
+        return (
+            self._config.llm_hourly_call_limit,
+            self._global_window.primary_hourly_calls,
+            LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED,
+        )
+
+    def _reserve_call(
+        self,
+        *,
+        call_type: str,
+        market_key: Optional[str],
+        reserved_tokens: int,
+        reserved_cost: Decimal,
+    ) -> None:
+        primary_calls = self._global_window.primary_hourly_calls
+        reflection_calls = self._global_window.reflection_hourly_calls
+        if call_type == "reflection":
+            reflection_calls += 1
+        else:
+            primary_calls += 1
+
+        self._global_window = LLMBudgetWindow(
+            hourly_calls=self._global_window.hourly_calls + 1,
+            primary_hourly_calls=primary_calls,
+            reflection_hourly_calls=reflection_calls,
+            daily_calls=self._global_window.daily_calls + 1,
+            hourly_window_start_utc=self._hourly_window_start,
+            daily_window_start_utc=self._daily_window_start,
+        )
+        if market_key is not None:
+            current = self._per_market_hourly.get(market_key, 0)
+            self._per_market_hourly[market_key] = current + 1
+
+        self._total_tokens_consumed += reserved_tokens
+        self._total_cost_usd += reserved_cost
+        self._estimated_spend_usd += reserved_cost
+
+    def _guard_enabled(self) -> bool:
+        return getattr(self._config, "enable_llm_cost_guard", False) is True
 
     async def _emit_metrics_for_call(self, call_type: str) -> None:
         """Emit LLM call metric (fire-and-forget, non-blocking)."""
@@ -323,7 +416,7 @@ class LLMBudgetGuard:
         async with self._lock:
             self._refresh_windows()
             return LLMCostGuardSnapshot(
-                budget_enabled=self._config.enable_llm_cost_guard,
+                budget_enabled=self._guard_enabled(),
                 budget_allowed=True,  # snapshot doesn't check — use check_budget
                 estimated_spend_usd=self._estimated_spend_usd,
             )
@@ -339,9 +432,12 @@ class LLMBudgetGuard:
         ) >= timedelta(hours=1):
             self._hourly_window_start = now
             self._global_window = LLMBudgetWindow(
+                hourly_calls=0,
+                primary_hourly_calls=0,
+                reflection_hourly_calls=0,
                 daily_calls=self._global_window.daily_calls,
-                daily_window_start=self._daily_window_start,
-                hourly_window_start=now,
+                daily_window_start_utc=self._daily_window_start,
+                hourly_window_start_utc=now,
             )
             self._per_market_hourly.clear()
 
@@ -352,8 +448,10 @@ class LLMBudgetGuard:
             self._daily_window_start = now
             self._global_window = LLMBudgetWindow(
                 hourly_calls=self._global_window.hourly_calls,
-                hourly_window_start=self._hourly_window_start,
-                daily_window_start=now,
+                primary_hourly_calls=self._global_window.primary_hourly_calls,
+                reflection_hourly_calls=self._global_window.reflection_hourly_calls,
+                hourly_window_start_utc=self._hourly_window_start,
+                daily_window_start_utc=now,
             )
             self._total_tokens_consumed = 0
             self._total_cost_usd = Decimal("0")
@@ -362,16 +460,19 @@ class LLMBudgetGuard:
         self,
         reason: LLMBudgetBlockReason,
         call_type: str,
+        *,
+        emit: bool = True,
     ) -> LLMBudgetDecision:
-        logger.warning(
-            "llm_budget_blocked",
-            reason=reason.value,
-            call_type=call_type,
-        )
-        if self._metrics is not None:
-            asyncio.ensure_future(
-                self._metrics.record_llm_budget_block(reason=reason.value)
+        if emit:
+            logger.warning(
+                "llm_budget_blocked",
+                reason=reason.value,
+                call_type=call_type,
             )
+            if self._metrics is not None:
+                asyncio.ensure_future(
+                    self._metrics.record_llm_budget_block(reason=reason.value)
+                )
         return LLMBudgetDecision(
             allowed=False, block_reason=reason, call_type=call_type
         )

@@ -125,6 +125,16 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 
 > **Provider selection:** `ClaudeClient` is the single canonical evaluation client for both providers. When `LLM_PROVIDER=deepseek`, the existing `anthropic` SDK is used against the DeepSeek-compatible base URL. The class name `ClaudeClient` is never renamed or aliased. No `openai` SDK is introduced. Provider configuration fails closed at startup when DeepSeek is selected without an API key.
 
+#### LLM Budget Guard
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_LLM_COST_GUARD` | bool | `true` | No | Enforces LLM budget checks before paid provider calls. |
+| `LLM_HOURLY_CALL_LIMIT` | int | `60` | No | Primary evaluation calls per rolling hour; `0` blocks primary calls. |
+| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | int | `120` | No | Reflection audit calls per rolling hour; `0` blocks reflection calls. |
+| `LLM_DAILY_CALL_LIMIT` | int | `500` | No | Total daily provider calls across primary and reflection. |
+| `LLM_MARKET_HOURLY_CALL_LIMIT` | int | `10` | No | Total primary + reflection calls per market per hour. |
+
 #### Polygon / Web3
 
 | Variable | Type | Default | Required | Description |

@@ -28,6 +28,7 @@ build/
 uv.lock
 output/
 tmp/
+logs/
 
 # Pytest
 .pytest_cache/

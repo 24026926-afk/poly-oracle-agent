@@ -199,6 +199,7 @@ async def test_claude_client_audit_trail_neutral_fallback():
                 "timestamp": 1700000000,
             },
             snapshot_id="snap_audit_001",
+            market_key="cond_audit_001",
         )
 
     assert result == NEUTRAL_SENTIMENT

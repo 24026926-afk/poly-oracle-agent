@@ -47,6 +47,7 @@ def _make_config(**overrides: dict) -> object:
     base.update(overrides)
     for key in [
         "LLM_HOURLY_CALL_LIMIT",
+        "LLM_REFLECTION_HOURLY_CALL_LIMIT",
         "LLM_DAILY_CALL_LIMIT",
         "LLM_DAILY_TOKEN_LIMIT",
         "LLM_DAILY_COST_LIMIT_USD",
@@ -177,8 +178,13 @@ class TestLLMBudgetConfig:
 
 class TestLLMBudgetWindow:
     def test_hourly_window_tracks_call_count(self):
-        w = LLMBudgetWindow(hourly_calls=5)
+        w = LLMBudgetWindow(hourly_calls=5, primary_hourly_calls=3)
         assert w.hourly_calls == 5
+        assert w.primary_hourly_calls == 3
+
+    def test_hourly_window_tracks_reflection_call_count(self):
+        w = LLMBudgetWindow(hourly_calls=5, reflection_hourly_calls=2)
+        assert w.reflection_hourly_calls == 2
 
     def test_daily_window_tracks_call_count(self):
         w = LLMBudgetWindow(daily_calls=100)
@@ -259,6 +265,12 @@ class TestLLMBudgetBlockReason:
         assert (
             LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED.value
             == "hourly_call_limit_exhausted"
+        )
+
+    def test_reflection_hourly_exhausted_reason(self):
+        assert (
+            LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED.value
+            == "reflection_hourly_call_limit_exhausted"
         )
 
     def test_daily_exhausted_reason(self):
@@ -379,6 +391,10 @@ class TestAppConfigLLMCostGuard:
     def test_llm_hourly_call_limit_default(self):
         cfg = _make_config()
         assert cfg.llm_hourly_call_limit == 60
+
+    def test_llm_reflection_hourly_call_limit_default(self):
+        cfg = _make_config()
+        assert cfg.llm_reflection_hourly_call_limit == 120
 
     def test_llm_daily_call_limit_default(self):
         cfg = _make_config()
@@ -568,12 +584,36 @@ class TestBudgetEnforcementUnit:
         assert d.allowed is False
         assert d.block_reason == LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED
 
-    async def test_blocks_reflection_call_when_hourly_limit_exhausted(self, guard):
+    async def test_primary_hourly_limit_does_not_block_reflection(self, guard):
         for _ in range(2):
             d = await guard.check_budget(call_type="primary")
             assert d.allowed is True
+        d = await guard.check_budget(call_type="primary")
+        assert d.allowed is False
+        assert d.block_reason == LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED
+        d = await guard.check_budget(call_type="reflection")
+        assert d.allowed is True
+
+    async def test_blocks_reflection_call_when_reflection_hourly_limit_exhausted(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=2,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=100,
+        )
+        guard = LLMBudgetGuard(cfg)
+        for _ in range(2):
+            d = await guard.check_budget(call_type="reflection")
+            assert d.allowed is True
         d = await guard.check_budget(call_type="reflection")
         assert d.allowed is False
+        assert (
+            d.block_reason
+            == LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED
+        )
 
     async def test_blocks_reflection_call_when_daily_limit_exhausted(self):
         cfg = _make_config(
@@ -660,6 +700,7 @@ class TestBudgetEnforcementUnit:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=2,
+            llm_reflection_hourly_call_limit=1,
             llm_daily_call_limit=2,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
@@ -685,6 +726,10 @@ class TestBudgetEnforcementUnit:
         # Now both hourly and daily are exhausted
         d3 = await guard.check_budget(call_type="reflection")
         assert d3.allowed is False
+        assert (
+            d3.block_reason
+            == LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED
+        )
         # Reflection blocked → conservative no-trade
         reflection = ReflectionResponse(
             verdict=ReflectionVerdict.REJECTED,
@@ -713,6 +758,58 @@ class TestBudgetEnforcementUnit:
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is False
         assert d.block_reason is not None
+
+    async def test_peek_budget_does_not_reserve_call_slot(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=1,
+            llm_daily_call_limit=10,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=100,
+        )
+        guard = LLMBudgetGuard(cfg)
+        peek = await guard.peek_budget(call_type="primary")
+        assert peek.allowed is True
+
+        first = await guard.check_budget(call_type="primary")
+        assert first.allowed is True
+        second = await guard.check_budget(call_type="primary")
+        assert second.allowed is False
+        assert second.block_reason == LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED
+
+    async def test_per_market_hourly_limit_applies_across_call_types(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=2,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "shared-market-cap"
+
+        primary = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        assert primary.allowed is True
+        reflection = await guard.check_budget(
+            call_type="reflection",
+            market_key=market_key,
+        )
+        assert reflection.allowed is True
+        blocked = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        assert blocked.allowed is False
+        assert (
+            blocked.block_reason
+            == LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1108,6 +1205,7 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=2,
+            llm_reflection_hourly_call_limit=2,
             llm_daily_call_limit=100,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
@@ -1140,6 +1238,7 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=1,
+            llm_reflection_hourly_call_limit=100,
             llm_daily_call_limit=1,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),

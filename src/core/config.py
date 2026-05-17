@@ -412,12 +412,17 @@ class AppConfig(BaseSettings):
     llm_hourly_call_limit: int = Field(
         default=60,
         ge=0,
-        description="Max LLM provider calls per hour (0=no calls allowed)",
+        description="Max primary LLM provider calls per hour (0=no primary calls allowed)",
+    )
+    llm_reflection_hourly_call_limit: int = Field(
+        default=120,
+        ge=0,
+        description="Max reflection LLM provider calls per hour (0=no reflection calls allowed)",
     )
     llm_daily_call_limit: int = Field(
         default=500,
         ge=0,
-        description="Max LLM provider calls per day (0=no calls allowed)",
+        description="Max total LLM provider calls per day across primary and reflection (0=no calls allowed)",
     )
     llm_daily_token_limit: int = Field(
         default=1000000,

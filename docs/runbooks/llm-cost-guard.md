@@ -13,8 +13,9 @@ All settings are in `.env` or environment variables. Recommended **paper-trading
 | Variable | Paper-Trading Default | Purpose |
 |---|---|---|
 | `ENABLE_LLM_COST_GUARD` | `true` | Master enable |
-| `LLM_HOURLY_CALL_LIMIT` | `30` | Max calls/hour globally |
-| `LLM_DAILY_CALL_LIMIT` | `200` | Max calls/day globally |
+| `LLM_HOURLY_CALL_LIMIT` | `60` | Max primary evaluation calls/hour |
+| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | `120` | Max reflection audit calls/hour |
+| `LLM_DAILY_CALL_LIMIT` | `500` | Max calls/day globally across primary and reflection |
 | `LLM_DAILY_TOKEN_LIMIT` | `1000000` | Max tokens/day globally |
 | `LLM_DAILY_COST_LIMIT_USD` | `5` | Max daily spend in USD |
 | `LLM_MARKET_HOURLY_CALL_LIMIT` | `10` | Max calls/hour per market |
@@ -31,8 +32,8 @@ All settings are in `.env` or environment variables. Recommended **paper-trading
 
 Before every primary evaluation and reflection call:
 
-1. **Hourly call limit** — blocks if global hourly count >= limit
-2. **Daily call limit** — blocks if global daily count >= limit
+1. **Primary/reflection hourly call limits** — primary evaluations and reflection audits have separate hourly counters
+2. **Daily call limit** — blocks if global daily count >= limit across both call types
 3. **Daily token limit** — blocks if total tokens consumed >= limit
 4. **Daily cost limit** — blocks if estimated spend >= limit
 5. **Per-market hourly limit** — blocks if that market's hourly count >= limit

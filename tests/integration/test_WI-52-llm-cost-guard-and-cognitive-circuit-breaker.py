@@ -38,6 +38,7 @@ def _make_config(**overrides: dict) -> AppConfig:
     base.update(overrides)
     for key in [
         "LLM_HOURLY_CALL_LIMIT",
+        "LLM_REFLECTION_HOURLY_CALL_LIMIT",
         "LLM_DAILY_CALL_LIMIT",
         "LLM_DAILY_TOKEN_LIMIT",
         "LLM_DAILY_COST_LIMIT_USD",
@@ -101,6 +102,7 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=2,
+            llm_reflection_hourly_call_limit=2,
             llm_daily_call_limit=100,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
@@ -133,6 +135,7 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=1,
+            llm_reflection_hourly_call_limit=100,
             llm_daily_call_limit=1,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),

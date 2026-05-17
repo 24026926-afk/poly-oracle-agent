@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-05-17
 **Version:** 0.16.5
-**Status:** Phase 16 COMPLETE — hotfix pending commit (Grok eligibility expansion)
+**Status:** Phase 16 COMPLETE — runtime stabilization hotfix pending commit
 **Active WI:** none
 
 ## Post-Phase 16 Hotfix — Grok Sentiment Eligibility Expansion (2026-05-17)
@@ -108,13 +108,20 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2296 |
-| Latest local test result | 2296 passed unforced with local `.env`; coverage-backed regression also 2296 passed |
+| Total tests | 2305 |
+| Latest local test result | 2305 passed; coverage-backed regression also 2305 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
 
 ## Runtime Hotfixes
+
+2026-05-17 - LLM/Grok dry-run throughput stabilization:
+- Split primary and reflection hourly LLM budget accounting so `LLM_HOURLY_CALL_LIMIT` now applies to primary evaluations and `LLM_REFLECTION_HOURLY_CALL_LIMIT` applies to reflection audits, while daily/token/cost/per-market caps remain shared fail-closed safety controls.
+- Added non-mutating `LLMBudgetGuard.peek_budget()` and used it to skip eligible Grok sentiment calls when the downstream primary LLM call is already budget-blocked, preventing wasted xAI calls and 429 pressure.
+- Added Grok narrative summary truncation before `SentimentResponse` validation so otherwise-valid sentiment payloads are preserved when only `top_narrative_summary` exceeds the 320-character prompt-budget field.
+- Enabled local runtime observability flags in `.env` for Telegram startup/operational alerts and the WI-56 operational event ledger, with circuit breaker explicitly left disabled for dry-run.
+- Validation: targeted WI-52/Grok/sentiment tests passed; full regression passed (`2305 passed`); coverage remained 93%.
 
 2026-05-17 - Prompt queue consumer and DeepSeek model stabilization:
 - Fixed `BoundedPromptQueue` lock starvation by keeping coalesce/drop-stale mutation synchronous under the queue lock and recording coalescing metrics after releasing the lock.
