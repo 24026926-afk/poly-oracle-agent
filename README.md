@@ -130,10 +130,10 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `ENABLE_LLM_COST_GUARD` | bool | `true` | No | Enforces LLM budget checks before paid provider calls. |
-| `LLM_HOURLY_CALL_LIMIT` | int | `60` | No | Primary evaluation calls per rolling hour; `0` blocks primary calls. |
-| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | int | `120` | No | Reflection audit calls per rolling hour; `0` blocks reflection calls. |
-| `LLM_DAILY_CALL_LIMIT` | int | `500` | No | Total daily provider calls across primary and reflection. |
-| `LLM_MARKET_HOURLY_CALL_LIMIT` | int | `10` | No | Total primary + reflection calls per market per hour. |
+| `LLM_HOURLY_CALL_LIMIT` | int | `240` | No | Primary evaluation calls per rolling hour; `0` blocks primary calls. |
+| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | int | `240` | No | Reflection audit calls per rolling hour; `0` blocks reflection calls. |
+| `LLM_DAILY_CALL_LIMIT` | int | `2000` | No | Total daily provider calls across primary and reflection. |
+| `LLM_MARKET_HOURLY_CALL_LIMIT` | int | `60` | No | Total primary + reflection calls per market per hour. |
 
 #### Polygon / Web3
 

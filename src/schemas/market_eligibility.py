@@ -86,6 +86,7 @@ class PromptQueueBackpressureReason(str, Enum):
     QUEUE_FULL = "QUEUE_FULL"
     COALESCED = "COALESCED"
     STALE_DROPPED = "STALE_DROPPED"
+    BUDGET_QUARANTINED = "BUDGET_QUARANTINED"
 
 
 class StaleContextSkipReason(str, Enum):

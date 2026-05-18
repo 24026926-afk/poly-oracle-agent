@@ -37,6 +37,7 @@ from src.schemas.llm import (
 )
 
 logger = structlog.get_logger(__name__)
+_BUDGET_BLOCK_EMIT_INTERVAL = timedelta(seconds=60)
 
 
 def _hash_market_key(market_key: str) -> str:
@@ -76,6 +77,8 @@ class LLMBudgetGuard:
         self._daily_window_start: Optional[datetime] = None
         self._hourly_window_start: Optional[datetime] = None
         self._estimated_spend_usd: Decimal = Decimal("0")
+        self._budget_block_last_emit: Dict[tuple[str, str, str], datetime] = {}
+        self._budget_block_suppressed: Dict[tuple[str, str, str], int] = {}
 
     # -- Public API -------------------------------------------------------
 
@@ -94,11 +97,12 @@ class LLMBudgetGuard:
             return LLMBudgetDecision(allowed=True, call_type=call_type)
 
         async with self._lock:
-            self._refresh_windows()
+            now = self._refresh_windows()
             return self._evaluate_budget_locked(
                 call_type=call_type,
                 market_key=market_key,
                 reserve=True,
+                now=now,
             )
 
     async def peek_budget(
@@ -118,11 +122,12 @@ class LLMBudgetGuard:
             return LLMBudgetDecision(allowed=True, call_type=call_type)
 
         async with self._lock:
-            self._refresh_windows()
+            now = datetime.now(timezone.utc)
             return self._evaluate_budget_locked(
                 call_type=call_type,
                 market_key=market_key,
                 reserve=False,
+                now=now,
             )
 
     def _evaluate_budget_locked(
@@ -131,54 +136,97 @@ class LLMBudgetGuard:
         call_type: str,
         market_key: Optional[str],
         reserve: bool,
+        now: datetime,
     ) -> LLMBudgetDecision:
         # WI-52: Zero limits are explicit kill switches when the guard is enabled.
+        hourly_expired = (not reserve) and self._hourly_window_expired(now)
+        daily_expired = (not reserve) and self._daily_window_expired(now)
+
         hourly_limit, hourly_calls, hourly_reason = self._hourly_state(call_type)
+        if hourly_expired:
+            hourly_calls = 0
         if hourly_limit == 0:
-            return self._block(hourly_reason, call_type, emit=reserve)
+            return self._block(
+                hourly_reason,
+                call_type,
+                emit=reserve,
+                market_key=market_key,
+                now=now,
+            )
         if hourly_calls >= hourly_limit:
-            return self._block(hourly_reason, call_type, emit=reserve)
+            return self._block(
+                hourly_reason,
+                call_type,
+                emit=reserve,
+                market_key=market_key,
+                now=now,
+                retry_after_utc=(
+                    self._hourly_window_start + timedelta(hours=1)
+                    if self._hourly_window_start is not None
+                    else None
+                ),
+            )
 
         daily_limit = self._config.llm_daily_call_limit
+        daily_calls = 0 if daily_expired else self._global_window.daily_calls
         if daily_limit == 0:
             return self._block(
                 LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
-        if self._global_window.daily_calls >= daily_limit:
+        if daily_calls >= daily_limit:
             return self._block(
                 LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
+                retry_after_utc=(
+                    self._daily_window_start + timedelta(days=1)
+                    if self._daily_window_start is not None
+                    else None
+                ),
             )
 
         token_limit = self._config.llm_daily_token_limit
+        total_tokens_consumed = 0 if daily_expired else self._total_tokens_consumed
         if token_limit == 0:
             return self._block(
                 LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
-        if self._total_tokens_consumed >= token_limit:
+        if total_tokens_consumed >= token_limit:
             return self._block(
                 LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
 
         cost_limit = self._config.llm_daily_cost_limit_usd
+        total_cost_usd = Decimal("0") if daily_expired else self._total_cost_usd
         if cost_limit == 0:
             return self._block(
                 LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
-        if self._total_cost_usd >= cost_limit:
+        if total_cost_usd >= cost_limit:
             return self._block(
                 LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
 
         per_market_limit = self._config.llm_market_hourly_call_limit
@@ -187,14 +235,28 @@ class LLMBudgetGuard:
                 LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
         if market_key is not None:
-            market_calls = self._per_market_hourly.get(market_key, 0)
+            if reserve:
+                market_reset = self._refresh_market_window_locked(market_key, now)
+                market_calls = self._per_market_hourly.get(market_key, 0)
+            else:
+                market_reset = self._per_market_hourly_reset.get(market_key)
+                if market_reset is None or now >= market_reset or daily_expired:
+                    market_reset = None
+                    market_calls = 0
+                else:
+                    market_calls = self._per_market_hourly.get(market_key, 0)
             if market_calls >= per_market_limit:
                 return self._block(
                     LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED,
                     call_type,
                     emit=reserve,
+                    market_key=market_key,
+                    now=now,
+                    retry_after_utc=market_reset,
                 )
 
         fallback = self._config.llm_fallback_tokens_per_call
@@ -206,20 +268,21 @@ class LLMBudgetGuard:
         )
 
         # Check if reserving this call would exceed token/cost limits
-        if (
-            token_limit > 0
-            and (self._total_tokens_consumed + reserved_tokens) > token_limit
-        ):
+        if token_limit > 0 and (total_tokens_consumed + reserved_tokens) > token_limit:
             return self._block(
                 LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
-        if cost_limit > 0 and (self._total_cost_usd + reserved_cost) > cost_limit:
+        if cost_limit > 0 and (total_cost_usd + reserved_cost) > cost_limit:
             return self._block(
                 LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED,
                 call_type,
                 emit=reserve,
+                market_key=market_key,
+                now=now,
             )
 
         if not reserve:
@@ -276,6 +339,10 @@ class LLMBudgetGuard:
             daily_window_start_utc=self._daily_window_start,
         )
         if market_key is not None:
+            if market_key not in self._per_market_hourly_reset:
+                self._per_market_hourly_reset[market_key] = datetime.now(
+                    timezone.utc
+                ) + timedelta(hours=1)
             current = self._per_market_hourly.get(market_key, 0)
             self._per_market_hourly[market_key] = current + 1
 
@@ -423,7 +490,7 @@ class LLMBudgetGuard:
 
     # -- Internals ---------------------------------------------------------
 
-    def _refresh_windows(self) -> None:
+    def _refresh_windows(self) -> datetime:
         now = datetime.now(timezone.utc)
 
         # Refresh hourly window
@@ -439,7 +506,6 @@ class LLMBudgetGuard:
                 daily_window_start_utc=self._daily_window_start,
                 hourly_window_start_utc=now,
             )
-            self._per_market_hourly.clear()
 
         # Refresh daily window
         if self._daily_window_start is None or (
@@ -455,6 +521,32 @@ class LLMBudgetGuard:
             )
             self._total_tokens_consumed = 0
             self._total_cost_usd = Decimal("0")
+            self._per_market_hourly.clear()
+            self._per_market_hourly_reset.clear()
+
+        return now
+
+    def _hourly_window_expired(self, now: datetime) -> bool:
+        return self._hourly_window_start is None or (
+            now - self._hourly_window_start
+        ) >= timedelta(hours=1)
+
+    def _daily_window_expired(self, now: datetime) -> bool:
+        return self._daily_window_start is None or (
+            now - self._daily_window_start
+        ) >= timedelta(days=1)
+
+    def _refresh_market_window_locked(
+        self,
+        market_key: str,
+        now: datetime,
+    ) -> datetime:
+        reset_at = self._per_market_hourly_reset.get(market_key)
+        if reset_at is None or now >= reset_at:
+            reset_at = now + timedelta(hours=1)
+            self._per_market_hourly_reset[market_key] = reset_at
+            self._per_market_hourly[market_key] = 0
+        return reset_at
 
     def _block(
         self,
@@ -462,20 +554,71 @@ class LLMBudgetGuard:
         call_type: str,
         *,
         emit: bool = True,
+        market_key: Optional[str] = None,
+        now: Optional[datetime] = None,
+        retry_after_utc: Optional[datetime] = None,
     ) -> LLMBudgetDecision:
+        should_emit = emit
+        suppressed = 0
         if emit:
-            logger.warning(
-                "llm_budget_blocked",
-                reason=reason.value,
-                call_type=call_type,
-            )
             if self._metrics is not None:
                 asyncio.ensure_future(
                     self._metrics.record_llm_budget_block(reason=reason.value)
                 )
+            now = now or datetime.now(timezone.utc)
+            should_emit, suppressed = self._should_emit_budget_block_locked(
+                reason=reason,
+                call_type=call_type,
+                market_key=market_key,
+                now=now,
+            )
+            if should_emit:
+                logger.warning(
+                    "llm_budget_blocked",
+                    reason=reason.value,
+                    call_type=call_type,
+                    market_key_hash=_hash_market_key(market_key)
+                    if market_key
+                    else None,
+                    suppressed_since_last_emit=suppressed,
+                )
         return LLMBudgetDecision(
-            allowed=False, block_reason=reason, call_type=call_type
+            allowed=False,
+            block_reason=reason,
+            call_type=call_type,
+            emit_audit_event=should_emit,
+            suppressed_since_last_emit=suppressed,
+            retry_after_utc=retry_after_utc,
         )
+
+    def _should_emit_budget_block_locked(
+        self,
+        *,
+        reason: LLMBudgetBlockReason,
+        call_type: str,
+        market_key: Optional[str],
+        now: datetime,
+    ) -> tuple[bool, int]:
+        key = (market_key or "_global_", reason.value, call_type)
+        last_emit = self._budget_block_last_emit.get(key)
+        if last_emit is not None and now - last_emit < _BUDGET_BLOCK_EMIT_INTERVAL:
+            self._budget_block_suppressed[key] = (
+                self._budget_block_suppressed.get(key, 0) + 1
+            )
+            return False, 0
+
+        suppressed = self._budget_block_suppressed.pop(key, 0)
+        self._budget_block_last_emit[key] = now
+        cutoff = now - (_BUDGET_BLOCK_EMIT_INTERVAL * 2)
+        stale_keys = [
+            existing_key
+            for existing_key, emitted_at in self._budget_block_last_emit.items()
+            if emitted_at < cutoff
+        ]
+        for existing_key in stale_keys:
+            self._budget_block_last_emit.pop(existing_key, None)
+            self._budget_block_suppressed.pop(existing_key, None)
+        return True, suppressed
 
 
 # ---------------------------------------------------------------------------

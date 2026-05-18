@@ -561,6 +561,97 @@ class TestMarketDiscoveryPreflight:
         assert result == []
 
     @pytest.mark.asyncio
+    async def test_stable_market_rejection_emits_once_plus_cycle_summaries(self):
+        from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
+        from src.schemas.ops import OperationalEventType
+        from tests.unit.test_market_discovery import (
+            _future_iso,
+            _make_gamma_stub,
+            _make_market,
+            _make_tracker_stub,
+        )
+
+        events = []
+
+        async def publish(event):
+            events.append(event)
+
+        market = _make_market(condition_id="too-soon", end_date_iso=_future_iso(1))
+        gamma = _make_gamma_stub([market])
+        tracker = _make_tracker_stub()
+        config = _make_fake_config_preflight(enable_market_discovery_preflight=False)
+        config.dry_run = True
+
+        engine = MarketDiscoveryEngine(
+            gamma,
+            tracker,
+            config,
+            event_publisher=publish,
+        )
+
+        assert await engine.discover() == []
+        assert await engine.discover() == []
+
+        rejected = [
+            event
+            for event in events
+            if event.event_type == OperationalEventType.MARKET_REJECTED
+        ]
+        cycles = [
+            event
+            for event in events
+            if event.event_type
+            == OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED
+        ]
+        assert len(rejected) == 1
+        assert len(cycles) == 2
+
+    @pytest.mark.asyncio
+    async def test_market_rejection_reason_change_emits_again(self):
+        from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
+        from src.schemas.ops import OperationalEventType
+        from tests.unit.test_market_discovery import (
+            _future_iso,
+            _make_gamma_stub,
+            _make_market,
+            _make_tracker_stub,
+        )
+
+        events = []
+
+        async def publish(event):
+            events.append(event)
+
+        market = _make_market(condition_id="changing", end_date_iso=_future_iso(1))
+        gamma = _make_gamma_stub([market])
+        tracker = _make_tracker_stub()
+        config = _make_fake_config_preflight(enable_market_discovery_preflight=False)
+        config.dry_run = True
+        engine = MarketDiscoveryEngine(
+            gamma,
+            tracker,
+            config,
+            event_publisher=publish,
+        )
+
+        assert await engine.discover() == []
+        gamma.get_active_markets.return_value = [
+            _make_market(
+                condition_id="changing",
+                token_ids=[],
+                end_date_iso=_future_iso(24),
+            )
+        ]
+        assert await engine.discover() == []
+
+        rejected = [
+            event
+            for event in events
+            if event.event_type == OperationalEventType.MARKET_REJECTED
+        ]
+        assert len(rejected) == 2
+
+    @pytest.mark.asyncio
     async def test_preflight_skips_order_book_unavailable(self):
         """When order book fetch fails, market is skipped."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
@@ -810,7 +901,7 @@ class TestMarketQuarantine:
         """After quarantine expires, market can be checked again."""
         from src.agents.ingestion.market_quarantine import MarketQuarantineManager
 
-        config = _make_config(preflight_quarantine_duration_seconds=Decimal("0.001"))
+        config = _make_config(preflight_quarantine_duration_seconds=Decimal("0.05"))
         manager = MarketQuarantineManager(config, failure_threshold=2)
 
         manager.record_failure("c1")
@@ -818,7 +909,7 @@ class TestMarketQuarantine:
         assert manager.is_quarantined("c1")
 
         # Wait for expiry
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.06)
         assert not manager.is_quarantined("c1")
 
     @pytest.mark.asyncio
@@ -1130,6 +1221,61 @@ class TestPromptQueueBackpressure:
             await bq.put(item)
 
         assert bq.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_budget_quarantine_drops_market_without_queue_churn(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        assert (
+            PromptQueueBackpressureReason.BUDGET_QUARANTINED.value
+            == "BUDGET_QUARANTINED"
+        )
+        bq = BoundedPromptQueue(max_size=2, coalescing=True)
+        await bq.quarantine_market_until(
+            "c1",
+            datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        decision = await bq.put({"state": {"condition_id": "c1"}, "prompt": "p1"})
+
+        assert decision.action == "drop"
+        assert decision.reason == PromptQueueBackpressureReason.BUDGET_QUARANTINED
+        assert bq.qsize() == 0
+
+    @pytest.mark.asyncio
+    async def test_budget_quarantine_drains_existing_market_items(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        bq = BoundedPromptQueue(max_size=5, coalescing=False)
+        await bq.put({"state": {"condition_id": "c1"}, "prompt": "old-1"})
+        await bq.put({"state": {"condition_id": "c2"}, "prompt": "keep"})
+        await bq.put({"state": {"condition_id": "c1"}, "prompt": "old-2"})
+
+        await bq.quarantine_market_until(
+            "c1",
+            datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        assert bq.qsize() == 1
+        remaining = await bq.get()
+        assert remaining["state"]["condition_id"] == "c2"
+        bq.task_done()
+        await asyncio.wait_for(bq.join(), timeout=1)
+
+    @pytest.mark.asyncio
+    async def test_budget_quarantine_lifts_after_expiry(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        bq = BoundedPromptQueue(max_size=2, coalescing=True)
+        await bq.quarantine_market_until(
+            "c1",
+            datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+
+        decision = await bq.put({"state": {"condition_id": "c1"}, "prompt": "p1"})
+
+        assert decision.action == "enqueue"
+        assert bq.qsize() == 1
 
 
 # ===================================================================

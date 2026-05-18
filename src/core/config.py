@@ -410,17 +410,17 @@ class AppConfig(BaseSettings):
         description="Master enable for LLM budget enforcement before provider calls",
     )
     llm_hourly_call_limit: int = Field(
-        default=60,
+        default=240,
         ge=0,
         description="Max primary LLM provider calls per hour (0=no primary calls allowed)",
     )
     llm_reflection_hourly_call_limit: int = Field(
-        default=120,
+        default=240,
         ge=0,
         description="Max reflection LLM provider calls per hour (0=no reflection calls allowed)",
     )
     llm_daily_call_limit: int = Field(
-        default=500,
+        default=2000,
         ge=0,
         description="Max total LLM provider calls per day across primary and reflection (0=no calls allowed)",
     )
@@ -435,7 +435,7 @@ class AppConfig(BaseSettings):
         description="Max estimated LLM cost per day in USD (0=no calls allowed)",
     )
     llm_market_hourly_call_limit: int = Field(
-        default=10,
+        default=60,
         ge=0,
         description="Max calls per market per hour (0=no calls allowed)",
     )

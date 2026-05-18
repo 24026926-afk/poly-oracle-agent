@@ -390,15 +390,15 @@ class TestAppConfigLLMCostGuard:
 
     def test_llm_hourly_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_hourly_call_limit == 60
+        assert cfg.llm_hourly_call_limit == 240
 
     def test_llm_reflection_hourly_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_reflection_hourly_call_limit == 120
+        assert cfg.llm_reflection_hourly_call_limit == 240
 
     def test_llm_daily_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_daily_call_limit == 500
+        assert cfg.llm_daily_call_limit == 2000
 
     def test_llm_daily_token_limit_default(self):
         cfg = _make_config()
@@ -410,7 +410,7 @@ class TestAppConfigLLMCostGuard:
 
     def test_llm_per_market_hourly_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_market_hourly_call_limit == 10
+        assert cfg.llm_market_hourly_call_limit == 60
 
     def test_llm_repeated_hold_threshold_default(self):
         cfg = _make_config()
@@ -778,6 +778,45 @@ class TestBudgetEnforcementUnit:
         assert second.allowed is False
         assert second.block_reason == LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED
 
+    async def test_peek_budget_does_not_initialize_market_window(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "peek-market-cap"
+
+        peek = await guard.peek_budget(call_type="primary", market_key=market_key)
+
+        assert peek.allowed is True
+        assert market_key not in guard._per_market_hourly
+        assert market_key not in guard._per_market_hourly_reset
+
+    async def test_peek_budget_does_not_reset_expired_market_window(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "peek-expired-market-cap"
+        expired_reset = datetime.now(timezone.utc) - timedelta(seconds=1)
+        guard._per_market_hourly[market_key] = 1
+        guard._per_market_hourly_reset[market_key] = expired_reset
+
+        peek = await guard.peek_budget(call_type="primary", market_key=market_key)
+
+        assert peek.allowed is True
+        assert guard._per_market_hourly[market_key] == 1
+        assert guard._per_market_hourly_reset[market_key] == expired_reset
+
     async def test_per_market_hourly_limit_applies_across_call_types(self):
         cfg = _make_config(
             enable_llm_cost_guard=True,
@@ -810,6 +849,74 @@ class TestBudgetEnforcementUnit:
             blocked.block_reason
             == LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED
         )
+        assert blocked.emit_audit_event is True
+        assert blocked.retry_after_utc is not None
+
+    async def test_per_market_window_resets_independently(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "reset-market-cap"
+
+        first = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert first.allowed is True
+        blocked = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert blocked.allowed is False
+
+        guard._per_market_hourly_reset[market_key] = datetime.now(
+            timezone.utc
+        ) - timedelta(seconds=1)
+        allowed = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert allowed.allowed is True
+
+    async def test_budget_block_audit_emission_is_throttled_per_market_reason(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "throttled-market-cap"
+
+        allowed = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert allowed.allowed is True
+        first_block = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        second_block = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+
+        assert first_block.emit_audit_event is True
+        assert second_block.emit_audit_event is False
+
+        key = (
+            market_key,
+            LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED.value,
+            "primary",
+        )
+        guard._budget_block_last_emit[key] = datetime.now(timezone.utc) - timedelta(
+            seconds=61
+        )
+        third_block = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        assert third_block.emit_audit_event is True
+        assert third_block.suppressed_since_last_emit == 1
 
 
 # ---------------------------------------------------------------------------

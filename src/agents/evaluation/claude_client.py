@@ -11,6 +11,7 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any, Optional
 
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.core.config import AppConfig
 from src.schemas.llm import (
     GROK_ELIGIBLE_CATEGORIES,
+    LLMBudgetBlockReason,
     LLMProvider,
     LLMProviderName,
     LLMProviderMetadata,
@@ -56,6 +58,27 @@ _CHAIN_BUDGET: float = (
     2.0  # shared wall-clock budget (seconds) across the evaluation chain
 )
 _CHAIN_BUDGET_DRY_RUN: float = 60.0  # relaxed budget for debugging / dry-run pipelines
+
+_BUDGET_REASON_CODES: dict[LLMBudgetBlockReason, OperationalEventReasonCode] = {
+    LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED: (
+        OperationalEventReasonCode.BUDGET_HOURLY
+    ),
+    LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED: (
+        OperationalEventReasonCode.BUDGET_REFLECTION
+    ),
+    LLMBudgetBlockReason.DAILY_CALL_LIMIT_EXHAUSTED: (
+        OperationalEventReasonCode.BUDGET_DAILY
+    ),
+    LLMBudgetBlockReason.DAILY_TOKEN_LIMIT_EXHAUSTED: (
+        OperationalEventReasonCode.BUDGET_TOKEN
+    ),
+    LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED: (
+        OperationalEventReasonCode.BUDGET_COST
+    ),
+    LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED: (
+        OperationalEventReasonCode.BUDGET_HOURLY
+    ),
+}
 
 
 def _compute_grok_budget(config: Any) -> float:
@@ -261,6 +284,42 @@ def _keyword_matches(text: str, keyword: str) -> bool:
     return keyword in text
 
 
+def resolve_market_category(
+    *,
+    raw_category: object,
+    condition_id: str = "",
+    title: str = "",
+    tags: list[object] | tuple[object, ...] = (),
+) -> MarketCategory:
+    """Resolve a market category from Gamma metadata and keyword fallback."""
+    category = _coerce_market_category(raw_category)
+    if category is not None:
+        return category
+
+    tag_text = " ".join(str(tag) for tag in tags if tag is not None)
+    text = f"{condition_id} {title} {tag_text}".lower()
+    fallback_order = [
+        MarketCategory.CRYPTO,
+        MarketCategory.POLITICS,
+        MarketCategory.ELECTIONS,
+        MarketCategory.SPORTS,
+        MarketCategory.ESPORTS,
+        MarketCategory.IRAN,
+        MarketCategory.FINANCE,
+        MarketCategory.GEOPOLITICS,
+        MarketCategory.TECH,
+        MarketCategory.CULTURE,
+        MarketCategory.ECONOMY,
+        MarketCategory.WEATHER,
+        MarketCategory.MENTIONS,
+    ]
+    for fallback_category in fallback_order:
+        keywords = _ROUTING_TABLE[fallback_category]
+        if any(_keyword_matches(text, keyword) for keyword in keywords):
+            return fallback_category
+    return MarketCategory.CULTURE
+
+
 class ClaudeClient:
     """
     LLM Evaluation Node.
@@ -280,6 +339,8 @@ class ClaudeClient:
         metrics: Any = None,
         event_publisher: Callable[[OperationalEventCreate], Awaitable[Any]]
         | None = None,
+        budget_quarantine_callback: Callable[[str, datetime | None], Awaitable[Any]]
+        | None = None,
     ):
         self.in_queue = in_queue
         self.out_queue = out_queue
@@ -288,6 +349,7 @@ class ClaudeClient:
         self._decision_repo_factory = decision_repo_factory
         self._metrics = metrics
         self._event_publisher = event_publisher
+        self._budget_quarantine_callback = budget_quarantine_callback
 
         # WI-54: Resolve provider configuration
         llm_provider_str = self.config.llm_provider.strip().lower()
@@ -380,6 +442,55 @@ class ClaudeClient:
         except Exception:
             logger.debug("llm.operational_event_skipped", event_type=event_type.value)
 
+    async def _handle_budget_block(
+        self,
+        *,
+        decision: Any,
+        call_type: str,
+        market_key: str | None,
+        snapshot_id: str,
+        attempt: int | None = None,
+    ) -> None:
+        """Emit throttled budget-block diagnostics and queue backpressure hints."""
+        reason = decision.block_reason
+        if (
+            reason == LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED
+            and market_key
+            and self._budget_quarantine_callback is not None
+        ):
+            try:
+                await self._budget_quarantine_callback(
+                    market_key,
+                    decision.retry_after_utc,
+                )
+            except Exception:
+                logger.debug("budget_quarantine_callback_skipped")
+
+        if not decision.emit_audit_event:
+            return
+
+        logger.warning(
+            "llm_budget_blocked_provider_call_skipped",
+            reason=reason.value if reason else None,
+            call_type=call_type,
+            market_key_hash=_hash_market_key(market_key) if market_key else None,
+            snapshot_id=snapshot_id,
+            attempt=attempt,
+            retry_after_utc=decision.retry_after_utc.isoformat()
+            if decision.retry_after_utc
+            else None,
+            suppressed_since_last_emit=decision.suppressed_since_last_emit,
+        )
+        await self._publish_event(
+            event_type=OperationalEventType.BUDGET_BLOCK,
+            severity=OperationalEventSeverity.WARNING,
+            reason_code=_BUDGET_REASON_CODES.get(
+                reason,
+                OperationalEventReasonCode.BUDGET_COST,
+            ),
+            message=f"LLM {call_type} provider call blocked by budget guard",
+        )
+
     async def start(self) -> None:
         """Starts the evaluation loop."""
         self._running = True
@@ -449,36 +560,12 @@ class ClaudeClient:
     async def _route_market(self, item: Dict[str, Any]) -> MarketCategory:
         """Layer 0: classify market from Gamma category, then keyword fallback."""
         condition_id = item.get("condition_id", "")
-        category = _coerce_market_category(item.get("category"))
-
-        if category is None:
-            title = item.get("title") or item.get("question", "")
-            raw_tags = item.get("tags", [])
-            tags = " ".join(str(tag) for tag in raw_tags if tag is not None)
-            text = f"{condition_id} {title} {tags}".lower()
-
-            fallback_order = [
-                MarketCategory.CRYPTO,
-                MarketCategory.POLITICS,
-                MarketCategory.ELECTIONS,
-                MarketCategory.SPORTS,
-                MarketCategory.ESPORTS,
-                MarketCategory.IRAN,
-                MarketCategory.FINANCE,
-                MarketCategory.GEOPOLITICS,
-                MarketCategory.TECH,
-                MarketCategory.CULTURE,
-                MarketCategory.ECONOMY,
-                MarketCategory.WEATHER,
-                MarketCategory.MENTIONS,
-            ]
-            for fallback_category in fallback_order:
-                keywords = _ROUTING_TABLE[fallback_category]
-                if any(_keyword_matches(text, keyword) for keyword in keywords):
-                    category = fallback_category
-                    break
-            else:
-                category = MarketCategory.CULTURE
+        category = resolve_market_category(
+            raw_category=item.get("category"),
+            condition_id=condition_id,
+            title=item.get("title") or item.get("question", ""),
+            tags=item.get("tags", []),
+        )
 
         logger.debug(
             "market_category_resolved",
@@ -725,12 +812,7 @@ class ClaudeClient:
                 block_reason=_primary_block,
             )
             if _primary_block == "budget":
-                await self._publish_event(
-                    event_type=OperationalEventType.BUDGET_BLOCK,
-                    severity=OperationalEventSeverity.WARNING,
-                    reason_code=OperationalEventReasonCode.BUDGET_COST,
-                    message="LLM evaluation blocked by configured budget guard",
-                )
+                return
             else:
                 await self._publish_event(
                     event_type=OperationalEventType.PROVIDER_FAILURE,
@@ -1104,19 +1186,12 @@ class ClaudeClient:
                 market_key=market_key,
             )
             if not budget_decision.allowed:
-                logger.warning(
-                    "llm_budget_blocked — skipping primary provider call.",
-                    reason=budget_decision.block_reason.value
-                    if budget_decision.block_reason
-                    else None,
+                await self._handle_budget_block(
+                    decision=budget_decision,
+                    call_type="primary",
+                    market_key=market_key,
                     snapshot_id=snapshot_id,
                     attempt=attempt + 1,
-                )
-                await self._publish_event(
-                    event_type=OperationalEventType.BUDGET_BLOCK,
-                    severity=OperationalEventSeverity.WARNING,
-                    reason_code=OperationalEventReasonCode.BUDGET_COST,
-                    message="LLM primary provider call blocked by budget guard",
                 )
                 return None, "budget"
 
@@ -1240,19 +1315,11 @@ class ClaudeClient:
             market_key=market_key,
         )
         if not reflection_budget_decision.allowed:
-            logger.warning(
-                "llm_budget_blocked — skipping reflection provider call.",
-                reason=reflection_budget_decision.block_reason.value
-                if reflection_budget_decision.block_reason
-                else None,
-                market_key=_hash_market_key(market_key) if market_key else None,
+            await self._handle_budget_block(
+                decision=reflection_budget_decision,
+                call_type="reflection",
+                market_key=market_key,
                 snapshot_id=snapshot_id,
-            )
-            await self._publish_event(
-                event_type=OperationalEventType.BUDGET_BLOCK,
-                severity=OperationalEventSeverity.WARNING,
-                reason_code=OperationalEventReasonCode.BUDGET_REFLECTION,
-                message="LLM reflection provider call blocked by budget guard",
             )
             return ReflectionResponse(
                 verdict=ReflectionVerdict.REJECTED,
@@ -1425,11 +1492,10 @@ class ClaudeClient:
                 market_key=market_key,
             )
             if not budget_decision.allowed:
-                logger.warning(
-                    "llm_budget_blocked — skipping _evaluate_with_retries call.",
-                    reason=budget_decision.block_reason.value
-                    if budget_decision.block_reason
-                    else None,
+                await self._handle_budget_block(
+                    decision=budget_decision,
+                    call_type="primary",
+                    market_key=market_key,
                     snapshot_id=snapshot_id,
                     attempt=attempt + 1,
                 )

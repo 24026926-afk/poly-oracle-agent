@@ -494,6 +494,19 @@ class LLMBudgetDecision(BaseModel):
         default="primary",
         description="primary or reflection",
     )
+    emit_audit_event: bool = Field(
+        default=True,
+        description="Whether callers should emit a human-facing log/ledger event",
+    )
+    suppressed_since_last_emit: int = Field(
+        default=0,
+        ge=0,
+        description="Number of equivalent budget blocks suppressed since last emit",
+    )
+    retry_after_utc: Optional[datetime] = Field(
+        default=None,
+        description="When the blocking budget window is expected to reopen",
+    )
 
 
 class MarketCognitiveState(BaseModel):

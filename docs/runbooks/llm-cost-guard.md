@@ -13,12 +13,12 @@ All settings are in `.env` or environment variables. Recommended **paper-trading
 | Variable | Paper-Trading Default | Purpose |
 |---|---|---|
 | `ENABLE_LLM_COST_GUARD` | `true` | Master enable |
-| `LLM_HOURLY_CALL_LIMIT` | `60` | Max primary evaluation calls/hour |
-| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | `120` | Max reflection audit calls/hour |
-| `LLM_DAILY_CALL_LIMIT` | `500` | Max calls/day globally across primary and reflection |
+| `LLM_HOURLY_CALL_LIMIT` | `240` | Max primary evaluation calls/hour |
+| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | `240` | Max reflection audit calls/hour |
+| `LLM_DAILY_CALL_LIMIT` | `2000` | Max calls/day globally across primary and reflection |
 | `LLM_DAILY_TOKEN_LIMIT` | `1000000` | Max tokens/day globally |
 | `LLM_DAILY_COST_LIMIT_USD` | `5` | Max daily spend in USD |
-| `LLM_MARKET_HOURLY_CALL_LIMIT` | `10` | Max calls/hour per market |
+| `LLM_MARKET_HOURLY_CALL_LIMIT` | `60` | Max calls/hour per market |
 | `LLM_REPEATED_HOLD_THRESHOLD` | `5` | HOLDs before cooldown |
 | `LLM_REPEATED_INVALID_THRESHOLD` | `3` | Invalid outputs before cooldown |
 | `LLM_MARKET_COOLDOWN_SECONDS` | `300` | Cooldown duration (5 min) |
@@ -61,6 +61,10 @@ If the provider response lacks usage fields (or they are malformed), the guard u
 
 Timeouts and connection errors increment call counters but do **not** invent token usage. They do increment the cognitive breaker's invalid counter for the affected market.
 
+### Runtime SQLite Contention
+
+Local SQLite runtime connections use WAL mode with `busy_timeout=5000` and `synchronous=NORMAL` to reduce dashboard/read contention during dry-run observation. With WAL plus `synchronous=NORMAL`, a hard power loss can lose the most recent writes; use normal database backups before long observation windows when the audit trail must survive host failure.
+
 ## Recovery After Budget Exhaustion
 
 1. **Hourly limit exhausted**: Wait for the hourly window to roll over (up to 60 min). No manual intervention needed.
@@ -84,6 +88,8 @@ Set `ENABLE_LLM_COST_GUARD=false`. Current evaluation behavior is preserved. **N
 | `poly_agent_active_cooldown_count` | Gauge | none |
 
 All metrics are low-cardinality. No prompt text, reasoning text, token IDs, condition IDs, wallet material, or API keys appear in labels.
+
+`record_llm_budget_block` must remain a one-way counter update and must not call back into `LLMBudgetGuard`; the guard schedules that metric while holding its internal state lock.
 
 ## Logs
 

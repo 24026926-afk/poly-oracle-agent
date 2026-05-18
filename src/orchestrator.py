@@ -21,7 +21,7 @@ from web3 import AsyncHTTPProvider, AsyncWeb3
 from src.agents.context.aggregator import DataAggregator
 from src.agents.context.bounded_queue import BoundedPromptQueue
 from src.agents.context.prompt_factory import PromptFactory
-from src.agents.evaluation.claude_client import ClaudeClient
+from src.agents.evaluation.claude_client import ClaudeClient, resolve_market_category
 from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
@@ -102,6 +102,9 @@ class Orchestrator:
         self.active_condition_id: str | None = None
         self.active_markets: list[MarketMetadata] = []
         self._condition_by_token: dict[str, str] = {}
+        self._last_ws_subscribe_summary: (
+            tuple[frozenset[str], frozenset[str]] | None
+        ) = None
         self._running = False
 
         # WI-47: Metrics registry — created early so WI-53 prompt queue can use it
@@ -280,6 +283,7 @@ class Orchestrator:
             db_session_factory=AsyncSessionLocal,
             metrics=self.metrics_registry,
             event_publisher=self._publish_operational_event,
+            budget_quarantine_callback=self.prompt_queue.quarantine_market_until,
         )
 
         # Initialized in start() after discovery
@@ -586,6 +590,8 @@ class Orchestrator:
         self.ws_client.set_market_token_pairs(token_ids_by_condition)
         self.ws_client.set_condition_by_token(condition_by_token)
 
+        resolved_categories_by_condition: dict[str, MarketCategory] = {}
+
         if self.aggregator is not None:
             self.aggregator.condition_id = self.active_condition_id
             self.aggregator.condition_by_token = condition_by_token
@@ -593,10 +599,19 @@ class Orchestrator:
             self.aggregator.clear_markets()
             for market in deduped:
                 yes_tok = market.token_ids[0] if market.token_ids else None
+                resolved_category = resolve_market_category(
+                    raw_category=market.category,
+                    condition_id=market.condition_id,
+                    title=market.question,
+                    tags=list(market.tags),
+                )
+                resolved_categories_by_condition[market.condition_id] = (
+                    resolved_category
+                )
                 self.aggregator.register_market(
                     condition_id=market.condition_id,
                     question=market.question,
-                    category=market.category,
+                    category=resolved_category.value,
                     tags=list(market.tags),
                     yes_token_id=yes_tok,
                 )
@@ -609,18 +624,34 @@ class Orchestrator:
         if getattr(self.ws_client, "_ws", None) is not None:
             await self.ws_client.subscribe_batch(all_token_ids)
 
-        logger.info(
-            "ws_subscribe_summary",
-            activated_markets=len(self.active_markets),
-            token_count=len(all_token_ids),
-            unique_conditions=len(set(condition_by_token.values())),
+        subscribe_summary = (
+            frozenset(all_token_ids),
+            frozenset(condition_by_token.values()),
         )
+        if subscribe_summary != self._last_ws_subscribe_summary:
+            logger.info(
+                "ws_subscribe_summary",
+                activated_markets=len(self.active_markets),
+                token_count=len(all_token_ids),
+                unique_conditions=len(set(condition_by_token.values())),
+            )
+            self._last_ws_subscribe_summary = subscribe_summary
 
         for market in deduped:
+            resolved_category = resolved_categories_by_condition.get(
+                market.condition_id
+            )
+            if resolved_category is None:
+                resolved_category = resolve_market_category(
+                    raw_category=market.category,
+                    condition_id=market.condition_id,
+                    title=market.question,
+                    tags=list(market.tags),
+                )
             logger.info(
                 "orchestrator.market_activated",
                 condition_id=market.condition_id,
-                category=market.category,
+                category=resolved_category.value,
                 token_count=len(market.token_ids),
             )
 

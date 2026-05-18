@@ -5,6 +5,36 @@
 **Status:** Phase 16 COMPLETE — runtime stabilization hotfix pending commit
 **Active WI:** none
 
+## Post-Phase 16 Hotfix — Run 2 Runtime Stabilization (2026-05-17)
+
+**Trigger:** Run 2 dry-run observation showed the previous Grok/DeepSeek fixes held, but the
+runtime entered a budget-driven idle state: per-market LLM caps fired within minutes, budget-block
+logs and ledger rows dominated observability, repeated market rejection events flooded the ledger,
+and concurrent dashboard/CLI reads could hit SQLite lock contention.
+
+**Changes (uncommitted on develop):**
+- `src/agents/evaluation/llm_cost_guard.py` / `src/schemas/llm.py` — added per-market budget
+  window expiry, throttled audit emission fields, and preserved per-occurrence metrics.
+- `src/agents/evaluation/claude_client.py` / `src/agents/context/bounded_queue.py` — replaced
+  duplicate provider-skip budget logs with throttled structured diagnostics and budget-quarantined
+  prompt queue drops until the market budget window reopens.
+- `src/agents/ingestion/market_discovery.py` / `src/schemas/ops.py` — emit repeated
+  `MARKET_REJECTED` only on state changes and add a cycle-summary event.
+- `src/db/engine.py`, `src/ui/dashboard.py`, `src/observability/dashboard_activity_feed.py` —
+  enable SQLite WAL/busy-timeout behavior for runtime connections and dashboard reads.
+- `src/orchestrator.py` — resolves activation categories using the evaluation resolver and suppresses
+  unchanged WebSocket subscription-summary logs.
+- `.env.example`, `README.md`, `docs/runbooks/llm-cost-guard.md` — updated dry-run LLM budget
+  tuning to 240 primary calls/hour, 240 reflection calls/hour, 2000 daily calls, and 60 calls/market/hour.
+
+**Regression:** Final wi-done full regression passed outside the sandbox: 2314 passed. Latest
+checker coverage before the final correction pass: 92%. MAAP follow-ups removed the dead
+`MarketQuarantineReason.BUDGET_EXHAUSTED` enum/test, made `peek_budget()` read-only for budget
+window state, and drain queued snapshots when budget quarantine starts.
+**Next:** Run the next dry-run validation window against the committed Run 2 stabilization hotfix.
+
+---
+
 ## Post-Phase 16 Hotfix — Grok Sentiment Eligibility Expansion (2026-05-17)
 
 **Trigger:** Live paper-trading run showed `grok_sentiment SKIPPED_CATEGORY` for all monitored
@@ -108,8 +138,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2305 |
-| Latest local test result | 2305 passed; coverage-backed regression also 2305 passed |
+| Total tests | 2312 |
+| Latest local test result | 2312 passed; coverage-backed regression also 2312 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
