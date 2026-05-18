@@ -93,6 +93,10 @@ class DataAggregator:
         self._last_fingerprints: Dict[str, MarketEvaluationFingerprint] = {}
         # condition_id -> last emit timestamp for dedupe interval
         self._dedupe_last_emit: Dict[str, float] = {}
+        self._category_cadence_enabled = False
+        self._grok_eligible_categories: set[str] = set()
+        self._grok_eligible_min_interval_sec = 30.0
+        self._non_grok_min_interval_sec = 120.0
 
     # ------------------------------------------------------------------
     # Backward-compatible global properties (delegate to primary market)
@@ -233,6 +237,22 @@ class DataAggregator:
         self._dedupe_min_interval = min_interval_sec
         self._dedupe_midpoint_delta = midpoint_delta
         self._dedupe_spread_delta = spread_delta
+
+    def configure_category_cadence(
+        self,
+        *,
+        enabled: bool = False,
+        grok_eligible_min_interval_sec: float = 30.0,
+        non_grok_min_interval_sec: float = 120.0,
+        grok_eligible_categories: set[str] | None = None,
+    ) -> None:
+        """Throttle evaluation emits by category without reordering the queue."""
+        self._category_cadence_enabled = enabled
+        self._grok_eligible_min_interval_sec = max(0.0, grok_eligible_min_interval_sec)
+        self._non_grok_min_interval_sec = max(0.0, non_grok_min_interval_sec)
+        self._grok_eligible_categories = {
+            str(category).upper() for category in (grok_eligible_categories or set())
+        }
 
     # ------------------------------------------------------------------
     # WI-53: Dedupe check
@@ -448,6 +468,15 @@ class DataAggregator:
         ask_dec = Decimal(str(ms.best_ask))
         mid_dec = (bid_dec + ask_dec) / Decimal("2")
         spr_dec = ask_dec - bid_dec
+        last_fp = self._last_fingerprints.get(condition_id)
+        material_movement = False
+        if last_fp is not None:
+            midpoint_changed = abs(mid_dec - last_fp.midpoint) >= (
+                self._dedupe_midpoint_delta
+            )
+            spread_changed = abs(spr_dec - last_fp.spread) >= self._dedupe_spread_delta
+            material_movement = midpoint_changed or spread_changed
+
         dedupe_decision = self._check_dedupe(condition_id, mid_dec, spr_dec)
 
         if not dedupe_decision.emit:
@@ -458,6 +487,31 @@ class DataAggregator:
             if self._metrics is not None:
                 await self._metrics.record_deduped_context()
             return
+
+        now = time.time()
+        if (
+            self._category_cadence_enabled
+            and ms.last_emit_time > 0
+            and not material_movement
+        ):
+            category = str(ms.category or "").upper()
+            min_interval = (
+                self._grok_eligible_min_interval_sec
+                if category in self._grok_eligible_categories
+                else self._non_grok_min_interval_sec
+            )
+            elapsed = now - ms.last_emit_time
+            if min_interval > 0 and elapsed < min_interval:
+                logger.debug(
+                    "category_cadence.suppressed",
+                    condition_id=condition_id,
+                    category=category or None,
+                    elapsed_seconds=elapsed,
+                    min_interval_seconds=min_interval,
+                )
+                if self._metrics is not None:
+                    await self._metrics.record_deduped_context()
+                return
 
         state = {
             "condition_id": condition_id,
@@ -472,7 +526,7 @@ class DataAggregator:
             "timestamp": time.time(),
         }
 
-        ms.last_emit_time = time.time()
+        ms.last_emit_time = now
         ms.last_emitted_midpoint = current_midpoint
 
         # WI-53: Record fingerprint after successful emit

@@ -542,6 +542,20 @@ class AppConfig(BaseSettings):
         ge=0,
         description="Minimum spread change to trigger a new evaluation (0.5pp)",
     )
+    enable_category_evaluation_cadence: bool = Field(
+        default=False,
+        description="Enable category-aware evaluation cadence throttling",
+    )
+    grok_eligible_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("30"),
+        ge=0,
+        description="Minimum seconds between evaluations for Grok-eligible markets",
+    )
+    non_grok_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("120"),
+        ge=0,
+        description="Minimum seconds between evaluations for non-Grok-eligible markets",
+    )
 
     # --- WI-53: Prompt Queue Backpressure ---
     prompt_queue_maxsize: int = Field(
@@ -590,6 +604,11 @@ class AppConfig(BaseSettings):
     ] = Field(
         default="drop_oldest",
         description="Overflow policy: drop_oldest, drop_newest, or drop_diagnostic",
+    )
+    operational_event_diagnostic_throttle_sec: Decimal = Field(
+        default=Decimal("60"),
+        ge=0,
+        description="Minimum seconds between durable high-frequency diagnostic events",
     )
 
     @field_validator(
@@ -702,8 +721,11 @@ class AppConfig(BaseSettings):
         "dedupe_min_evaluation_interval_sec",
         "dedupe_midpoint_delta",
         "dedupe_spread_delta",
+        "grok_eligible_evaluation_interval_sec",
+        "non_grok_evaluation_interval_sec",
         "event_ledger_flush_interval_sec",
         "event_ledger_shutdown_flush_timeout_sec",
+        "operational_event_diagnostic_throttle_sec",
         mode="before",
     )
     @classmethod

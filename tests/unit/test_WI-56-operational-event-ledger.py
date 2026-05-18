@@ -1057,6 +1057,16 @@ def test_config_has_event_overflow_policy():
     assert "event_ledger_overflow_policy" in AppConfig.model_fields
 
 
+def test_config_has_operational_event_diagnostic_throttle():
+    from src.core.config import AppConfig
+
+    assert "operational_event_diagnostic_throttle_sec" in AppConfig.model_fields
+    assert isinstance(
+        AppConfig.model_fields["operational_event_diagnostic_throttle_sec"].default,
+        Decimal,
+    )
+
+
 def test_config_rejects_unknown_event_overflow_policy():
     from src.core.config import AppConfig
 
@@ -1072,6 +1082,87 @@ def test_config_ledger_disabled_by_default():
     from src.core.config import AppConfig
 
     assert AppConfig.model_fields["enable_operational_event_ledger"].default is False
+
+
+def test_orchestrator_throttles_high_frequency_diagnostic_events():
+    from src.orchestrator import Orchestrator
+
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.config = MagicMock(
+        operational_event_diagnostic_throttle_sec=Decimal("60")
+    )
+    orchestrator._operational_event_last_emit = {}
+    orchestrator._operational_event_suppressed = {}
+
+    event = _make_create(
+        event_type=OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+        severity=OperationalEventSeverity.WARNING,
+        source=OperationalEventSource.INGESTION,
+        reason_code=OperationalEventReasonCode.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+    )
+
+    assert orchestrator._should_throttle_durable_event(event) is False
+    assert orchestrator._should_throttle_durable_event(event) is True
+
+
+def test_orchestrator_never_throttles_critical_events():
+    from src.orchestrator import Orchestrator
+
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.config = MagicMock(
+        operational_event_diagnostic_throttle_sec=Decimal("60")
+    )
+    orchestrator._operational_event_last_emit = {}
+    orchestrator._operational_event_suppressed = {}
+
+    event = _make_create(
+        event_type=OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+        severity=OperationalEventSeverity.CRITICAL,
+        source=OperationalEventSource.INGESTION,
+        reason_code=OperationalEventReasonCode.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+    )
+
+    assert orchestrator._should_throttle_durable_event(event) is False
+    assert orchestrator._should_throttle_durable_event(event) is False
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_counts_throttled_diagnostic_events_as_dropped():
+    from src.observability.metrics import MetricsRegistry
+    from src.orchestrator import Orchestrator
+
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.config = MagicMock(
+        operational_event_diagnostic_throttle_sec=Decimal("60")
+    )
+    orchestrator.metrics_registry = MetricsRegistry()
+    orchestrator._operational_event_last_emit = {}
+    orchestrator._operational_event_suppressed = {}
+    orchestrator.event_bus = MagicMock()
+    orchestrator.event_bus.publish = AsyncMock(
+        return_value=OperationalEventAppendResult(accepted=True, queue_depth=1)
+    )
+
+    event = _make_create(
+        event_type=OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+        severity=OperationalEventSeverity.WARNING,
+        source=OperationalEventSource.INGESTION,
+        reason_code=OperationalEventReasonCode.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+    )
+
+    await orchestrator._publish_operational_event(event)
+    await orchestrator._publish_operational_event(event)
+
+    assert orchestrator.event_bus.publish.await_count == 1
+    snap = await orchestrator.metrics_registry.snapshot()
+    dropped = [
+        s for s in snap.samples if s.name == "poly_agent_event_dropped_total"
+    ]
+    assert any(
+        s.labels.labels.get("reason") == "diagnostic_throttled"
+        and s.value == Decimal("1")
+        for s in dropped
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

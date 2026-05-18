@@ -1198,6 +1198,63 @@ class TestLoggingAndMetrics:
         tokens = [s for s in snap.samples if s.name == "poly_agent_llm_tokens_total"]
         assert any(int(s.value) >= 5000 for s in tokens)
 
+    async def test_metrics_track_daily_token_usage_by_provider(self):
+        reg = MetricsRegistry()
+        await reg.set_llm_daily_token_usage(
+            provider="deepseek",
+            total_tokens=2500,
+            token_limit=10000,
+        )
+        snap = await reg.snapshot()
+        usage = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_daily_token_usage_total"
+        ]
+        ratio = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_daily_token_utilization_ratio"
+        ]
+        assert any(
+            s.labels.labels.get("provider") == "deepseek" and s.value == Decimal("2500")
+            for s in usage
+        )
+        assert any(
+            s.labels.labels.get("provider") == "deepseek" and s.value == Decimal("0.25")
+            for s in ratio
+        )
+
+    async def test_budget_guard_usage_updates_daily_token_gauge(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_daily_token_limit=100000,
+        )
+        reg = MetricsRegistry()
+        guard = LLMBudgetGuard(cfg, metrics=reg)
+
+        decision = await guard.check_budget(call_type="primary", market_key="m1")
+        assert decision.allowed is True
+        await guard.record_usage(
+            provider=LLMProviderName.DEEPSEEK,
+            model_name="deepseek-chat",
+            input_tokens=100,
+            output_tokens=50,
+            market_key="m1",
+        )
+        await asyncio.sleep(0)
+
+        snap = await reg.snapshot()
+        usage = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_daily_token_usage_total"
+        ]
+        assert any(
+            s.labels.labels.get("provider") == "deepseek" and s.value == Decimal("150")
+            for s in usage
+        )
+
     async def test_metrics_track_estimated_spend(self):
         reg = MetricsRegistry()
         await reg.record_llm_estimated_spend(cost_usd=Decimal("2.50"))

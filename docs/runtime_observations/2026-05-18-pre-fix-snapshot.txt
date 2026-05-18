@@ -1,0 +1,17 @@
+Run 3 pre-fix snapshot captured before applying runtime calibration changes.
+
+Timestamp: 2026-05-18 local session
+Source DB: data/poly_oracle.db
+Source log: logs/orchestrator-run.log
+Archived log: logs/orchestrator-run-2026-05-18-run3-pre-fix.log
+
+File sizes:
+- data/poly_oracle.db: 336M
+- logs/orchestrator-run.log: 39M
+
+Database row counts:
+- market_snapshots: 217786
+- agent_decision_logs: 477
+- execution_txs: 0
+- positions: 0
+- operational_events: 26827

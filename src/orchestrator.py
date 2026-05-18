@@ -8,6 +8,7 @@ using asyncio queues.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 import sys
 from typing import Any
@@ -75,7 +76,7 @@ from src.schemas.execution import (
     ExitOrderAction,
     PositionRecord,
 )
-from src.schemas.llm import MarketCategory
+from src.schemas.llm import GROK_ELIGIBLE_CATEGORIES, MarketCategory
 from src.schemas.market import MarketMetadata
 from src.schemas.position import PositionStatus
 from src.schemas.risk import LifecycleReport, PortfolioSnapshot
@@ -93,6 +94,12 @@ structlog.configure(
 
 logger = structlog.get_logger(__name__)
 
+_THROTTLED_DURABLE_EVENT_TYPES = frozenset(
+    {
+        OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+    }
+)
+
 
 class Orchestrator:
     """Top-level coordinator for the 4-layer async pipeline."""
@@ -105,6 +112,12 @@ class Orchestrator:
         self._last_ws_subscribe_summary: (
             tuple[frozenset[str], frozenset[str]] | None
         ) = None
+        self._operational_event_last_emit: dict[
+            tuple[OperationalEventType, OperationalEventReasonCode], datetime
+        ] = {}
+        self._operational_event_suppressed: dict[
+            tuple[OperationalEventType, OperationalEventReasonCode], int
+        ] = {}
         self._running = False
 
         # WI-47: Metrics registry — created early so WI-53 prompt queue can use it
@@ -391,6 +404,18 @@ class Orchestrator:
             min_interval_sec=float(self.config.dedupe_min_evaluation_interval_sec),
             midpoint_delta=self.config.dedupe_midpoint_delta,
             spread_delta=self.config.dedupe_spread_delta,
+        )
+        self.aggregator.configure_category_cadence(
+            enabled=self.config.enable_category_evaluation_cadence,
+            grok_eligible_min_interval_sec=float(
+                self.config.grok_eligible_evaluation_interval_sec
+            ),
+            non_grok_min_interval_sec=float(
+                self.config.non_grok_evaluation_interval_sec
+            ),
+            grok_eligible_categories={
+                category.value for category in GROK_ELIGIBLE_CATEGORIES
+            },
         )
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator
@@ -1629,11 +1654,49 @@ class Orchestrator:
     def _mark_event_ledger_degraded(self) -> None:
         self._event_ledger_degraded = True
 
+    def _should_throttle_durable_event(self, event: OperationalEventCreate) -> bool:
+        if event.event_type not in _THROTTLED_DURABLE_EVENT_TYPES:
+            return False
+        if event.severity in (
+            OperationalEventSeverity.CRITICAL,
+            OperationalEventSeverity.ERROR,
+        ):
+            return False
+
+        throttle_seconds = float(self.config.operational_event_diagnostic_throttle_sec)
+        if throttle_seconds <= 0:
+            return False
+
+        now = datetime.now(timezone.utc)
+        key = (event.event_type, event.reason_code)
+        last_emit = self._operational_event_last_emit.get(key)
+        if last_emit is None or (now - last_emit).total_seconds() >= throttle_seconds:
+            suppressed = self._operational_event_suppressed.pop(key, 0)
+            self._operational_event_last_emit[key] = now
+            if suppressed:
+                logger.debug(
+                    "operational_event.diagnostic_throttle_released",
+                    event_type=event.event_type.value,
+                    reason_code=event.reason_code.value,
+                    suppressed_count=suppressed,
+                )
+            return False
+
+        self._operational_event_suppressed[key] = (
+            self._operational_event_suppressed.get(key, 0) + 1
+        )
+        return True
+
     async def _publish_operational_event(
         self,
         event: OperationalEventCreate,
     ) -> Any:
         if self.event_bus is None:
+            return None
+        if self._should_throttle_durable_event(event):
+            await self.metrics_registry.record_event_dropped(
+                reason="diagnostic_throttled"
+            )
             return None
         result = await self.event_bus.publish(event)
         if not result.accepted and event.severity in (

@@ -448,19 +448,36 @@ class LLMBudgetGuard:
             # Emit metrics (fire-and-forget)
             if self._metrics is not None:
                 asyncio.ensure_future(
-                    self._emit_usage_metrics(total_tokens, actual_cost)
+                    self._emit_usage_metrics(
+                        provider=provider,
+                        total_tokens=total_tokens,
+                        estimated_cost=actual_cost,
+                        daily_total_tokens=self._total_tokens_consumed,
+                        daily_token_limit=self._config.llm_daily_token_limit,
+                    )
                 )
 
             return usage
 
     async def _emit_usage_metrics(
-        self, total_tokens: int, estimated_cost: Decimal
+        self,
+        *,
+        provider: LLMProviderName,
+        total_tokens: int,
+        estimated_cost: Decimal,
+        daily_total_tokens: int,
+        daily_token_limit: int,
     ) -> None:
         """Emit token and spend metrics (non-blocking)."""
         if self._metrics is not None:
             try:
                 await self._metrics.record_llm_tokens(total_tokens=total_tokens)
                 await self._metrics.record_llm_estimated_spend(cost_usd=estimated_cost)
+                await self._metrics.set_llm_daily_token_usage(
+                    provider=provider.value,
+                    total_tokens=daily_total_tokens,
+                    token_limit=daily_token_limit,
+                )
             except Exception:
                 pass
 

@@ -343,6 +343,18 @@ class MetricsRegistry:
         self._gauge_helps["poly_agent_active_cooldown_count"] = (
             "Number of markets currently in LLM cooldown"
         )
+        self._gauges["poly_agent_llm_daily_token_usage_total"] = {}
+        self._gauge_helps["poly_agent_llm_daily_token_usage_total"] = (
+            "Current rolling daily LLM token usage by provider"
+        )
+        self._gauges["poly_agent_llm_daily_token_limit"] = {}
+        self._gauge_helps["poly_agent_llm_daily_token_limit"] = (
+            "Configured rolling daily LLM token limit by provider"
+        )
+        self._gauges["poly_agent_llm_daily_token_utilization_ratio"] = {}
+        self._gauge_helps["poly_agent_llm_daily_token_utilization_ratio"] = (
+            "Current rolling daily LLM token usage divided by limit"
+        )
 
         # WI-53: Market eligibility, dedupe, and backpressure metrics
         for name, help_text in [
@@ -577,6 +589,33 @@ class MetricsRegistry:
             counter = self._counters["poly_agent_llm_estimated_spend_usd_total"]
             current = counter.get("", Decimal("0"))
             counter[""] = current + cost_usd
+
+    async def set_llm_daily_token_usage(
+        self,
+        *,
+        provider: str,
+        total_tokens: int,
+        token_limit: int,
+    ) -> None:
+        """Set rolling daily LLM token usage gauges by provider."""
+        safe_total = max(0, total_tokens)
+        safe_limit = max(0, token_limit)
+        utilization = (
+            Decimal(str(safe_total)) / Decimal(str(safe_limit))
+            if safe_limit > 0
+            else Decimal("0")
+        )
+        label_key = _serialize_labels({"provider": provider})
+        async with self._lock:
+            self._gauges["poly_agent_llm_daily_token_usage_total"][label_key] = Decimal(
+                str(safe_total)
+            )
+            self._gauges["poly_agent_llm_daily_token_limit"][label_key] = Decimal(
+                str(safe_limit)
+            )
+            self._gauges["poly_agent_llm_daily_token_utilization_ratio"][label_key] = (
+                utilization
+            )
 
     async def set_active_cooldown_count(self, count: int) -> None:
         """Set the active cooldown count gauge."""

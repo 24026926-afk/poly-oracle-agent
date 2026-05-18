@@ -16,15 +16,26 @@ All settings are in `.env` or environment variables. Recommended **paper-trading
 | `LLM_HOURLY_CALL_LIMIT` | `240` | Max primary evaluation calls/hour |
 | `LLM_REFLECTION_HOURLY_CALL_LIMIT` | `240` | Max reflection audit calls/hour |
 | `LLM_DAILY_CALL_LIMIT` | `2000` | Max calls/day globally across primary and reflection |
-| `LLM_DAILY_TOKEN_LIMIT` | `1000000` | Max tokens/day globally |
-| `LLM_DAILY_COST_LIMIT_USD` | `5` | Max daily spend in USD |
-| `LLM_MARKET_HOURLY_CALL_LIMIT` | `60` | Max calls/hour per market |
+| `LLM_DAILY_TOKEN_LIMIT` | `1000000` | Max rolling daily tokens globally; Run 3 sustained dry-run calibration uses `10000000` |
+| `LLM_DAILY_COST_LIMIT_USD` | `30` | Max rolling daily spend in USD for sustained DeepSeek dry-runs |
+| `LLM_MARKET_HOURLY_CALL_LIMIT` | `120` | Max calls/hour per market for Run 5 dry-run calibration |
 | `LLM_REPEATED_HOLD_THRESHOLD` | `5` | HOLDs before cooldown |
 | `LLM_REPEATED_INVALID_THRESHOLD` | `3` | Invalid outputs before cooldown |
 | `LLM_MARKET_COOLDOWN_SECONDS` | `300` | Cooldown duration (5 min) |
 | `LLM_FALLBACK_TOKENS_PER_CALL` | `4096` | Fallback when usage missing |
 | `LLM_COST_PER_INPUT_TOKEN_USD` | `0.0000015` | Cost per input token |
 | `LLM_COST_PER_OUTPUT_TOKEN_USD` | `0.000006` | Cost per output token |
+
+Run 5 dry-run calibration also uses:
+
+| Variable | Runtime value | Purpose |
+|---|---:|---|
+| `ENABLE_MARKET_DISCOVERY_PREFLIGHT` | `true` | Reject non-tradable order books before activation |
+| `PREFLIGHT_MAX_SPREAD_PCT` | `0.90` | Reject extreme-spread books using existing `spread / best_ask` semantics while avoiding the all-blocking `0.80` calibration |
+| `ENABLE_CATEGORY_EVALUATION_CADENCE` | `true` | Reduce evaluation spend on categories without a Grok signal |
+| `GROK_ELIGIBLE_EVALUATION_INTERVAL_SEC` | `30` | Preserve normal cadence for signal-rich categories |
+| `NON_GROK_EVALUATION_INTERVAL_SEC` | `120` | Evaluate non-Grok categories at one quarter of the normal cadence |
+| `OPERATIONAL_EVENT_DIAGNOSTIC_THROTTLE_SEC` | `60` | Preserve required event types while throttling durable high-frequency diagnostics |
 
 ## How It Works
 
