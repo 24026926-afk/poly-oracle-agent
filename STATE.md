@@ -1,9 +1,22 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-17
+**Last Updated:** 2026-05-18
 **Version:** 0.16.5
-**Status:** Phase 16 COMPLETE — runtime stabilization hotfix pending commit
+**Status:** Phase 16 COMPLETE — runtime stabilization calibration committed
 **Active WI:** none
+
+## Post-Phase 16 Hotfix — Run 5 Runtime Stabilization Calibration (2026-05-18)
+
+**Trigger:** Run 5 fix-plan review surfaced a spread-threshold calibration gap and a category-activation imbalance for CULTURE.
+
+**Changes (committed on develop as `10d78b4`):**
+- `.env.example` and local runtime calibration aligned to `LLM_MARKET_HOURLY_CALL_LIMIT=120` and `PREFLIGHT_MAX_SPREAD_PCT=0.90`.
+- `src/agents/context/aggregator.py` now lets material midpoint/spread moves bypass category cadence suppression.
+- `src/orchestrator.py` throttles only diagnostic operational events and counts throttled diagnostics as dropped.
+- `docs/runbooks/llm-cost-guard.md` now matches the current cost calibration.
+
+**Regression:** focused 367 passed; full regression 2329 passed; coverage-backed regression 2329 passed; coverage 93%.
+**Next:** run a fresh dry-run validation against `10d78b4`.
 
 ## Post-Phase 16 Hotfix — Run 2 Runtime Stabilization (2026-05-17)
 
@@ -138,8 +151,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2312 |
-| Latest local test result | 2312 passed; coverage-backed regression also 2312 passed |
+| Total tests | 2329 |
+| Latest local test result | 2329 passed; coverage-backed regression also 2329 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
