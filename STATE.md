@@ -1,8 +1,8 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-18
+**Last Updated:** 2026-05-19
 **Version:** 0.16.5
-**Status:** Phase 16 COMPLETE — runtime stabilization calibration committed; WI-61 brief opened
+**Status:** Phase 16 COMPLETE — CULTURE Grok upgrade committed; WI-61 in progress
 **Active WI:** WI-61 — Periodic Runtime Audit (IN PROGRESS, brief context written)
 
 ## WI-61 — Periodic Runtime Audit (IN PROGRESS, 2026-05-18)
@@ -174,13 +174,20 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2329 |
-| Latest local test result | 2329 passed; coverage-backed regression also 2329 passed |
+| Total tests | 2333 |
+| Latest local test result | 2333 passed; coverage-backed regression also 2333 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
 
 ## Runtime Hotfixes
+
+2026-05-19 - CULTURE Grok sentiment upgrade (commit `b4d18fc`):
+- Added `MarketCategory.CULTURE` to `GROK_ELIGIBLE_CATEGORIES` so CULTURE markets receive live xAI Grok sentiment rather than a static neutral fallback.
+- Injected `_CULTURE_SIGNAL_GUIDANCE` into the GrokClient user prompt for CULTURE markets, instructing the model to resolve broad hype, fandom noise, or stale discourse toward neutral (score ≈ 0.0) rather than inventing directional edge.
+- Added `CULTURE_EVALUATION_INTERVAL_SEC=600` (`AppConfig.culture_evaluation_interval_sec`) and wired it through `DataAggregator.configure_category_cadence` and `Orchestrator` so CULTURE gets live signal coverage without consuming the normal 30s Grok cadence budget.
+- The CULTURE cadence branch in `aggregator.py` is evaluated **before** the Grok-eligible check, ensuring the 600s floor holds even if CULTURE appears in `GROK_ELIGIBLE_CATEGORIES`.
+- Validation: full regression 2333 passed; coverage 93%. MAAP cleared.
 
 2026-05-17 - LLM/Grok dry-run throughput stabilization:
 - Split primary and reflection hourly LLM budget accounting so `LLM_HOURLY_CALL_LIMIT` now applies to primary evaluations and `LLM_REFLECTION_HOURLY_CALL_LIMIT` applies to reflection audits, while daily/token/cost/per-market caps remain shared fail-closed safety controls.
