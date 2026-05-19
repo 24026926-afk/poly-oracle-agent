@@ -148,10 +148,11 @@ async def test_category_sports_gated_in_grok_client():
 
 
 @pytest.mark.asyncio
-async def test_category_culture_gated_in_grok_client():
-    """CULTURE category → GrokClient returns NEUTRAL_SENTIMENT directly."""
+async def test_category_culture_is_grok_eligible_with_calibrated_prompt():
+    """CULTURE category calls Grok with culture-specific calibration guidance."""
+    resp = _make_mock_httpx_response(status=200, content=_neutral_sentiment_json())
     mock_http = MagicMock(spec=httpx.AsyncClient)
-    mock_http.post = AsyncMock()
+    mock_http.post = AsyncMock(return_value=resp)
     mock_http.aclose = AsyncMock()
 
     client = _make_live_client()
@@ -159,13 +160,17 @@ async def test_category_culture_gated_in_grok_client():
 
     result = await client.analyze_sentiment(
         condition_id="cond_culture_001",
-        market_title="Will it rain tomorrow?",
+        market_title="Will the album reach number one this week?",
         market_category=MarketCategory.CULTURE,
         reference_timestamp_utc="2026-05-05T12:00:00Z",
     )
 
-    assert result == NEUTRAL_SENTIMENT
-    mock_http.post.assert_not_called()
+    assert result.sentiment_score == Decimal("0.0")
+    mock_http.post.assert_called_once()
+    request_body = mock_http.post.call_args.kwargs["json"]
+    user_content = request_body["messages"][1]["content"]
+    assert "Culture-market calibration" in user_content
+    assert "return a neutral sentiment_score near 0.0" in user_content
 
 
 @pytest.mark.asyncio

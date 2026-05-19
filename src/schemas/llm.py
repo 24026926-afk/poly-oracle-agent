@@ -98,6 +98,7 @@ GROK_ELIGIBLE_CATEGORIES: frozenset["MarketCategory"] = frozenset(
         MarketCategory.TECH,
         MarketCategory.IRAN,
         MarketCategory.ECONOMY,
+        MarketCategory.CULTURE,
     }
 )
 

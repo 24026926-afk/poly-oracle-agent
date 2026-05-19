@@ -21,7 +21,7 @@ from src.agents.evaluation.grok_client import (
     _truncate_narrative_summary,
 )
 from src.core.config import AppConfig
-from src.schemas.llm import MarketCategory, SentimentResponse
+from src.schemas.llm import GROK_ELIGIBLE_CATEGORIES, MarketCategory, SentimentResponse
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -655,6 +655,24 @@ def test_api_key_not_logged_in_structured_logs():
     # is used in log calls (verified by test coverage of log paths).
 
 
+def test_culture_is_grok_eligible_with_culture_specific_guidance():
+    """CULTURE uses live sentiment, but the request instructs neutral fallback on weak signals."""
+    assert MarketCategory.CULTURE in GROK_ELIGIBLE_CATEGORIES
+    client = _make_live_client()
+
+    payload = client._build_request(
+        condition_id="cond-culture",
+        market_title="Will the album reach number one this week?",
+        market_category=MarketCategory.CULTURE,
+        reference_timestamp_utc="2026-05-05T12:00:00Z",
+        tags=["music", "charts"],
+    )
+
+    user_content = payload.body["messages"][1]["content"]
+    assert "Culture-market calibration" in user_content
+    assert "return a neutral sentiment_score near 0.0" in user_content
+
+
 def test_api_key_not_logged_in_error_paths():
     """On HTTP 401, the log event contains status_code, not the key."""
     resp = _make_mock_response(status=401)
@@ -685,7 +703,7 @@ def test_sentiment_cannot_bypass_gatekeeper():
 
 
 def test_live_sentiment_only_for_eligible_categories():
-    """CRYPTO and POLITICS are eligible; SPORTS/CULTURE gated in GrokClient."""
+    """CRYPTO, POLITICS, and CULTURE are eligible; SPORTS is gated."""
     resp = _make_mock_response(sentiment_score=0.5)
     mock_client = _make_mock_async_client(resp)
     client = _make_live_client(http_client=mock_client)

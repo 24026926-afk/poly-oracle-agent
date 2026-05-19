@@ -61,6 +61,16 @@ _SYSTEM_PROMPT = (
     "You are a market sentiment extraction engine. Return only strict JSON."
 )
 
+_CULTURE_SIGNAL_GUIDANCE = """\
+Culture-market calibration:
+- Evaluate only time-bound public attention, entertainment, celebrity, media,
+  chart, box-office, streaming, launch, or awards discourse that is directly
+  relevant to the market question.
+- If discourse is broad hype, fandom noise, stale, or not directly tied to the
+  market outcome, return a neutral sentiment_score near 0.0 and explain the
+  ambiguity in the summary.
+"""
+
 _USER_PROMPT_TEMPLATE = """\
 Analyze public X/Twitter discourse for this market in the last 60 minutes.
 
@@ -71,6 +81,7 @@ Market details:
 - reference_timestamp_utc: {reference_timestamp_utc}
 - analysis_window_minutes: 60
 {extra_context}
+{category_guidance}
 
 Instructions:
 1. Estimate directional sentiment and participation momentum.
@@ -196,12 +207,19 @@ class GrokClient:
         if tags:
             extra_lines += f"- tags: {', '.join(tags)}\n"
 
+        category_guidance = (
+            _CULTURE_SIGNAL_GUIDANCE
+            if market_category is MarketCategory.CULTURE
+            else ""
+        )
+
         user_content = _USER_PROMPT_TEMPLATE.format(
             condition_id=condition_id,
             market_title=market_title,
             market_category=market_category.value,
             reference_timestamp_utc=reference_timestamp_utc,
             extra_context=extra_lines,
+            category_guidance=category_guidance,
         )
 
         body = {

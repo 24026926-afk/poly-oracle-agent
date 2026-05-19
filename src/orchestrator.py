@@ -413,6 +413,7 @@ class Orchestrator:
             non_grok_min_interval_sec=float(
                 self.config.non_grok_evaluation_interval_sec
             ),
+            culture_min_interval_sec=float(self.config.culture_evaluation_interval_sec),
             grok_eligible_categories={
                 category.value for category in GROK_ELIGIBLE_CATEGORIES
             },

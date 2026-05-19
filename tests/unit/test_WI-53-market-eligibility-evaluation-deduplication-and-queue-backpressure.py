@@ -395,6 +395,7 @@ def _make_config(**overrides):
         "ENABLE_CATEGORY_EVALUATION_CADENCE",
         "GROK_ELIGIBLE_EVALUATION_INTERVAL_SEC",
         "NON_GROK_EVALUATION_INTERVAL_SEC",
+        "CULTURE_EVALUATION_INTERVAL_SEC",
         "OPERATIONAL_EVENT_DIAGNOSTIC_THROTTLE_SEC",
     ]:
         try:
@@ -483,9 +484,19 @@ class TestAppConfigCategoryCadenceFields:
         assert hasattr(cfg, "non_grok_evaluation_interval_sec")
         assert isinstance(cfg.non_grok_evaluation_interval_sec, Decimal)
 
+    def test_culture_evaluation_interval_field(self):
+        cfg = _make_config()
+        assert hasattr(cfg, "culture_evaluation_interval_sec")
+        assert cfg.culture_evaluation_interval_sec == Decimal("600")
+        assert isinstance(cfg.culture_evaluation_interval_sec, Decimal)
+
     def test_category_cadence_fields_reject_negative_values(self):
         with pytest.raises(Exception):
             _make_config(non_grok_evaluation_interval_sec=Decimal("-1"))
+
+    def test_culture_evaluation_interval_rejects_negative_values(self):
+        with pytest.raises(Exception):
+            _make_config(culture_evaluation_interval_sec=Decimal("-1"))
 
 
 class TestAppConfigPromptQueueFields:
@@ -1189,6 +1200,7 @@ class TestDataAggregatorCategoryCadence:
             enabled=True,
             grok_eligible_min_interval_sec=30.0,
             non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
             grok_eligible_categories={"CRYPTO", "IRAN"},
         )
         agg.register_market(
@@ -1214,6 +1226,7 @@ class TestDataAggregatorCategoryCadence:
             enabled=True,
             grok_eligible_min_interval_sec=30.0,
             non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
             grok_eligible_categories={"CRYPTO", "IRAN"},
         )
         agg.register_market(
@@ -1241,6 +1254,7 @@ class TestDataAggregatorCategoryCadence:
             enabled=True,
             grok_eligible_min_interval_sec=30.0,
             non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
             grok_eligible_categories={"CRYPTO", "IRAN"},
         )
         agg.register_market("crypto-1", category="CRYPTO", yes_token_id="yes-crypto")
@@ -1252,6 +1266,37 @@ class TestDataAggregatorCategoryCadence:
 
         agg._markets["crypto-1"].last_emit_time -= 31.0
         await agg._emit_state_for_market("crypto-1")
+        assert agg.output_queue.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_culture_uses_dedicated_interval_even_when_grok_eligible(self):
+        from src.agents.context.aggregator import DataAggregator
+
+        agg = DataAggregator(asyncio.Queue(), asyncio.Queue(), "culture-1")
+        agg.configure_category_cadence(
+            enabled=True,
+            grok_eligible_min_interval_sec=30.0,
+            non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
+            grok_eligible_categories={"CRYPTO", "IRAN", "CULTURE"},
+        )
+        agg.register_market(
+            "culture-1",
+            category="CULTURE",
+            yes_token_id="yes-culture",
+        )
+        agg.best_bid = 0.40
+        agg.best_ask = 0.60
+
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+        agg._markets["culture-1"].last_emit_time -= 31.0
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+        agg._markets["culture-1"].last_emit_time -= 570.0
+        await agg._emit_state_for_market("culture-1")
         assert agg.output_queue.qsize() == 2
 
 

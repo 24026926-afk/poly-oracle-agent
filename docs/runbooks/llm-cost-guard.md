@@ -32,9 +32,10 @@ Run 5 dry-run calibration also uses:
 |---|---:|---|
 | `ENABLE_MARKET_DISCOVERY_PREFLIGHT` | `true` | Reject non-tradable order books before activation |
 | `PREFLIGHT_MAX_SPREAD_PCT` | `0.90` | Reject extreme-spread books using existing `spread / best_ask` semantics while avoiding the all-blocking `0.80` calibration |
-| `ENABLE_CATEGORY_EVALUATION_CADENCE` | `true` | Reduce evaluation spend on categories without a Grok signal |
+| `ENABLE_CATEGORY_EVALUATION_CADENCE` | `true` | Reduce evaluation spend on low-yield categories without removing signal coverage |
 | `GROK_ELIGIBLE_EVALUATION_INTERVAL_SEC` | `30` | Preserve normal cadence for signal-rich categories |
 | `NON_GROK_EVALUATION_INTERVAL_SEC` | `120` | Evaluate non-Grok categories at one quarter of the normal cadence |
+| `CULTURE_EVALUATION_INTERVAL_SEC` | `600` | Keep CULTURE Grok signal coverage while preventing it from consuming the evaluation budget |
 | `OPERATIONAL_EVENT_DIAGNOSTIC_THROTTLE_SEC` | `60` | Preserve required event types while throttling durable high-frequency diagnostics |
 
 ## How It Works

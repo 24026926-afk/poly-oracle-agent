@@ -556,6 +556,14 @@ class AppConfig(BaseSettings):
         ge=0,
         description="Minimum seconds between evaluations for non-Grok-eligible markets",
     )
+    culture_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("600"),
+        ge=0,
+        description=(
+            "Minimum seconds between evaluations for CULTURE markets, even when "
+            "CULTURE is Grok-eligible"
+        ),
+    )
 
     # --- WI-53: Prompt Queue Backpressure ---
     prompt_queue_maxsize: int = Field(

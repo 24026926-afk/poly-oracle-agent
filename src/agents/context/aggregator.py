@@ -97,6 +97,7 @@ class DataAggregator:
         self._grok_eligible_categories: set[str] = set()
         self._grok_eligible_min_interval_sec = 30.0
         self._non_grok_min_interval_sec = 120.0
+        self._culture_min_interval_sec = 600.0
 
     # ------------------------------------------------------------------
     # Backward-compatible global properties (delegate to primary market)
@@ -244,12 +245,14 @@ class DataAggregator:
         enabled: bool = False,
         grok_eligible_min_interval_sec: float = 30.0,
         non_grok_min_interval_sec: float = 120.0,
+        culture_min_interval_sec: float = 600.0,
         grok_eligible_categories: set[str] | None = None,
     ) -> None:
         """Throttle evaluation emits by category without reordering the queue."""
         self._category_cadence_enabled = enabled
         self._grok_eligible_min_interval_sec = max(0.0, grok_eligible_min_interval_sec)
         self._non_grok_min_interval_sec = max(0.0, non_grok_min_interval_sec)
+        self._culture_min_interval_sec = max(0.0, culture_min_interval_sec)
         self._grok_eligible_categories = {
             str(category).upper() for category in (grok_eligible_categories or set())
         }
@@ -495,11 +498,12 @@ class DataAggregator:
             and not material_movement
         ):
             category = str(ms.category or "").upper()
-            min_interval = (
-                self._grok_eligible_min_interval_sec
-                if category in self._grok_eligible_categories
-                else self._non_grok_min_interval_sec
-            )
+            if category == "CULTURE":
+                min_interval = self._culture_min_interval_sec
+            elif category in self._grok_eligible_categories:
+                min_interval = self._grok_eligible_min_interval_sec
+            else:
+                min_interval = self._non_grok_min_interval_sec
             elapsed = now - ms.last_emit_time
             if min_interval > 0 and elapsed < min_interval:
                 logger.debug(

@@ -147,6 +147,7 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 | `ENABLE_CATEGORY_EVALUATION_CADENCE` | bool | `false` | No | Enables category-aware evaluation cadence throttling before prompt queue insertion. |
 | `GROK_ELIGIBLE_EVALUATION_INTERVAL_SEC` | Decimal | `30` | No | Minimum seconds between evaluations for Grok-eligible markets. |
 | `NON_GROK_EVALUATION_INTERVAL_SEC` | Decimal | `120` | No | Minimum seconds between evaluations for non-Grok-eligible markets. |
+| `CULTURE_EVALUATION_INTERVAL_SEC` | Decimal | `600` | No | Minimum seconds between CULTURE evaluations while preserving live Grok sentiment coverage for CULTURE markets. |
 | `OPERATIONAL_EVENT_DIAGNOSTIC_THROTTLE_SEC` | Decimal | `60` | No | Durable-ledger throttle for high-frequency diagnostic event types while preserving metrics. |
 
 #### Polygon / Web3
