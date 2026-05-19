@@ -2,8 +2,31 @@
 
 **Last Updated:** 2026-05-18
 **Version:** 0.16.5
-**Status:** Phase 16 COMPLETE — runtime stabilization calibration committed
-**Active WI:** none
+**Status:** Phase 16 COMPLETE — runtime stabilization calibration committed; WI-61 brief opened
+**Active WI:** WI-61 — Periodic Runtime Audit (IN PROGRESS, brief context written)
+
+## WI-61 — Periodic Runtime Audit (IN PROGRESS, 2026-05-18)
+
+**Trigger:** Post-Phase 16, the dry-run paper-trading deployment needs an always-on, deterministic safety-evidence layer that runs out-of-process on a fixed cadence and surfaces degradation via Telegram before an operator notices it in the dashboard. Phase 17 has not been scoped yet; WI-61 is a standalone operational-hardening Work Item.
+
+**Brief context:** `~/documents/integration_task/01_Brief Context/WI-61-periodic-runtime-audit.md`
+
+**Scope summary:**
+- Deterministic, read-only Python auditor invoked by systemd timer (15-min cadence on the Droplet). Reads `HealthServer`, `MetricsServer`, operational event ledger, and DB state through existing repositories only — no raw SQL, no direct sessions, no writes.
+- Typed `RuntimeAuditReport` Pydantic V2 schema (`src/schemas/runtime_audit.py`) with `Decimal`-only numeric fields and a forbidden-pattern scan for secrets / high-cardinality identifiers.
+- Typed exit codes: `0=healthy`, `1=degraded`, `2=failed mandatory safety gate (incl. `dry_run=true` posture check)`, `3=probe error`.
+- JSON + Markdown artifacts under `docs/operations/runtime_audits/`, atomic `latest.{json,md}` swap.
+- Telegram alert on exit `>= 1` using existing `TelegramNotifier` with secret-safe payload validators.
+- Optional advisory LLM reviewer via direct `httpx` call to `https://api.moonshot.ai/v1/chat/completions` (Kimi K2.6). **No OpenCode / Hermes / OpenClaw dependency** — the reviewer is a plain `httpx` POST against the artifact and produces an opinion markdown only. Disabled by default; systemd timer ships disabled.
+- The LLM reviewer has no write, shell, signing, broadcasting, repository-write, Docker, or git authority. Auditor itself never calls an LLM.
+
+**Dependencies:** WI-46 (HealthServer), WI-47 (MetricsServer), WI-50 (TelegramNotifier), WI-56 (OperationalEventRepository), WI-57 (narratives, optional), WI-60 (CLI / artifact patterns).
+
+**MAAP gating:** YES — touches `src/schemas/` and `src/observability/`. Both `src/schemas/runtime_audit.py` and `src/observability/runtime_audit.py` must clear MAAP before commit.
+
+**Next:** `/wi-start WI-61` to generate `business_logic_WI-61-periodic-runtime-audit.md` and `prompt_WI-61-periodic-runtime-audit.md`, then Plan Mode for atomic-step approval.
+
+---
 
 ## Post-Phase 16 Hotfix — Run 5 Runtime Stabilization Calibration (2026-05-18)
 
