@@ -35,12 +35,24 @@
 
 ---
 
+## Post-WI-61 Doc Reconciliation — Spread Calibration (2026-05-23)
+
+**Trigger:** 2026-05-23 dry-run review (`docs/runtime_observations/2026-05-23-orchestrator-dry-run-session.md` §4 / F1) surfaced drift between live `.env` (`PREFLIGHT_MAX_SPREAD_PCT=0.99`) and the 2026-05-18 hotfix-documented value (`0.90`).
+
+**Decision:** Operator confirmed `0.99` is the canonical live value. The 2026-05-18 material-move bypass in `src/agents/context/aggregator.py` lets price-discovery moves clear cadence suppression even at the looser spread tolerance, so `0.99` is the intentional working calibration.
+
+**Changes (this entry only — no code):** None. STATE.md is the authoritative record; `.env.example` retains `0.90` as the conservative default for fresh deployments, but live operator config runs `0.99`.
+
+**Next:** Continue with the 2026-05-23 fix-plan sequence (F2 cooldown metric next).
+
+---
+
 ## Post-Phase 16 Hotfix — Run 5 Runtime Stabilization Calibration (2026-05-18)
 
 **Trigger:** Run 5 fix-plan review surfaced a spread-threshold calibration gap and a category-activation imbalance for CULTURE.
 
 **Changes (committed on develop as `10d78b4`):**
-- `.env.example` and local runtime calibration aligned to `LLM_MARKET_HOURLY_CALL_LIMIT=120` and `PREFLIGHT_MAX_SPREAD_PCT=0.90`.
+- `.env.example` and local runtime calibration aligned to `LLM_MARKET_HOURLY_CALL_LIMIT=120` and `PREFLIGHT_MAX_SPREAD_PCT=0.90`. *(Live `.env` was subsequently bumped to `0.99` by the operator; canonical value reconciled in the 2026-05-23 entry above.)*
 - `src/agents/context/aggregator.py` now lets material midpoint/spread moves bypass category cadence suppression.
 - `src/orchestrator.py` throttles only diagnostic operational events and counts throttled diagnostics as dropped.
 - `docs/runbooks/llm-cost-guard.md` now matches the current cost calibration.
