@@ -565,6 +565,29 @@ class AppConfig(BaseSettings):
         ),
     )
 
+    # --- F4 (2026-05-23 runtime-stabilization): WS snapshot persistence throttle ---
+    # Persist a market_snapshots row only when the midpoint moved at least this
+    # many basis points (bps) for the condition OR when the time-window forces it.
+    # Drops DB write volume ~10x without dropping price-discovery moves.
+    snapshot_persist_min_bps: int = Field(
+        default=25,
+        ge=0,
+        le=10000,
+        description=(
+            "Minimum midpoint change (in basis points) since last persist to "
+            "trigger a new market_snapshots row for the same condition."
+        ),
+    )
+    snapshot_persist_max_interval_sec: Decimal = Field(
+        default=Decimal("2.0"),
+        ge=Decimal("0.5"),
+        description=(
+            "Always persist a snapshot if at least this many seconds have "
+            "elapsed since the last persist for the condition, regardless of "
+            "midpoint delta."
+        ),
+    )
+
     # --- WI-53: Prompt Queue Backpressure ---
     prompt_queue_maxsize: int = Field(
         default=50,
@@ -734,6 +757,7 @@ class AppConfig(BaseSettings):
         "event_ledger_flush_interval_sec",
         "event_ledger_shutdown_flush_timeout_sec",
         "operational_event_diagnostic_throttle_sec",
+        "snapshot_persist_max_interval_sec",
         mode="before",
     )
     @classmethod

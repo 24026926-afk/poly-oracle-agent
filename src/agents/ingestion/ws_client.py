@@ -14,6 +14,7 @@ PONG timeout detection, and explicit market-closed handling.
 import asyncio
 import json
 import random
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -98,6 +99,21 @@ def _normalize_no_quote_to_yes(
     return _ONE_PRICE - best_ask, _ONE_PRICE - best_bid
 
 
+def _coerce_decimal_or_default(value: Any, default: Decimal) -> Decimal:
+    """Coerce a config field to Decimal; fall back to default on any failure.
+
+    Used by CLOBWebSocketClient.__init__ so that test configs that wire
+    MagicMock (or omit the field entirely) do not raise on coercion. Production
+    AppConfig fields are typed Decimal/int and round-trip cleanly.
+    """
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return default
+
+
 class CLOBWebSocketClient:
     """Streams live CLOB orderbook events and enqueues MarketSnapshots."""
 
@@ -142,6 +158,22 @@ class CLOBWebSocketClient:
         self._health = WebSocketHealthSnapshot()
         self._pong_event: asyncio.Event = asyncio.Event()
         self._pong_event.set()  # initially clear (no PONG pending)
+
+        # F4 (2026-05-23): Per-condition persistence throttle state.
+        # Maps condition_id -> (monotonic_ts_seconds, last_persisted_midpoint).
+        # We always feed the in-memory eval queue, but only persist a new
+        # market_snapshots row when the midpoint moves >= snapshot_persist_min_bps
+        # OR snapshot_persist_max_interval_sec elapses since the last persist.
+        # Defensive against test configs that wire MagicMock for absent fields:
+        # fall through to safe defaults on any non-coercible value.
+        self._snapshot_persist_min_bps: Decimal = _coerce_decimal_or_default(
+            getattr(config, "snapshot_persist_min_bps", 25), Decimal("25")
+        )
+        self._snapshot_persist_max_interval_sec: Decimal = _coerce_decimal_or_default(
+            getattr(config, "snapshot_persist_max_interval_sec", Decimal("2.0")),
+            Decimal("2.0"),
+        )
+        self._last_persist: dict[str, tuple[Decimal, Decimal]] = {}
 
     # ------------------------------------------------------------------
     # Public
@@ -218,6 +250,35 @@ class CLOBWebSocketClient:
     def get_health_snapshot(self) -> WebSocketHealthSnapshot:
         """Return a copy of the current WebSocket health state."""
         return self._health.model_copy(deep=True)
+
+    def _should_persist_snapshot(
+        self,
+        condition_id: str,
+        midpoint: Decimal,
+        now_monotonic: Decimal,
+    ) -> bool:
+        """Return True iff this snapshot warrants a new market_snapshots row.
+
+        Throttle rule (F4 2026-05-23):
+        - First snapshot per condition is always persisted.
+        - Subsequent snapshots persist iff either (a) the midpoint moved by
+          >= snapshot_persist_min_bps since the last persist, OR
+          (b) snapshot_persist_max_interval_sec has elapsed.
+        - Zero or negative previous midpoint is treated as "always persist"
+          to avoid divide-by-zero and to keep degenerate-to-valid transitions
+          observable in the persisted record.
+        - Pure-Decimal arithmetic; no float coercion on the throttle path.
+        """
+        prev = self._last_persist.get(condition_id)
+        if prev is None:
+            return True
+        prev_ts, prev_mid = prev
+        if now_monotonic - prev_ts >= self._snapshot_persist_max_interval_sec:
+            return True
+        if prev_mid <= _ZERO_PRICE:
+            return True
+        bps_delta = abs(midpoint - prev_mid) * Decimal("10000") / prev_mid
+        return bps_delta >= self._snapshot_persist_min_bps
 
     # ------------------------------------------------------------------
     # Internal
@@ -750,10 +811,24 @@ class CLOBWebSocketClient:
             no_token_id=snapshot_schema.no_token_id,
         )
 
-        async with self._db_factory() as session:
-            repo = self._market_repo_factory(session)
-            await repo.insert_snapshot(row)
-            await session.commit()
+        # F4 (2026-05-23): Throttle DB persistence only — the in-memory eval
+        # queue is fed unconditionally so evaluation cadence is unchanged.
+        now_monotonic = Decimal(str(time.monotonic()))
+        midpoint = snapshot_schema.midpoint
+        if self._should_persist_snapshot(
+            snapshot_schema.condition_id, midpoint, now_monotonic
+        ):
+            async with self._db_factory() as session:
+                repo = self._market_repo_factory(session)
+                await repo.insert_snapshot(row)
+                await session.commit()
+            self._last_persist[snapshot_schema.condition_id] = (now_monotonic, midpoint)
+        else:
+            logger.debug(
+                "ws_client.snapshot_persist_throttled",
+                condition_id=snapshot_schema.condition_id,
+                midpoint=midpoint,
+            )
 
         await self._queue.put(row)
 

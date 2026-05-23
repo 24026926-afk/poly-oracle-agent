@@ -46,10 +46,16 @@ def _mock_db_factory() -> MagicMock:
     return factory
 
 
-def _mock_config() -> MagicMock:
+def _mock_config(
+    *,
+    snapshot_persist_min_bps: int = 25,
+    snapshot_persist_max_interval_sec: Decimal = Decimal("2.0"),
+) -> MagicMock:
     cfg = MagicMock()
     cfg.clob_ws_url = "wss://fake.ws/market"
     cfg.gamma_api_url = "https://gamma-api.fake.com"
+    cfg.snapshot_persist_min_bps = snapshot_persist_min_bps
+    cfg.snapshot_persist_max_interval_sec = snapshot_persist_max_interval_sec
     return cfg
 
 
@@ -458,3 +464,95 @@ async def test_gamma_parses_native_list_clob_token_ids():
 
     assert len(result) == 1
     assert result[0].token_ids == ["tok_a", "tok_b"]
+
+
+# ---------------------------------------------------------------------------
+# F4 (2026-05-23): WS snapshot persistence throttle
+# ---------------------------------------------------------------------------
+def _make_ws_client_for_throttle(
+    *,
+    min_bps: int = 25,
+    max_interval_sec: Decimal = Decimal("2.0"),
+) -> CLOBWebSocketClient:
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    cfg = _mock_config(
+        snapshot_persist_min_bps=min_bps,
+        snapshot_persist_max_interval_sec=max_interval_sec,
+    )
+    return CLOBWebSocketClient(cfg, queue, db)
+
+
+def test_should_persist_first_snapshot_always_returns_true():
+    client = _make_ws_client_for_throttle()
+    assert (
+        client._should_persist_snapshot("0xcond_a", Decimal("0.5"), Decimal("100.0"))
+        is True
+    )
+
+
+def test_should_persist_same_midpoint_within_window_returns_false():
+    client = _make_ws_client_for_throttle()
+    # First persist seeds state
+    client._last_persist["0xcond_a"] = (Decimal("100.0"), Decimal("0.5"))
+    # 0.5s later, same midpoint, window=2.0s, min_bps=25
+    assert (
+        client._should_persist_snapshot("0xcond_a", Decimal("0.5"), Decimal("100.5"))
+        is False
+    )
+
+
+def test_should_persist_midpoint_change_above_min_bps_returns_true():
+    client = _make_ws_client_for_throttle(min_bps=25)
+    client._last_persist["0xcond_a"] = (Decimal("100.0"), Decimal("0.50"))
+    # Δmidpoint = 0.005, prev=0.50 → 100 bps > 25 bps
+    assert (
+        client._should_persist_snapshot("0xcond_a", Decimal("0.505"), Decimal("100.5"))
+        is True
+    )
+
+
+def test_should_persist_time_window_elapsed_forces_persist_even_if_midpoint_unchanged():
+    client = _make_ws_client_for_throttle(max_interval_sec=Decimal("2.0"))
+    client._last_persist["0xcond_a"] = (Decimal("100.0"), Decimal("0.5"))
+    # 2.5s later, same midpoint → time window forces persist
+    assert (
+        client._should_persist_snapshot("0xcond_a", Decimal("0.5"), Decimal("102.5"))
+        is True
+    )
+
+
+def test_should_persist_zero_prev_midpoint_defaults_to_true_without_division_error():
+    client = _make_ws_client_for_throttle()
+    # Degenerate previous midpoint (0) — must not divide by zero, must persist.
+    client._last_persist["0xcond_a"] = (Decimal("100.5"), Decimal("0"))
+    assert (
+        client._should_persist_snapshot("0xcond_a", Decimal("0.5"), Decimal("100.7"))
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_ws_persistence_throttle_skips_repeated_same_midpoint_but_still_enqueues():
+    """Eval queue is fed every frame; DB insert is throttled within the window."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    cfg = _mock_config(
+        snapshot_persist_min_bps=25,
+        snapshot_persist_max_interval_sec=Decimal("60.0"),  # long window
+    )
+    client = CLOBWebSocketClient(cfg, queue, db)
+
+    # Same identical frame twice in quick succession
+    await client._handle_message(_book_frame())
+    await client._handle_message(_book_frame())
+
+    # Both frames feed the in-memory queue (eval cadence unchanged).
+    assert queue.qsize() == 2
+
+    # But only the first one persists; the session is built once.
+    # (_mock_db_factory returns the same session every call; commit is called
+    # exactly once across both frames because the second was throttled.)
+    session = db._last_session
+    assert session.commit.await_count == 1
+    assert session.add.call_count == 1
