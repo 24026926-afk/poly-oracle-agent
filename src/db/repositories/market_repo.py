@@ -6,6 +6,8 @@ Async repository for MarketSnapshot persistence.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,3 +47,16 @@ class MarketRepository:
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_recent_snapshots(
+        self, cutoff: datetime, limit: int = 100
+    ) -> list[MarketSnapshot]:
+        """Return recent snapshots since cutoff, newest first, bounded by limit."""
+        stmt = (
+            select(MarketSnapshot)
+            .where(MarketSnapshot.captured_at >= cutoff)
+            .order_by(MarketSnapshot.captured_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
