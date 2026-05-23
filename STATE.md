@@ -1,30 +1,37 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-19
-**Version:** 0.16.5
-**Status:** Phase 16 COMPLETE — CULTURE Grok upgrade committed; WI-61 in progress
-**Active WI:** WI-61 — Periodic Runtime Audit (IN PROGRESS, brief context written)
+**Last Updated:** 2026-05-23
+**Version:** 0.16.6
+**Status:** Phase 16 COMPLETE — WI-61 Periodic Runtime Audit COMPLETE
+**Active WI:** none
 
-## WI-61 — Periodic Runtime Audit (IN PROGRESS, 2026-05-18)
+## WI-61 — Periodic Runtime Audit (COMPLETE, 2026-05-23)
 
 **Trigger:** Post-Phase 16, the dry-run paper-trading deployment needs an always-on, deterministic safety-evidence layer that runs out-of-process on a fixed cadence and surfaces degradation via Telegram before an operator notices it in the dashboard. Phase 17 has not been scoped yet; WI-61 is a standalone operational-hardening Work Item.
 
 **Brief context:** `~/documents/integration_task/01_Brief Context/WI-61-periodic-runtime-audit.md`
 
-**Scope summary:**
-- Deterministic, read-only Python auditor invoked by systemd timer (15-min cadence on the Droplet). Reads `HealthServer`, `MetricsServer`, operational event ledger, and DB state through existing repositories only — no raw SQL, no direct sessions, no writes.
-- Typed `RuntimeAuditReport` Pydantic V2 schema (`src/schemas/runtime_audit.py`) with `Decimal`-only numeric fields and a forbidden-pattern scan for secrets / high-cardinality identifiers.
-- Typed exit codes: `0=healthy`, `1=degraded`, `2=failed mandatory safety gate (incl. `dry_run=true` posture check)`, `3=probe error`.
-- JSON + Markdown artifacts under `docs/operations/runtime_audits/`, atomic `latest.{json,md}` swap.
-- Telegram alert on exit `>= 1` using existing `TelegramNotifier` with secret-safe payload validators.
-- Optional advisory LLM reviewer via direct `httpx` call to `https://api.moonshot.ai/v1/chat/completions` (Kimi K2.6). **No OpenCode / Hermes / OpenClaw dependency** — the reviewer is a plain `httpx` POST against the artifact and produces an opinion markdown only. Disabled by default; systemd timer ships disabled.
-- The LLM reviewer has no write, shell, signing, broadcasting, repository-write, Docker, or git authority. Auditor itself never calls an LLM.
+**Delivered:**
+- `src/schemas/runtime_audit.py` — typed Pydantic V2 schemas (`RuntimeAuditReport`, `RuntimeAuditExitCode`, `RuntimeAuditStatus`, `RuntimeAuditFailureReason`, probe/summary/artifact/Telegram/reviewer models). All numeric fields are `Decimal` with `_reject_float` validators. All models frozen; bounded string lengths; tz-aware `generated_at_utc`.
+- `src/observability/runtime_audit.py` — deterministic, read-only auditor. Probes `/healthz`, `/readyz`, `/metrics`, SQLite file, Docker Compose (optional), bounded log tail (optional). Routes all DB reads through `OperationalEventRepository`, `DecisionRepository`, `MarketRepository`, `PositionRepository`, `ExecutionRepository` — no raw SQL, no direct sessions. Forbidden-content scan applied to JSON+MD artifacts, Telegram payloads, and reviewer input/output. Atomic `latest.{json,md}` swap with typed failure reasons. Optional advisory LLM reviewer (`run_llm_review`) is a separate function using direct `httpx` POST to `https://api.moonshot.ai/v1/chat/completions` — disabled by default, no OpenCode/Hermes/OpenClaw dependency.
+- `scripts/ops/periodic_runtime_audit.py` — CLI entrypoint with read-only SQLite URI access (`mode=ro&uri=true`), typed exit codes.
+- `src/db/repositories/{decision,execution,market}_repo.py` — added bounded `get_recent_*(cutoff, limit)` methods using SQLAlchemy ORM `select()`.
+- `deploy/systemd/poly-oracle-runtime-audit.{service,timer}` — 15-min cadence, `ProtectSystem=strict`, `ReadWritePaths=` constrained to `docs/operations/runtime_audits/`.
+- `deploy/systemd/poly-oracle-runtime-review.{service,timer}` — committed disabled by default.
+- `docs/runbooks/periodic-runtime-audit.md` — operator runbook.
+- `.env.example` — `SQLITE_DB_PATH`, `APP_LOG_PATH`, `ENABLE_RUNTIME_AUDIT_ALERTS`, `RUNTIME_REVIEW_ENABLED`, `MOONSHOT_API_KEY` documented.
 
-**Dependencies:** WI-46 (HealthServer), WI-47 (MetricsServer), WI-50 (TelegramNotifier), WI-56 (OperationalEventRepository), WI-57 (narratives, optional), WI-60 (CLI / artifact patterns).
+**Safety posture:**
+- `dry_run=true` enforced as mandatory safety gate → exit code 2 on failure.
+- Typed exit codes: `0=healthy`, `1=degraded`, `2=safety-gate failure`, `3=probe error`.
+- No execution, signing, broadcasting, Gatekeeper, or `LLMEvaluationResponse` paths imported.
+- No Alembic migration, no schema mutation, no `Base.metadata.create_all()`.
 
-**MAAP gating:** YES — touches `src/schemas/` and `src/observability/`. Both `src/schemas/runtime_audit.py` and `src/observability/runtime_audit.py` must clear MAAP before commit.
+**MAAP cleared:** all five checks (no `float` for money, no raw SQL outside repos, no Gatekeeper bypass, no `dry_run` bypass, no schema drift) plus zero-trust audit on path traversal, atomic swap failure, forbidden-content scanning, and timeout coverage.
 
-**Next:** `/wi-start WI-61` to generate `business_logic_WI-61-periodic-runtime-audit.md` and `prompt_WI-61-periodic-runtime-audit.md`, then Plan Mode for atomic-step approval.
+**Regression:** 149 WI-61 tests; full regression 2482 passed; coverage 93% (`runtime_audit.py` 92%, `schemas/runtime_audit.py` 95%).
+
+**Branch:** `feat/wi-61-periodic-runtime-audit`, final commit: `352e26c`, merge commit: `0587744`.
 
 ---
 
