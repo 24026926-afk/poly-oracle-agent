@@ -1,0 +1,26 @@
+[Unit]
+Description=Poly-Oracle Server Runtime Review — WI-62 autonomous 72h audit aggregation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=poly-oracle
+WorkingDirectory=/opt/poly-oracle-agent
+EnvironmentFile=/opt/poly-oracle-agent/.env
+ExecStart=/usr/bin/openclaude -p "/server-runtime-review"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=poly-oracle-review
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/poly-oracle-agent/docs/runtime_observations
+ReadWritePaths=/opt/poly-oracle-agent/logs
+ReadWritePaths=/home/poly-oracle/documents/integration_task/03_Daily
+
+[Install]
+WantedBy=multi-user.target
