@@ -69,6 +69,7 @@ except ImportError:
 
 try:
     from src.observability.runtime_audit import (
+        _compute_cooldown_block_rate,
         check_dry_run_posture,
         check_forbidden_content,
         parse_prometheus_text,
@@ -1934,3 +1935,99 @@ async def test_run_audit_latest_swap_failure_yields_probe_error_exit_code(
     assert len(artifact_findings) >= 1
     assert report.artifact_result is not None
     assert report.artifact_result.success is False
+
+
+# ── F2 (2026-05-23) cognitive_cooldown_block_rate ─────────────────────────
+
+
+def test_runtime_audit_ledger_summary_accepts_cooldown_block_count() -> None:
+    if not _SCHEMAS_AVAILABLE:
+        raise NotImplementedError("RuntimeAuditLedgerSummary not implemented")
+    s = RuntimeAuditLedgerSummary(
+        total_events=10, error_count=0, warning_count=138,
+        ws_reconnect_count=0, budget_block_count=0,
+        provider_failure_count=0, market_quarantine_count=0,
+        readiness_change_count=0, alert_count=0, recovery_count=0,
+        cooldown_block_count=138,
+    )
+    assert s.cooldown_block_count == 138
+
+
+def test_runtime_audit_ledger_summary_cooldown_block_count_defaults_to_zero() -> None:
+    if not _SCHEMAS_AVAILABLE:
+        raise NotImplementedError("RuntimeAuditLedgerSummary not implemented")
+    s = RuntimeAuditLedgerSummary(total_events=0)
+    assert s.cooldown_block_count == 0
+
+
+def test_runtime_audit_report_cognitive_cooldown_block_rate_rejects_float() -> None:
+    if not _SCHEMAS_AVAILABLE:
+        raise NotImplementedError("RuntimeAuditReport not implemented")
+    with pytest.raises(ValidationError):
+        RuntimeAuditReport(
+            status=RuntimeAuditStatus.HEALTHY,
+            exit_code=RuntimeAuditExitCode.HEALTHY,
+            generated_at_utc=datetime.now(timezone.utc),
+            cognitive_cooldown_block_rate=0.5,  # type: ignore[arg-type]
+        )
+
+
+def test_runtime_audit_report_cognitive_cooldown_block_rate_accepts_decimal() -> None:
+    if not _SCHEMAS_AVAILABLE:
+        raise NotImplementedError("RuntimeAuditReport not implemented")
+    r = RuntimeAuditReport(
+        status=RuntimeAuditStatus.HEALTHY,
+        exit_code=RuntimeAuditExitCode.HEALTHY,
+        generated_at_utc=datetime.now(timezone.utc),
+        cognitive_cooldown_block_rate=Decimal("0.6479"),
+    )
+    assert r.cognitive_cooldown_block_rate == Decimal("0.6479")
+
+
+def test_compute_cooldown_block_rate_typical_case_2026_05_23_observed() -> None:
+    """138 cooldowns vs 75 decisions = 0.6479 (matches 2026-05-23 dry-run)."""
+    if not _AUDITOR_AVAILABLE:
+        raise NotImplementedError("_compute_cooldown_block_rate not implemented")
+    ledger = RuntimeAuditLedgerSummary(cooldown_block_count=138, available=True)
+    decisions = RuntimeAuditDecisionSummary(total_decisions=75, available=True)
+    rate = _compute_cooldown_block_rate(ledger, decisions)
+    assert rate == Decimal("0.6479")
+
+
+def test_compute_cooldown_block_rate_zero_denominator_returns_none() -> None:
+    if not _AUDITOR_AVAILABLE:
+        raise NotImplementedError("_compute_cooldown_block_rate not implemented")
+    ledger = RuntimeAuditLedgerSummary(cooldown_block_count=0, available=True)
+    decisions = RuntimeAuditDecisionSummary(total_decisions=0, available=True)
+    assert _compute_cooldown_block_rate(ledger, decisions) is None
+
+
+def test_compute_cooldown_block_rate_unavailable_summary_returns_none() -> None:
+    if not _AUDITOR_AVAILABLE:
+        raise NotImplementedError("_compute_cooldown_block_rate not implemented")
+    ledger = RuntimeAuditLedgerSummary(available=False, message="ledger read failed")
+    decisions = RuntimeAuditDecisionSummary(total_decisions=10, available=True)
+    assert _compute_cooldown_block_rate(ledger, decisions) is None
+
+    ledger = RuntimeAuditLedgerSummary(cooldown_block_count=5, available=True)
+    decisions = RuntimeAuditDecisionSummary(available=False)
+    assert _compute_cooldown_block_rate(ledger, decisions) is None
+
+
+def test_compute_cooldown_block_rate_only_cooldowns_returns_one() -> None:
+    if not _AUDITOR_AVAILABLE:
+        raise NotImplementedError("_compute_cooldown_block_rate not implemented")
+    ledger = RuntimeAuditLedgerSummary(cooldown_block_count=10, available=True)
+    decisions = RuntimeAuditDecisionSummary(total_decisions=0, available=True)
+    assert _compute_cooldown_block_rate(ledger, decisions) == Decimal("1.0000")
+
+
+def test_compute_cooldown_block_rate_only_decisions_returns_zero() -> None:
+    if not _AUDITOR_AVAILABLE:
+        raise NotImplementedError("_compute_cooldown_block_rate not implemented")
+    ledger = RuntimeAuditLedgerSummary(cooldown_block_count=0, available=True)
+    decisions = RuntimeAuditDecisionSummary(total_decisions=50, available=True)
+    assert _compute_cooldown_block_rate(ledger, decisions) == Decimal("0.0000")
+
+
+# ── F2 (2026-05-23) cognitive_cooldown_block_rate ─────────────────────────

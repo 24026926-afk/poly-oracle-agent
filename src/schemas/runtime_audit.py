@@ -248,6 +248,11 @@ class RuntimeAuditLedgerSummary(BaseModel):
     readiness_change_count: int = Field(default=0, ge=0)
     alert_count: int = Field(default=0, ge=0)
     recovery_count: int = Field(default=0, ge=0)
+    # F2 (2026-05-23): count of COOLDOWN_BLOCK events in the audit window.
+    # Surfaces the WI-52 cognitive-breaker activation rate; paired with
+    # decision_summary.total_decisions at the report level to derive the
+    # cognitive_cooldown_block_rate metric.
+    cooldown_block_count: int = Field(default=0, ge=0)
     available: bool = True
     message: Optional[str] = Field(default=None, max_length=512)
 
@@ -467,6 +472,15 @@ class RuntimeAuditReport(BaseModel):
     telegram_result: Optional[RuntimeAuditTelegramResult] = None
     llm_review_result: Optional[RuntimeAuditLLMReviewResult] = None
     forbidden_content_check: Optional[RuntimeAuditForbiddenContentCheck] = None
+    # F2 (2026-05-23): share of LLM-evaluation attempts blocked by the WI-52
+    # cognitive breaker in the audit window. Computed as
+    # cooldown_block_count / (cooldown_block_count + decision_summary.total_decisions).
+    # None when either summary is unavailable or denominator is zero.
+    cognitive_cooldown_block_rate: Optional[Decimal] = Field(
+        default=None,
+        ge=Decimal("0"),
+        le=Decimal("1"),
+    )
 
     @field_validator("generated_at_utc")
     @classmethod
@@ -474,3 +488,10 @@ class RuntimeAuditReport(BaseModel):
         if dt.tzinfo is None:
             raise ValueError("generated_at_utc must be timezone-aware (UTC)")
         return dt
+
+    @field_validator("cognitive_cooldown_block_rate", mode="before")
+    @classmethod
+    def _reject_float_cooldown_rate(cls, v: object) -> object:
+        if v is None:
+            return v
+        return _reject_float(v)

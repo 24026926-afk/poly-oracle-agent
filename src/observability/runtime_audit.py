@@ -131,6 +131,30 @@ _PROM_LINE_RE = re.compile(
 _PROM_LABEL_RE = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"')
 
 
+def _compute_cooldown_block_rate(
+    ledger_summary: Optional[RuntimeAuditLedgerSummary],
+    decision_summary: Optional[RuntimeAuditDecisionSummary],
+) -> Optional[Decimal]:
+    """Return the share of LLM-eval attempts blocked by the WI-52 cognitive
+    breaker in the audit window.
+
+    F2 (2026-05-23): rate = cooldowns / (cooldowns + decisions). Returns None
+    when either summary is unavailable or both summaries are zero (no signal
+    to compute over). All arithmetic is Decimal-only — no float coercion.
+    Result is clipped to the [0, 1] domain enforced by the schema validator.
+    """
+    if ledger_summary is None or decision_summary is None:
+        return None
+    if not ledger_summary.available or not decision_summary.available:
+        return None
+    cooldowns = Decimal(ledger_summary.cooldown_block_count)
+    decisions = Decimal(decision_summary.total_decisions)
+    denom = cooldowns + decisions
+    if denom == Decimal("0"):
+        return None
+    return (cooldowns / denom).quantize(Decimal("0.0001"))
+
+
 def check_forbidden_content(text: str) -> RuntimeAuditForbiddenContentCheck:
     """Scan text for forbidden secrets and high-cardinality identifiers."""
     found: list[str] = []
@@ -513,12 +537,17 @@ async def summarize_ledger(
         recovery = sum(
             1 for e in events if e.event_type == OperationalEventType.ERROR_RECOVERED
         )
+        # F2 (2026-05-23): WI-52 cognitive cooldown activations.
+        cooldown = sum(
+            1 for e in events if e.event_type == OperationalEventType.COOLDOWN_BLOCK
+        )
         return RuntimeAuditLedgerSummary(
             total_events=len(events), error_count=error_count,
             warning_count=warning_count, ws_reconnect_count=ws_reconnect,
             budget_block_count=budget_block, provider_failure_count=provider_fail,
             market_quarantine_count=market_q, readiness_change_count=readiness,
-            alert_count=alert, recovery_count=recovery, available=True,
+            alert_count=alert, recovery_count=recovery,
+            cooldown_block_count=cooldown, available=True,
         )
     except Exception as exc:
         logger.warning("runtime_audit.ledger_summary_failed", error=str(exc))
@@ -977,6 +1006,10 @@ async def run_audit(
         status = RuntimeAuditStatus.HEALTHY
         exit_code = RuntimeAuditExitCode.HEALTHY
 
+    cooldown_block_rate = _compute_cooldown_block_rate(
+        ledger_summary, decision_summary
+    )
+
     report = RuntimeAuditReport(
         status=status, exit_code=exit_code, generated_at_utc=now,
         findings=findings, health_probe=health, readiness_probe=readiness,
@@ -985,6 +1018,7 @@ async def run_audit(
         position_summary=position_summary, execution_summary=execution_summary,
         database_probe=db_probe, docker_probe=docker_probe,
         log_tail_summary=log_tail,
+        cognitive_cooldown_block_rate=cooldown_block_rate,
     )
 
     artifact_result = write_audit_artifacts(report, output_dir, project_root)
@@ -1008,8 +1042,9 @@ async def run_audit(
             position_summary=position_summary, execution_summary=execution_summary,
             database_probe=db_probe, docker_probe=docker_probe,
             log_tail_summary=log_tail,
+            cognitive_cooldown_block_rate=cooldown_block_rate,
         )
-    
+
     report = report.model_copy(update={"artifact_result": artifact_result})
 
     telegram_result = await send_telegram_alert(notifier, report, enabled=telegram_enabled)
