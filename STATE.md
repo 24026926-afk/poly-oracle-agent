@@ -1,9 +1,27 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-23
-**Version:** 0.16.6
-**Status:** Phase 16 COMPLETE — WI-61 Periodic Runtime Audit COMPLETE
-**Active WI:** none
+**Version:** 0.16.7
+**Status:** Phase 16 COMPLETE — WI-62 Server Runtime Review IN PROGRESS
+**Active WI:** WI-62
+
+## WI-62 — Server Runtime Review Skill (IN PROGRESS)
+
+**Trigger:** Post-WI-61, the server produces ~288 typed JSON audit artifacts every 72 hours but has no autonomous mechanism to aggregate them into a narrative review. The existing `server-runtime-review` OpenCode command is a thin skeleton, and the systemd service references the wrong binary (`claude` instead of `openclaude`) with a hardcoded placeholder API key.
+
+**Brief context:** `~/documents/integration_task/01_Brief Context/WI-62-server-runtime-review.md`
+
+**Scope:**
+- Harden `scripts/ops/aggregate_audits.py` — zero-artifact detection, explicit Fix Plan thresholds, decision distribution, DB growth delta, secret scrubbing.
+- Rebuild `.opencode/commands/server-runtime-review.md` — full pre-flight, error handling, canonical 12/14-section templates (match dry-run-review rigor).
+- Fix `deploy/systemd/poly-oracle-server-review.{service,timer}` — openclaude binary, 24h cadence with 72h lookback, proper hardening.
+- Server prerequisite documentation.
+
+**Out of scope:** Modifying orchestrator code, WI-61 audit logic, Moonshot reviewer, any `DRY_RUN=false` path.
+
+**Dependencies:** WI-61 artifacts, openclaude CLI with headless mode on server.
+
+---
 
 ## WI-61 — Periodic Runtime Audit (COMPLETE, 2026-05-23)
 
