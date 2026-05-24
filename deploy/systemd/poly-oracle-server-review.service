@@ -1,0 +1,28 @@
+[Unit]
+Description=Poly Oracle Server Runtime Review — WI-62 autonomous 72h audit report
+After=network-online.target poly-oracle-runtime-audit.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=poly-oracle
+WorkingDirectory=/opt/poly-oracle-agent
+EnvironmentFile=/opt/poly-oracle-agent/.env
+# opencode runs the /server-runtime-review skill headlessly (-p flag).
+# -q suppresses the spinner for systemd journal output.
+# The skill invokes scripts/ops/aggregate_audits.py for all arithmetic,
+# then synthesizes a narrative report from the JSON summary.
+ExecStart=/usr/local/bin/opencode -p "/server-runtime-review" -q
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=poly-oracle-server-review
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/poly-oracle-agent/docs/runtime_observations
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Poly Oracle Server Runtime Review Timer — 24h cadence, 72h lookback
+
+[Timer]
+# Run every 24 hours with a 72-hour lookback window.
+# This provides rolling coverage: each review overlaps the previous two.
+OnUnitActiveSec=24h
+OnBootSec=30min
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
+# NOTE: Requires opencode CLI installed and configured.
+# To enable: systemctl enable --now poly-oracle-server-review.timer
+# Prerequisites:
+#   1. Install opencode: https://opencode.ai (Go binary)
+#   2. Verify headless mode: opencode -p "echo test" -q
+#   3. Provider API key in /opt/poly-oracle-agent/.env
+#   4. poly-oracle-runtime-audit.timer must be active (produces artifacts)

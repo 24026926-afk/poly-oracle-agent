@@ -18,9 +18,10 @@ from src.agents.evaluation.grok_client import (
     GrokClient,
     NEUTRAL_SENTIMENT,
     _MOCK_SENTIMENT,
+    _truncate_narrative_summary,
 )
 from src.core.config import AppConfig
-from src.schemas.llm import MarketCategory, SentimentResponse
+from src.schemas.llm import GROK_ELIGIBLE_CATEGORIES, MarketCategory, SentimentResponse
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -189,13 +190,27 @@ def test_missing_api_key_whitespace_only_returns_neutral():
     assert result == NEUTRAL_SENTIMENT
 
 
-def test_grok_timeout_seconds_config_field_exists():
-    cfg = AppConfig()
+def test_grok_timeout_seconds_config_field_exists(monkeypatch):
+    monkeypatch.delenv("GROK_TIMEOUT_SECONDS", raising=False)
+    cfg = AppConfig(
+        _env_file=None,
+        anthropic_api_key="sk-test",
+        polygon_rpc_url="https://test",
+        wallet_address="0x" + "0" * 40,
+        wallet_private_key="0x" + "1" * 64,
+    )
     assert cfg.grok_timeout_seconds == 2.0
 
 
-def test_grok_max_retries_config_field_exists():
-    cfg = AppConfig()
+def test_grok_max_retries_config_field_exists(monkeypatch):
+    monkeypatch.delenv("GROK_MAX_RETRIES", raising=False)
+    cfg = AppConfig(
+        _env_file=None,
+        anthropic_api_key="sk-test",
+        polygon_rpc_url="https://test",
+        wallet_address="0x" + "0" * 40,
+        wallet_private_key="0x" + "1" * 64,
+    )
     assert cfg.grok_max_retries == 2
 
 
@@ -539,7 +554,15 @@ def test_top_narrative_summary_too_short_rejected():
     assert result == NEUTRAL_SENTIMENT
 
 
-def test_top_narrative_summary_too_long_rejected():
+def test_top_narrative_summary_too_long_recovered_by_truncation():
+    long_summary = (
+        "Bullish crypto discourse leads the market narrative as traders point to "
+        "ETF inflows and stronger liquidity. "
+        "Secondary discussion focuses on volatility around macro data and short-term "
+        "profit taking, but the dominant tone remains constructive across major "
+        "accounts and market commentators. "
+        "This extra sentence pushes the response over the schema limit."
+    )
     body = {
         "choices": [
             {
@@ -548,7 +571,7 @@ def test_top_narrative_summary_too_long_rejected():
                         {
                             "sentiment_score": 0.5,
                             "tweet_volume_delta": 5,
-                            "top_narrative_summary": "x" * 350,
+                            "top_narrative_summary": long_summary,
                         }
                     )
                 }
@@ -563,7 +586,35 @@ def test_top_narrative_summary_too_long_rejected():
     client = _make_live_client(http_client=mock_client)
 
     result = asyncio.run(client.analyze_sentiment(**_STANDARD_CALL_ARGS))
-    assert result == NEUTRAL_SENTIMENT
+    assert result is not NEUTRAL_SENTIMENT
+    assert len(result.top_narrative_summary) <= 320
+    assert result.top_narrative_summary.endswith(".")
+
+
+def test_truncate_narrative_summary_uses_sentence_boundary():
+    long_summary = (
+        "The dominant narrative is bullish and centers on real participation. "
+        "A second sentence adds supporting context without changing the conclusion. "
+        "This third sentence is intentionally long and should be removed when the "
+        "helper finds a clean sentence boundary before the schema limit. "
+        + "TAILMARKER"
+        * 20
+    )
+
+    result = _truncate_narrative_summary(long_summary)
+
+    assert len(result) <= 320
+    assert result.endswith(".")
+    assert "TAILMARKER" not in result
+
+
+def test_truncate_narrative_summary_without_boundary_uses_ascii_ellipsis():
+    long_summary = "x" * 500
+
+    result = _truncate_narrative_summary(long_summary)
+
+    assert len(result) == 320
+    assert result.endswith("...")
 
 
 def test_missing_top_narrative_summary_rejected():
@@ -604,6 +655,24 @@ def test_api_key_not_logged_in_structured_logs():
     # is used in log calls (verified by test coverage of log paths).
 
 
+def test_culture_is_grok_eligible_with_culture_specific_guidance():
+    """CULTURE uses live sentiment, but the request instructs neutral fallback on weak signals."""
+    assert MarketCategory.CULTURE in GROK_ELIGIBLE_CATEGORIES
+    client = _make_live_client()
+
+    payload = client._build_request(
+        condition_id="cond-culture",
+        market_title="Will the album reach number one this week?",
+        market_category=MarketCategory.CULTURE,
+        reference_timestamp_utc="2026-05-05T12:00:00Z",
+        tags=["music", "charts"],
+    )
+
+    user_content = payload.body["messages"][1]["content"]
+    assert "Culture-market calibration" in user_content
+    assert "return a neutral sentiment_score near 0.0" in user_content
+
+
 def test_api_key_not_logged_in_error_paths():
     """On HTTP 401, the log event contains status_code, not the key."""
     resp = _make_mock_response(status=401)
@@ -634,7 +703,7 @@ def test_sentiment_cannot_bypass_gatekeeper():
 
 
 def test_live_sentiment_only_for_eligible_categories():
-    """CRYPTO and POLITICS are eligible; SPORTS/CULTURE gated in GrokClient."""
+    """CRYPTO, POLITICS, and CULTURE are eligible; SPORTS is gated."""
     resp = _make_mock_response(sentiment_score=0.5)
     mock_client = _make_mock_async_client(resp)
     client = _make_live_client(http_client=mock_client)

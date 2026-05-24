@@ -1,0 +1,15 @@
+[Unit]
+Description=Poly-Oracle Runtime Review Timer — disabled by default
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=60min
+AccuracySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+
+# NOTE: This timer is DISABLED by default.
+# To enable: systemctl enable --now poly-oracle-runtime-review.timer
+# Requires MOONSHOT_API_KEY in .env and RUNTIME_REVIEW_ENABLED=true

@@ -95,3 +95,16 @@ class ExecutionRepository:
 
         # Cast via str to avoid float → Decimal precision loss
         return Decimal(str(raw))
+
+    async def get_recent_executions(
+        self, cutoff: datetime, limit: int = 100
+    ) -> list[ExecutionTx]:
+        """Return recent executions since cutoff, newest first, bounded by limit."""
+        stmt = (
+            select(ExecutionTx)
+            .where(ExecutionTx.submitted_at >= cutoff)
+            .order_by(ExecutionTx.id.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

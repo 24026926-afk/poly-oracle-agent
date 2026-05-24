@@ -170,3 +170,73 @@ def test_select_rotation_candidate_resets_counter_when_spread_recovers(test_conf
     orch.aggregator.best_ask = 0.500
     assert orch._select_rotation_candidate([active, alternate]) is None
     assert orch._consecutive_spread_failures == 0
+
+
+# ── F3 (2026-05-23) orchestrator.market_activated dedup ─────────────────────
+
+
+def _activation_event_names(mock_info) -> list[str]:
+    """Extract the first positional arg (event name) from each logger.info call."""
+    return [
+        call.args[0] if call.args else call.kwargs.get("event", "")
+        for call in mock_info.call_args_list
+    ]
+
+
+@pytest.mark.asyncio
+async def test_activate_markets_emits_info_on_first_activation(test_config):
+    """First activation of a market must emit exactly one market_activated INFO."""
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    market = _market(conditionId="0xnewcid")
+    with patch("src.orchestrator.logger") as mock_logger:
+        await orch._activate_markets([market])
+        events = _activation_event_names(mock_logger.info)
+
+    assert events.count("orchestrator.market_activated") == 1
+    assert orch._last_activated_condition_ids == frozenset({"0xnewcid"})
+
+
+@pytest.mark.asyncio
+async def test_activate_markets_unchanged_set_emits_no_info(test_config):
+    """Re-calling with the same activated set must emit no INFO market_activated."""
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    market = _market(conditionId="0xstable")
+    await orch._activate_markets([market])  # seed first
+
+    with patch("src.orchestrator.logger") as mock_logger:
+        await orch._activate_markets([market])  # same set
+        events = _activation_event_names(mock_logger.info)
+
+    assert "orchestrator.market_activated" not in events
+    assert "orchestrator.market_deactivated" not in events
+    # DEBUG heartbeat must still fire
+    debug_events = _activation_event_names(mock_logger.debug)
+    assert "orchestrator.market_activation_unchanged" in debug_events
+
+
+@pytest.mark.asyncio
+async def test_activate_markets_diff_emits_info_for_added_and_deactivated_for_removed(
+    test_config,
+):
+    """Adding one market emits one INFO line for the new cid; removing one
+    emits one INFO market_deactivated for the dropped cid."""
+    with patch.multiple("src.orchestrator", **_patch_heavy_deps()):
+        orch = Orchestrator(test_config)
+
+    market_a = _market(conditionId="0xcid_a", clobTokenIds=["yes-a", "no-a"])
+    market_b = _market(conditionId="0xcid_b", clobTokenIds=["yes-b", "no-b"])
+    market_c = _market(conditionId="0xcid_c", clobTokenIds=["yes-c", "no-c"])
+
+    await orch._activate_markets([market_a, market_b])  # seed
+
+    with patch("src.orchestrator.logger") as mock_logger:
+        await orch._activate_markets([market_a, market_c])  # add c, remove b
+        events = _activation_event_names(mock_logger.info)
+
+    assert events.count("orchestrator.market_activated") == 1  # only c is new
+    assert events.count("orchestrator.market_deactivated") == 1  # only b is gone
+    assert orch._last_activated_condition_ids == frozenset({"0xcid_a", "0xcid_c"})

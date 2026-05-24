@@ -138,6 +138,7 @@ def test_config() -> AppConfig:
         # WI-52: LLM cost guard fields — disabled for existing tests
         enable_llm_cost_guard=False,
         llm_hourly_call_limit=1000,
+        llm_reflection_hourly_call_limit=1000,
         llm_daily_call_limit=10000,
         llm_daily_token_limit=10000000,
         llm_daily_cost_limit_usd=Decimal("10000"),
@@ -156,6 +157,10 @@ def test_config() -> AppConfig:
         enable_telegram_notifier=False,
         enable_operational_alerts=False,
         enable_startup_alert=False,
+        enable_category_evaluation_cadence=False,
+        grok_eligible_evaluation_interval_sec=Decimal("30"),
+        non_grok_evaluation_interval_sec=Decimal("120"),
+        operational_event_diagnostic_throttle_sec=Decimal("60"),
         enable_market_tracking=False,
         enable_health_server=False,
     )

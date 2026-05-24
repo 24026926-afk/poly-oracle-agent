@@ -98,6 +98,7 @@ GROK_ELIGIBLE_CATEGORIES: frozenset["MarketCategory"] = frozenset(
         MarketCategory.TECH,
         MarketCategory.IRAN,
         MarketCategory.ECONOMY,
+        MarketCategory.CULTURE,
     }
 )
 
@@ -337,6 +338,7 @@ class LLMBudgetBlockReason(str, Enum):
     """Typed reasons for LLM budget blocks."""
 
     HOURLY_CALL_LIMIT_EXHAUSTED = "hourly_call_limit_exhausted"
+    REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED = "reflection_hourly_call_limit_exhausted"
     DAILY_CALL_LIMIT_EXHAUSTED = "daily_call_limit_exhausted"
     DAILY_TOKEN_LIMIT_EXHAUSTED = "daily_token_limit_exhausted"
     DAILY_COST_LIMIT_EXHAUSTED = "daily_cost_limit_exhausted"
@@ -451,6 +453,8 @@ class LLMBudgetWindow(BaseModel):
     model_config = {"frozen": False}
 
     hourly_calls: int = Field(default=0, ge=0)
+    primary_hourly_calls: int = Field(default=0, ge=0)
+    reflection_hourly_calls: int = Field(default=0, ge=0)
     daily_calls: int = Field(default=0, ge=0)
     hourly_window_start_utc: Optional[datetime] = None
     daily_window_start_utc: Optional[datetime] = None
@@ -490,6 +494,19 @@ class LLMBudgetDecision(BaseModel):
     call_type: str = Field(
         default="primary",
         description="primary or reflection",
+    )
+    emit_audit_event: bool = Field(
+        default=True,
+        description="Whether callers should emit a human-facing log/ledger event",
+    )
+    suppressed_since_last_emit: int = Field(
+        default=0,
+        ge=0,
+        description="Number of equivalent budget blocks suppressed since last emit",
+    )
+    retry_after_utc: Optional[datetime] = Field(
+        default=None,
+        description="When the blocking budget window is expected to reopen",
     )
 
 

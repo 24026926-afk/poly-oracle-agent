@@ -125,6 +125,31 @@ Configuration is loaded by `AppConfig` (`src/core/config.py`) from environment v
 
 > **Provider selection:** `ClaudeClient` is the single canonical evaluation client for both providers. When `LLM_PROVIDER=deepseek`, the existing `anthropic` SDK is used against the DeepSeek-compatible base URL. The class name `ClaudeClient` is never renamed or aliased. No `openai` SDK is introduced. Provider configuration fails closed at startup when DeepSeek is selected without an API key.
 
+#### LLM Budget Guard
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_LLM_COST_GUARD` | bool | `true` | No | Enforces LLM budget checks before paid provider calls. |
+| `LLM_HOURLY_CALL_LIMIT` | int | `240` | No | Primary evaluation calls per rolling hour; `0` blocks primary calls. |
+| `LLM_REFLECTION_HOURLY_CALL_LIMIT` | int | `240` | No | Reflection audit calls per rolling hour; `0` blocks reflection calls. |
+| `LLM_DAILY_CALL_LIMIT` | int | `2000` | No | Total daily provider calls across primary and reflection. |
+| `LLM_DAILY_TOKEN_LIMIT` | int | `1000000` | No | Total rolling daily provider tokens across primary and reflection; Run 3 dry-run calibration uses `10000000`. |
+| `LLM_DAILY_COST_LIMIT_USD` | Decimal | `10` | No | Total rolling daily estimated provider spend in USD; raise alongside token limits for sustained DeepSeek dry-runs. |
+| `LLM_MARKET_HOURLY_CALL_LIMIT` | int | `60` | No | Total primary + reflection calls per market per hour; Run 5 dry-run calibration uses `120`. |
+
+#### Market Discovery / Evaluation Allocation
+
+| Variable | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `ENABLE_MARKET_DISCOVERY_PREFLIGHT` | bool | `false` | No | Enables bounded order-book preflight before activation. |
+| `MARKET_DISCOVERY_MAX_PREFLIGHT_CANDIDATES` | int | `10` | No | Maximum candidates checked per discovery cycle when preflight is enabled. |
+| `PREFLIGHT_MAX_SPREAD_PCT` | Decimal | `0.05` | No | Maximum `spread / best_ask` allowed by preflight. Run 5 dry-run calibration uses `0.90` to reject extreme-spread markets while avoiding the all-blocking `0.80` calibration. |
+| `ENABLE_CATEGORY_EVALUATION_CADENCE` | bool | `false` | No | Enables category-aware evaluation cadence throttling before prompt queue insertion. |
+| `GROK_ELIGIBLE_EVALUATION_INTERVAL_SEC` | Decimal | `30` | No | Minimum seconds between evaluations for Grok-eligible markets. |
+| `NON_GROK_EVALUATION_INTERVAL_SEC` | Decimal | `120` | No | Minimum seconds between evaluations for non-Grok-eligible markets. |
+| `CULTURE_EVALUATION_INTERVAL_SEC` | Decimal | `600` | No | Minimum seconds between CULTURE evaluations while preserving live Grok sentiment coverage for CULTURE markets. |
+| `OPERATIONAL_EVENT_DIAGNOSTIC_THROTTLE_SEC` | Decimal | `60` | No | Durable-ledger throttle for high-frequency diagnostic event types while preserving metrics. |
+
 #### Polygon / Web3
 
 | Variable | Type | Default | Required | Description |

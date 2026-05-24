@@ -6,6 +6,7 @@ Async SQLAlchemy engine configuration and session management.
 
 from typing import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -24,6 +25,22 @@ engine = create_async_engine(
     echo=False,
     future=True,
 )
+
+
+def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+    """Reduce reader/writer contention for the local SQLite audit store."""
+    if not config.database_url.startswith("sqlite"):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
+event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
 
 # Create a session factory bound to the async engine
 AsyncSessionLocal = async_sessionmaker(

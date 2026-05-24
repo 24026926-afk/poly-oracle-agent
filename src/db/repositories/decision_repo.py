@@ -6,6 +6,8 @@ Async repository for AgentDecisionLog persistence.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +51,19 @@ class DecisionRepository:
                 AgentDecisionLog.snapshot_id == MarketSnapshot.id,
             )
             .where(MarketSnapshot.condition_id == condition_id)
+            .order_by(AgentDecisionLog.evaluated_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_recent_decisions(
+        self, cutoff: datetime, limit: int = 100
+    ) -> list[AgentDecisionLog]:
+        """Return recent decisions since cutoff, newest first, bounded by limit."""
+        stmt = (
+            select(AgentDecisionLog)
+            .where(AgentDecisionLog.evaluated_at >= cutoff)
             .order_by(AgentDecisionLog.evaluated_at.desc())
             .limit(limit)
         )
