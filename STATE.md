@@ -2,24 +2,32 @@
 
 **Last Updated:** 2026-05-23
 **Version:** 0.16.7
-**Status:** Phase 16 COMPLETE — WI-62 Server Runtime Review IN PROGRESS
-**Active WI:** WI-62
+**Status:** WI-62 Server Runtime Review COMPLETE
+**Active WI:** none
 
-## WI-62 — Server Runtime Review Skill (IN PROGRESS)
+## WI-62 — Server Runtime Review (COMPLETE, 2026-05-23)
 
-**Trigger:** Post-WI-61, the server produces ~288 typed JSON audit artifacts every 72 hours but has no autonomous mechanism to aggregate them into a narrative review. The existing `server-runtime-review` OpenCode command is a thin skeleton, and the systemd service references the wrong binary (`claude` instead of `opencode`) with a hardcoded placeholder API key.
+**Trigger:** Post-WI-61, the periodic runtime audit produces JSON artifacts every 15 minutes. An autonomous 72-hour rolling review is needed to aggregate these artifacts, detect degradation trends, and generate conditional fix plans without operator intervention.
 
 **Brief context:** `~/documents/integration_task/01_Brief Context/WI-62-server-runtime-review.md`
 
-**Scope:**
-- Harden `scripts/ops/aggregate_audits.py` — zero-artifact detection, explicit Fix Plan thresholds, decision distribution, DB growth delta, secret scrubbing.
-- Rebuild `.opencode/commands/server-runtime-review.md` — full pre-flight, error handling, canonical 12/14-section templates (match dry-run-review rigor).
-- Fix `deploy/systemd/poly-oracle-server-review.{service,timer}` — opencode binary, 24h cadence with 72h lookback, proper hardening.
-- Server prerequisite documentation.
+**Delivered:**
+- `scripts/ops/aggregate_audits.py` — deterministic CLI aggregator (434 lines). Streams WI-61 `runtime-audit-*.json` artifacts over a configurable lookback window (default 72h). All arithmetic uses `Decimal` end-to-end (avg_response_time_ms, max_exposure_usdc, db_growth_bytes_delta). Secret scrubbing via regex patterns matching `_FORBIDDEN_CONTENT_PATTERNS` from `src/observability/runtime_audit.py`. Exit codes: 0=success, 1=no artifacts or directory missing, 2=configuration error. JSON output to stdout, structlog to stderr.
+- `.opencode/commands/server-runtime-review.md` — autonomous openclaude skill (112 lines). Hydrates project context, runs aggregator, generates 12-section observation report and conditional 14-section fix plan. Designed for unattended systemd execution. Secret redaction enforced before any output write.
+- `deploy/systemd/poly-oracle-server-review.{service,timer}` — systemd units for 24h cadence with 72h rolling lookback. `ProtectSystem=strict`, `ReadWritePaths` scoped to `docs/runtime_observations/`, `logs/`, and `03_Daily/`. `Persistent=true` for missed-run recovery.
+- `tests/unit/test_WI-62-server-runtime-review.py` — 62 unit tests covering happy path, zero-artifact detection, malformed artifact handling, Decimal integrity, secret scrubbing, fix-plan threshold boundaries, decision distribution aggregation, DB growth delta computation, streaming processing, and edge cases.
 
-**Out of scope:** Modifying orchestrator code, WI-61 audit logic, Moonshot reviewer, any `DRY_RUN=false` path.
+**Safety posture:**
+- Aggregator is read-only: no DB writes, no execution, no signing, no broadcasting, no Gatekeeper, no `LLMEvaluationResponse`.
+- Skill explicitly forbids modifying source code, weakening `DRY_RUN`, or bypassing Gatekeeper.
+- Fix plan generated only when `fix_plan_required=true` (critical_safety_gates > 0 OR total_errors > 50 OR budget_blocks > 10).
+- All output scrubbed for secrets before write.
 
-**Dependencies:** WI-61 artifacts, opencode CLI with headless mode (`-p` flag) on server.
+**MAAP cleared:** all five gates pass (no float for money, no raw SQL, no Gatekeeper bypass, no dry_run bypass, no schema drift). Zero-trust audit passed with advisories (commit hygiene, systemd path, dead code — all resolved before commit).
+
+**Regression:** 62 WI-62 tests; full regression 2544 passed; coverage 93%.
+
+**Branch:** `feat/wi-62-server-runtime-review`, final commit: `2269063`, merge commit: `624fd8a`.
 
 ---
 
@@ -211,8 +219,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2333 |
-| Latest local test result | 2333 passed; coverage-backed regression also 2333 passed |
+| Total tests | 2544 |
+| Latest local test result | 2544 passed; coverage-backed regression also 2544 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
