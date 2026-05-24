@@ -23,7 +23,7 @@ import json
 import re
 import sys
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
 # Allow running from project root without install
@@ -46,9 +46,9 @@ _FORBIDDEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 # ── Fix Plan thresholds (explicit, not subjective) ────────────────────────
 
-_FIX_PLAN_CRITICAL_SAFETY_GATES: int = 0   # any safety gate failure triggers
-_FIX_PLAN_TOTAL_ERRORS: int = 50            # cumulative errors threshold
-_FIX_PLAN_BUDGET_BLOCKS: int = 10           # cumulative budget blocks threshold
+_FIX_PLAN_CRITICAL_SAFETY_GATES: int = 0  # any safety gate failure triggers
+_FIX_PLAN_TOTAL_ERRORS: int = 50  # cumulative errors threshold
+_FIX_PLAN_BUDGET_BLOCKS: int = 10  # cumulative budget blocks threshold
 
 
 def _scrub_text(text: str) -> str:
@@ -69,12 +69,13 @@ def main() -> int:
         description="Aggregate WI-61 runtime audit artifacts for server-runtime-review."
     )
     parser.add_argument(
-        "--hours", type=int, default=72,
-        help="Lookback window in hours (default: 72)"
+        "--hours", type=int, default=72, help="Lookback window in hours (default: 72)"
     )
     parser.add_argument(
-        "--project-root", type=str, default=".",
-        help="Root of the repository (default: current directory)"
+        "--project-root",
+        type=str,
+        default=".",
+        help="Root of the repository (default: current directory)",
     )
     args = parser.parse_args()
 
@@ -264,7 +265,8 @@ def main() -> int:
         # Fix Plan trigger
         "fix_plan_required": fix_plan_required,
         "fix_plan_triggers": {
-            "critical_safety_gates_exceeded": critical_safety_gates > _FIX_PLAN_CRITICAL_SAFETY_GATES,
+            "critical_safety_gates_exceeded": critical_safety_gates
+            > _FIX_PLAN_CRITICAL_SAFETY_GATES,
             "total_errors_exceeded": total_errors > _FIX_PLAN_TOTAL_ERRORS,
             "budget_blocks_exceeded": budget_blocks > _FIX_PLAN_BUDGET_BLOCKS,
         },

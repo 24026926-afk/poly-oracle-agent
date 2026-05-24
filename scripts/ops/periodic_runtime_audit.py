@@ -111,7 +111,7 @@ def main() -> int:
             class_=AsyncSession,
             expire_on_commit=False,
         )
-        
+
         async with httpx.AsyncClient() as client:
             report = await run_audit(
                 http_client=client,
@@ -125,9 +125,9 @@ def main() -> int:
                 skip_log_tail=args.skip_log_tail,
                 session_factory=session_factory,
             )
-        
+
         await engine.dispose()
-        
+
         logger.info(
             "audit.complete",
             status=report.status.value,

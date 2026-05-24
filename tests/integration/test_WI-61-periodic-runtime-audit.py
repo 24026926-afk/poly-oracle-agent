@@ -20,24 +20,19 @@ boundary against the shared in-memory async SQLite engine:
 from __future__ import annotations
 
 import importlib.util
-import json
-import uuid
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.db.models import OperationalEvent
 from src.db.repositories.operational_event_repository import (
     OperationalEventRepository,
 )
 from src.schemas.ops import (
     OperationalEventCreate,
     OperationalEventPayload,
-    OperationalEventPersistenceStatus,
     OperationalEventReasonCode,
     OperationalEventSeverity,
     OperationalEventSource,
@@ -51,6 +46,7 @@ try:
         summarize_ledger,
         write_audit_artifacts,
     )
+
     _AUDITOR_AVAILABLE = True
 except ImportError:
     _AUDITOR_AVAILABLE = False
@@ -62,6 +58,7 @@ try:
         RuntimeAuditReport,
         RuntimeAuditStatus,
     )
+
     _SCHEMAS_AVAILABLE = True
 except ImportError:
     _SCHEMAS_AVAILABLE = False
@@ -171,12 +168,11 @@ async def test_summarize_ledger_counts_errors_and_warnings(
 
 
 @pytest.mark.asyncio
-async def test_run_audit_full_lifecycle_healthy(
-    db_session_factory, tmp_path
-) -> None:
+async def test_run_audit_full_lifecycle_healthy(db_session_factory, tmp_path) -> None:
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("run_audit not implemented")
     from unittest.mock import AsyncMock, MagicMock
+
     mock_client = MagicMock()
     health_resp = MagicMock(status_code=200)
     ready_resp = MagicMock(status_code=200)
@@ -185,21 +181,22 @@ async def test_run_audit_full_lifecycle_healthy(
     metrics_resp.text = "# HELP test\n# TYPE test counter\ntest 1\n"
     mock_client.get = AsyncMock(side_effect=[health_resp, ready_resp, metrics_resp])
     report = await run_audit(
-        http_client=mock_client, base_url="http://test:8080",
+        http_client=mock_client,
+        base_url="http://test:8080",
         session_factory=db_session_factory,
-        project_root=tmp_path, output_dir=tmp_path / "docs" / "operations" / "runtime_audits",
+        project_root=tmp_path,
+        output_dir=tmp_path / "docs" / "operations" / "runtime_audits",
     )
     assert report.exit_code.value in (0, 1)
     assert report.ledger_summary is not None
 
 
 @pytest.mark.asyncio
-async def test_run_audit_with_degraded_ledger(
-    db_session_factory, tmp_path
-) -> None:
+async def test_run_audit_with_degraded_ledger(db_session_factory, tmp_path) -> None:
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("run_audit not implemented")
     from unittest.mock import AsyncMock, MagicMock
+
     mock_client = MagicMock()
     health_resp = MagicMock(status_code=200)
     ready_resp = MagicMock(status_code=200)
@@ -208,9 +205,11 @@ async def test_run_audit_with_degraded_ledger(
     metrics_resp.text = "# HELP test\n# TYPE test counter\ntest 1\n"
     mock_client.get = AsyncMock(side_effect=[health_resp, ready_resp, metrics_resp])
     report = await run_audit(
-        http_client=mock_client, base_url="http://test:8080",
+        http_client=mock_client,
+        base_url="http://test:8080",
         session_factory=db_session_factory,
-        project_root=tmp_path, output_dir=tmp_path / "docs" / "operations" / "runtime_audits",
+        project_root=tmp_path,
+        output_dir=tmp_path / "docs" / "operations" / "runtime_audits",
     )
     assert report is not None
 
@@ -222,6 +221,7 @@ async def test_run_audit_repository_read_failure_typed(
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("run_audit not implemented")
     from unittest.mock import AsyncMock, MagicMock
+
     mock_client = MagicMock()
     health_resp = MagicMock(status_code=200)
     ready_resp = MagicMock(status_code=200)
@@ -230,9 +230,11 @@ async def test_run_audit_repository_read_failure_typed(
     metrics_resp.text = "# HELP test\n# TYPE test counter\ntest 1\n"
     mock_client.get = AsyncMock(side_effect=[health_resp, ready_resp, metrics_resp])
     report = await run_audit(
-        http_client=mock_client, base_url="http://test:8080",
+        http_client=mock_client,
+        base_url="http://test:8080",
         session_factory=db_session_factory,
-        project_root=tmp_path, output_dir=tmp_path / "docs" / "operations" / "runtime_audits",
+        project_root=tmp_path,
+        output_dir=tmp_path / "docs" / "operations" / "runtime_audits",
     )
     assert report is not None
 
@@ -248,7 +250,8 @@ def test_write_artifacts_creates_timestamped_and_latest(tmp_path: Path) -> None:
     report = RuntimeAuditReport(
         status=RuntimeAuditStatus.HEALTHY,
         exit_code=RuntimeAuditExitCode(0),
-        generated_at_utc=_utc(), findings=[],
+        generated_at_utc=_utc(),
+        findings=[],
     )
     out = tmp_path / "docs" / "operations" / "runtime_audits"
     result = write_audit_artifacts(report, output_dir=out, project_root=tmp_path)
@@ -263,7 +266,8 @@ def test_write_artifacts_atomic_latest_swap(tmp_path: Path) -> None:
     report = RuntimeAuditReport(
         status=RuntimeAuditStatus.HEALTHY,
         exit_code=RuntimeAuditExitCode(0),
-        generated_at_utc=_utc(), findings=[],
+        generated_at_utc=_utc(),
+        findings=[],
     )
     out = tmp_path / "docs" / "operations" / "runtime_audits"
     r1 = write_audit_artifacts(report, output_dir=out, project_root=tmp_path)
@@ -274,17 +278,24 @@ def test_write_artifacts_atomic_latest_swap(tmp_path: Path) -> None:
 def test_write_artifacts_forbidden_content_blocks_write(tmp_path: Path) -> None:
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("write_audit_artifacts not implemented")
-    from src.schemas.runtime_audit import RuntimeAuditFinding, RuntimeAuditFindingType, RuntimeAuditSeverity
+    from src.schemas.runtime_audit import (
+        RuntimeAuditFinding,
+        RuntimeAuditFindingType,
+        RuntimeAuditSeverity,
+    )
+
     report = RuntimeAuditReport(
         status=RuntimeAuditStatus.HEALTHY,
         exit_code=RuntimeAuditExitCode(0),
         generated_at_utc=_utc(),
-        findings=[RuntimeAuditFinding(
-            finding_type=RuntimeAuditFindingType.WARNING,
-            severity=RuntimeAuditSeverity.WARNING,
-            message="api_key=sk-ant-api03-abcdefghijklmnopqrstuv",
-            source="test",
-        )],
+        findings=[
+            RuntimeAuditFinding(
+                finding_type=RuntimeAuditFindingType.WARNING,
+                severity=RuntimeAuditSeverity.WARNING,
+                message="api_key=sk-ant-api03-abcdefghijklmnopqrstuv",
+                source="test",
+            )
+        ],
     )
     out = tmp_path / "docs" / "operations" / "runtime_audits"
     result = write_audit_artifacts(report, output_dir=out, project_root=tmp_path)
@@ -320,10 +331,12 @@ async def test_telegram_alert_sent_on_degraded(db_session_factory, tmp_path) -> 
         raise NotImplementedError("send_telegram_alert not implemented")
     from unittest.mock import AsyncMock
     from src.observability.runtime_audit import send_telegram_alert
+
     report = RuntimeAuditReport(
         status=RuntimeAuditStatus.DEGRADED,
         exit_code=RuntimeAuditExitCode(1),
-        generated_at_utc=_utc(), findings=[],
+        generated_at_utc=_utc(),
+        findings=[],
     )
     mock_notifier = AsyncMock()
     mock_notifier.try_send_execution_event = AsyncMock(return_value=True)
@@ -332,16 +345,16 @@ async def test_telegram_alert_sent_on_degraded(db_session_factory, tmp_path) -> 
 
 
 @pytest.mark.asyncio
-async def test_telegram_alert_skipped_on_healthy(
-    db_session_factory, tmp_path
-) -> None:
+async def test_telegram_alert_skipped_on_healthy(db_session_factory, tmp_path) -> None:
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("send_telegram_alert not implemented")
     from src.observability.runtime_audit import send_telegram_alert
+
     report = RuntimeAuditReport(
         status=RuntimeAuditStatus.HEALTHY,
         exit_code=RuntimeAuditExitCode(0),
-        generated_at_utc=_utc(), findings=[],
+        generated_at_utc=_utc(),
+        findings=[],
     )
     result = await send_telegram_alert(None, report, enabled=True)
     assert result.sent is False
@@ -357,7 +370,11 @@ async def test_reviewer_disabled_produces_no_artifact(tmp_path: Path) -> None:
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("run_llm_review not implemented")
     from src.observability.runtime_audit import run_llm_review
-    from src.schemas.runtime_audit import RuntimeAuditLLMReviewRequest, RuntimeAuditLLMReviewStatus
+    from src.schemas.runtime_audit import (
+        RuntimeAuditLLMReviewRequest,
+        RuntimeAuditLLMReviewStatus,
+    )
+
     result = await run_llm_review(
         RuntimeAuditLLMReviewRequest(
             audit_artifact_path="docs/operations/runtime_audits/latest.json",
@@ -373,19 +390,27 @@ async def test_reviewer_enabled_with_mock_moonshot(tmp_path: Path) -> None:
         raise NotImplementedError("run_llm_review not implemented")
     from unittest.mock import AsyncMock, MagicMock, patch
     from src.observability.runtime_audit import run_llm_review
-    from src.schemas.runtime_audit import RuntimeAuditLLMReviewRequest, RuntimeAuditLLMReviewStatus
+    from src.schemas.runtime_audit import (
+        RuntimeAuditLLMReviewRequest,
+        RuntimeAuditLLMReviewStatus,
+    )
+
     artifact_dir = tmp_path / "docs" / "operations" / "runtime_audits"
     artifact_dir.mkdir(parents=True)
     artifact = artifact_dir / "latest.json"
     artifact.write_text('{"status": "HEALTHY"}', encoding="utf-8")
     mock_resp = MagicMock()
-    mock_resp.json.return_value = {"choices": [{"message": {"content": "All systems nominal."}}]}
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "All systems nominal."}}]
+    }
     mock_resp.raise_for_status = MagicMock()
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_resp)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
-    with patch("src.observability.runtime_audit.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "src.observability.runtime_audit.httpx.AsyncClient", return_value=mock_client
+    ):
         result = await run_llm_review(
             RuntimeAuditLLMReviewRequest(
                 audit_artifact_path="docs/operations/runtime_audits/latest.json",

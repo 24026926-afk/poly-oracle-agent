@@ -571,30 +571,36 @@ def _price_change_no_token_frame(
 ) -> str:
     """Frame that triggers skip_no_token_non_positive_yes_quote when NO-side
     is registered: YES-normalized bid/ask collapse to <=0."""
-    return json.dumps({
-        "event": "price_change",
-        "market": market,
-        "asset_id": no_token_id,
-        "price_changes": [{"best_bid": bid, "best_ask": ask}],
-    })
+    return json.dumps(
+        {
+            "event": "price_change",
+            "market": market,
+            "asset_id": no_token_id,
+            "price_changes": [{"best_bid": bid, "best_ask": ask}],
+        }
+    )
 
 
 def _last_trade_frame(market: str = "0xcond_warmup", price: float = 0.5) -> str:
-    return json.dumps({
-        "event": "last_trade_price",
-        "market": market,
-        "price": price,
-    })
+    return json.dumps(
+        {
+            "event": "last_trade_price",
+            "market": market,
+            "price": price,
+        }
+    )
 
 
 def _book_frame_for(market: str, best_bid: float = 0.45, best_ask: float = 0.55) -> str:
-    return json.dumps({
-        "event": "book",
-        "market": market,
-        "best_bid": best_bid,
-        "best_ask": best_ask,
-        "outcome_token": "YES",
-    })
+    return json.dumps(
+        {
+            "event": "book",
+            "market": market,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "outcome_token": "YES",
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -634,17 +640,23 @@ async def test_ws_degenerate_quote_distinct_conditions_each_emit_info():
     client.set_token_id_mapping(
         {"no-token-a": "yes-token-a", "no-token-b": "yes-token-b"}
     )
-    client.set_market_token_pairs({
-        "0xcond_a": ("yes-token-a", "no-token-a"),
-        "0xcond_b": ("yes-token-b", "no-token-b"),
-    })
+    client.set_market_token_pairs(
+        {
+            "0xcond_a": ("yes-token-a", "no-token-a"),
+            "0xcond_b": ("yes-token-b", "no-token-b"),
+        }
+    )
 
     with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
         await client._handle_message(
-            _price_change_no_token_frame(market="0xcond_a", no_token_id="no-token-a", yes_token_id="yes-token-a")
+            _price_change_no_token_frame(
+                market="0xcond_a", no_token_id="no-token-a", yes_token_id="yes-token-a"
+            )
         )
         await client._handle_message(
-            _price_change_no_token_frame(market="0xcond_b", no_token_id="no-token-b", yes_token_id="yes-token-b")
+            _price_change_no_token_frame(
+                market="0xcond_b", no_token_id="no-token-b", yes_token_id="yes-token-b"
+            )
         )
         info_events = [
             c.args[0] if c.args else c.kwargs.get("event", "")

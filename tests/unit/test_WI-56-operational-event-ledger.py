@@ -1155,9 +1155,7 @@ async def test_orchestrator_counts_throttled_diagnostic_events_as_dropped():
 
     assert orchestrator.event_bus.publish.await_count == 1
     snap = await orchestrator.metrics_registry.snapshot()
-    dropped = [
-        s for s in snap.samples if s.name == "poly_agent_event_dropped_total"
-    ]
+    dropped = [s for s in snap.samples if s.name == "poly_agent_event_dropped_total"]
     assert any(
         s.labels.labels.get("reason") == "diagnostic_throttled"
         and s.value == Decimal("1")
