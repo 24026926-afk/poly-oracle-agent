@@ -175,6 +175,13 @@ class CLOBWebSocketClient:
         )
         self._last_persist: dict[str, tuple[Decimal, Decimal]] = {}
 
+        # F5/F6 (2026-05-23): per-condition first-detection markers so the
+        # operator sees one INFO line per affected condition instead of the
+        # per-event DEBUG flood.
+        self._degenerate_quote_conditions: set[str] = set()
+        self._pre_book_trades_by_condition: dict[str, int] = {}
+        self._book_warmup_complete: set[str] = set()
+
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
@@ -752,6 +759,18 @@ class CLOBWebSocketClient:
         if event_type in ("price_change", "book") and outcome_token == "NO":
             best_bid, best_ask = _normalize_no_quote_to_yes(best_bid, best_ask)
             if best_bid <= _ZERO_PRICE or best_ask <= _ZERO_PRICE:
+                # F5 (2026-05-23): emit one INFO burst marker per condition
+                # the first time it presents a degenerate NO-token quote.
+                # Subsequent identical skips stay at DEBUG for diagnostics.
+                if condition_id not in self._degenerate_quote_conditions:
+                    self._degenerate_quote_conditions.add(condition_id)
+                    logger.info(
+                        "ws_client.degenerate_quote_first_detected",
+                        condition_id=condition_id,
+                        event_type=event_type,
+                        best_bid=str(best_bid),
+                        best_ask=str(best_ask),
+                    )
                 logger.debug(
                     "ws_client.skip_no_token_non_positive_yes_quote",
                     event_type=event_type,
@@ -769,6 +788,14 @@ class CLOBWebSocketClient:
             and best_bid <= _ZERO_PRICE
             and best_ask <= _ZERO_PRICE
         ):
+            # F6 (2026-05-23): count pre-book trades per condition. The flood
+            # is a startup race (last_trade_price arrives before book); the
+            # operator-actionable signal is "this condition is still in
+            # warmup," not "another pre-book trade was seen." See the
+            # book_warmup_complete emit below for the corresponding clear.
+            self._pre_book_trades_by_condition[condition_id] = (
+                self._pre_book_trades_by_condition.get(condition_id, 0) + 1
+            )
             logger.debug(
                 "ws_client.skip_last_trade_no_book",
                 event_type=event_type,
@@ -776,6 +803,26 @@ class CLOBWebSocketClient:
                 last_trade_price=last_trade_price,
             )
             return
+
+        # F6 (2026-05-23): emit one INFO when a condition transitions from
+        # "pre-book trades pending" to "first valid book seen." Surfaces the
+        # warmup completion exactly once per condition, with the suppressed
+        # pre-book count for context.
+        if (
+            event_type == "book"
+            and best_bid > _ZERO_PRICE
+            and best_ask > _ZERO_PRICE
+            and condition_id not in self._book_warmup_complete
+            and self._pre_book_trades_by_condition.get(condition_id, 0) > 0
+        ):
+            self._book_warmup_complete.add(condition_id)
+            logger.info(
+                "ws_client.book_warmup_complete",
+                condition_id=condition_id,
+                pre_book_trades_suppressed=self._pre_book_trades_by_condition[
+                    condition_id
+                ],
+            )
 
         try:
             snapshot_schema = MarketSnapshotSchema(

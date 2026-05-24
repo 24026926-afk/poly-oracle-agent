@@ -556,3 +556,149 @@ async def test_ws_persistence_throttle_skips_repeated_same_midpoint_but_still_en
     session = db._last_session
     assert session.commit.await_count == 1
     assert session.add.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# F5/F6 (2026-05-23): per-condition burst markers
+# ---------------------------------------------------------------------------
+def _price_change_no_token_frame(
+    *,
+    market: str = "0xcond_degen",
+    no_token_id: str = "no-token-x",
+    yes_token_id: str = "yes-token-x",
+    bid: float = 0.999,
+    ask: float = 1.0,
+) -> str:
+    """Frame that triggers skip_no_token_non_positive_yes_quote when NO-side
+    is registered: YES-normalized bid/ask collapse to <=0."""
+    return json.dumps({
+        "event": "price_change",
+        "market": market,
+        "asset_id": no_token_id,
+        "price_changes": [{"best_bid": bid, "best_ask": ask}],
+    })
+
+
+def _last_trade_frame(market: str = "0xcond_warmup", price: float = 0.5) -> str:
+    return json.dumps({
+        "event": "last_trade_price",
+        "market": market,
+        "price": price,
+    })
+
+
+def _book_frame_for(market: str, best_bid: float = 0.45, best_ask: float = 0.55) -> str:
+    return json.dumps({
+        "event": "book",
+        "market": market,
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "outcome_token": "YES",
+    })
+
+
+@pytest.mark.asyncio
+async def test_ws_degenerate_quote_first_detected_emits_once_per_condition():
+    """F5: first degenerate NO-quote per condition emits INFO; subsequent stay DEBUG."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+    # Register the NO-token mapping so the NO-side branch fires.
+    client.set_token_id_mapping({"no-token-x": "yes-token-x"})
+    client.set_market_token_pairs({"0xcond_degen": ("yes-token-x", "no-token-x")})
+
+    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+        # 3 identical degenerate frames
+        for _ in range(3):
+            await client._handle_message(_price_change_no_token_frame())
+        info_events = [
+            c.args[0] if c.args else c.kwargs.get("event", "")
+            for c in mock_logger.info.call_args_list
+        ]
+        debug_events = [
+            c.args[0] if c.args else c.kwargs.get("event", "")
+            for c in mock_logger.debug.call_args_list
+        ]
+
+    assert info_events.count("ws_client.degenerate_quote_first_detected") == 1
+    assert debug_events.count("ws_client.skip_no_token_non_positive_yes_quote") == 3
+    assert client._degenerate_quote_conditions == {"0xcond_degen"}
+
+
+@pytest.mark.asyncio
+async def test_ws_degenerate_quote_distinct_conditions_each_emit_info():
+    """F5: two distinct degenerate conditions each get one INFO marker."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+    client.set_token_id_mapping(
+        {"no-token-a": "yes-token-a", "no-token-b": "yes-token-b"}
+    )
+    client.set_market_token_pairs({
+        "0xcond_a": ("yes-token-a", "no-token-a"),
+        "0xcond_b": ("yes-token-b", "no-token-b"),
+    })
+
+    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+        await client._handle_message(
+            _price_change_no_token_frame(market="0xcond_a", no_token_id="no-token-a", yes_token_id="yes-token-a")
+        )
+        await client._handle_message(
+            _price_change_no_token_frame(market="0xcond_b", no_token_id="no-token-b", yes_token_id="yes-token-b")
+        )
+        info_events = [
+            c.args[0] if c.args else c.kwargs.get("event", "")
+            for c in mock_logger.info.call_args_list
+        ]
+
+    assert info_events.count("ws_client.degenerate_quote_first_detected") == 2
+
+
+@pytest.mark.asyncio
+async def test_ws_book_warmup_complete_emits_once_after_pre_book_trades():
+    """F6: pre-book trades, then first valid book, emits one INFO with suppression count."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+        # 5 pre-book last_trade_price frames — all skipped, counted.
+        for _ in range(5):
+            await client._handle_message(_last_trade_frame(market="0xcond_warmup"))
+        # Then the first valid book — should trigger book_warmup_complete.
+        await client._handle_message(_book_frame_for("0xcond_warmup"))
+        # Another valid book — should NOT re-trigger book_warmup_complete.
+        await client._handle_message(_book_frame_for("0xcond_warmup"))
+
+        info_events = [
+            c.args[0] if c.args else c.kwargs.get("event", "")
+            for c in mock_logger.info.call_args_list
+        ]
+        debug_events = [
+            c.args[0] if c.args else c.kwargs.get("event", "")
+            for c in mock_logger.debug.call_args_list
+        ]
+
+    assert info_events.count("ws_client.book_warmup_complete") == 1
+    assert debug_events.count("ws_client.skip_last_trade_no_book") == 5
+    assert client._pre_book_trades_by_condition["0xcond_warmup"] == 5
+    assert "0xcond_warmup" in client._book_warmup_complete
+
+
+@pytest.mark.asyncio
+async def test_ws_book_warmup_complete_not_emitted_without_pre_book_trades():
+    """F6: condition that never had pre-book trades does not emit book_warmup_complete."""
+    queue: asyncio.Queue = asyncio.Queue()
+    db = _mock_db_factory()
+    client = CLOBWebSocketClient(_mock_config(), queue, db)
+
+    with patch("src.agents.ingestion.ws_client.logger") as mock_logger:
+        # First message is a valid book — no preceding last_trade_price frames.
+        await client._handle_message(_book_frame_for("0xcond_clean"))
+        info_events = [
+            c.args[0] if c.args else c.kwargs.get("event", "")
+            for c in mock_logger.info.call_args_list
+        ]
+
+    assert "ws_client.book_warmup_complete" not in info_events
+    assert "0xcond_clean" not in client._book_warmup_complete
