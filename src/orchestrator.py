@@ -112,6 +112,11 @@ class Orchestrator:
         self._last_ws_subscribe_summary: (
             tuple[frozenset[str], frozenset[str]] | None
         ) = None
+        # F3 (2026-05-23): dedupe orchestrator.market_activated INFO logs.
+        # Stores the previously-emitted activated condition_id set; only emit
+        # INFO when the set diff is non-empty. DEBUG heartbeat covers the
+        # "still alive" case for log-tailing operators.
+        self._last_activated_condition_ids: frozenset[str] = frozenset()
         self._operational_event_last_emit: dict[
             tuple[OperationalEventType, OperationalEventReasonCode], datetime
         ] = {}
@@ -663,23 +668,48 @@ class Orchestrator:
             )
             self._last_ws_subscribe_summary = subscribe_summary
 
-        for market in deduped:
-            resolved_category = resolved_categories_by_condition.get(
-                market.condition_id
+        # F3 (2026-05-23): emit orchestrator.market_activated INFO only when
+        # the activated condition_id set actually changes. The discovery loop
+        # re-walks the eligible set every ~10s; without this guard the log
+        # fills with ~5,600 redundant lines per hour for an unchanged set.
+        # DEBUG heartbeat preserves visibility for log-tailing operators.
+        new_activated_cids: frozenset[str] = frozenset(
+            market.condition_id for market in deduped
+        )
+        added_cids = new_activated_cids - self._last_activated_condition_ids
+        removed_cids = self._last_activated_condition_ids - new_activated_cids
+
+        if not added_cids and not removed_cids:
+            logger.debug(
+                "orchestrator.market_activation_unchanged",
+                active_count=len(new_activated_cids),
             )
-            if resolved_category is None:
-                resolved_category = resolve_market_category(
-                    raw_category=market.category,
-                    condition_id=market.condition_id,
-                    title=market.question,
-                    tags=list(market.tags),
+        else:
+            for market in deduped:
+                if market.condition_id not in added_cids:
+                    continue
+                resolved_category = resolved_categories_by_condition.get(
+                    market.condition_id
                 )
-            logger.info(
-                "orchestrator.market_activated",
-                condition_id=market.condition_id,
-                category=resolved_category.value,
-                token_count=len(market.token_ids),
-            )
+                if resolved_category is None:
+                    resolved_category = resolve_market_category(
+                        raw_category=market.category,
+                        condition_id=market.condition_id,
+                        title=market.question,
+                        tags=list(market.tags),
+                    )
+                logger.info(
+                    "orchestrator.market_activated",
+                    condition_id=market.condition_id,
+                    category=resolved_category.value,
+                    token_count=len(market.token_ids),
+                )
+            for removed_cid in sorted(removed_cids):
+                logger.info(
+                    "orchestrator.market_deactivated",
+                    condition_id=removed_cid,
+                )
+        self._last_activated_condition_ids = new_activated_cids
 
     async def _activate_market(self, market: MarketMetadata) -> None:
         """Activate a single discovered Gamma market (legacy, wraps _activate_markets)."""
