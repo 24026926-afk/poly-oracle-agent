@@ -16,7 +16,7 @@ WI-61 audit timer (15 min)
 aggregate_audits.py (Python, Decimal-safe)
     → JSON summary (50-100 lines)
         ↓
-openclaude -p "/server-runtime-review" (headless LLM)
+opencode -p "/server-runtime-review" -q (headless LLM)
     → docs/runtime_observations/{YYYY-MM-DD}-server-runtime-session.md
     → docs/runtime_observations/{YYYY-MM-DD}-server-fix-plan.md (conditional)
 ```
@@ -29,32 +29,39 @@ openclaude -p "/server-runtime-review" (headless LLM)
 
 ## Prerequisites
 
-### 1. Install openclaude CLI
+### 1. Install opencode CLI
+
+OpenCode is a Go binary. Install from https://opencode.ai or via Go:
 
 ```bash
-npm install -g @gitlawb/openclaude
+go install github.com/opencode-ai/opencode@latest
+# Or download the release binary and place in /usr/local/bin/
 ```
+
+Verify: `opencode --version`
 
 ### 2. Verify headless mode
 
 ```bash
-openclaude -p "echo test"
+opencode -p "echo test" -q
 ```
 
-If this fails or hangs, openclaude may not support headless mode on this platform.
-Fall back to Claude Code CLI: `npm install -g @anthropic-ai/claude-code` and update
-the `ExecStart` path in the systemd service to `/usr/local/bin/claude`.
+The `-p` flag runs non-interactively (auto-approves all tool calls). The `-q` flag
+suppresses the spinner for clean stdout. If this fails, verify your provider API
+key is configured.
 
 ### 3. Configure provider API key
 
-Add the LLM provider API key to `/opt/poly-oracle-agent/.env`:
+OpenCode reads API keys from environment variables. Add to `/opt/poly-oracle-agent/.env`:
 
 ```bash
-# For Anthropic (if openclaude routes to Claude)
+# For Anthropic (Claude)
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Or for other providers supported by openclaude
-# See openclaude documentation for provider configuration
+# Or for OpenAI-compatible providers
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_MODEL=deepseek-chat
 ```
 
 ### 4. Verify WI-61 audit timer is active
@@ -133,8 +140,11 @@ cd /opt/poly-oracle-agent
 # Step 1: Run the aggregator directly
 .venv/bin/python scripts/ops/aggregate_audits.py --hours 72 --project-root .
 
-# Step 2: Run the skill via openclaude (interactive)
-openclaude
+# Step 2: Run the skill via opencode (headless)
+opencode -p "/server-runtime-review" -q
+
+# Or run interactively:
+opencode
 # Then type: /server-runtime-review
 ```
 
@@ -146,16 +156,16 @@ openclaude
 - Check the audits directory: `ls -la docs/operations/runtime_audits/`
 - Verify the orchestrator is running: `pgrep -f "python -m src.orchestrator"`
 
-### "openclaude: command not found"
+### "opencode: command not found"
 
-- Install: `npm install -g @gitlawb/openclaude`
-- Verify PATH includes npm global bin: `which openclaude`
+- Install from https://opencode.ai or `go install github.com/opencode-ai/opencode@latest`
+- Verify PATH includes the Go bin directory: `which opencode`
 
 ### Review produces empty or malformed report
 
 - Check the aggregator output manually: `.venv/bin/python scripts/ops/aggregate_audits.py --hours 72`
 - Verify the JSON is valid: pipe output through `python -m json.tool`
-- Check openclaude logs: `journalctl -u poly-oracle-server-review.service --since "1 hour ago"`
+- Check opencode logs: `journalctl -u poly-oracle-server-review.service --since "1 hour ago"`
 
 ## Security
 

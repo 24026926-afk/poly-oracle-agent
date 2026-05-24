@@ -12,10 +12,10 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 
-# NOTE: Requires openclaude CLI installed and configured.
+# NOTE: Requires opencode CLI installed and configured.
 # To enable: systemctl enable --now poly-oracle-server-review.timer
 # Prerequisites:
-#   1. npm install -g @gitlawb/openclaude
-#   2. Verify headless mode: openclaude -p "echo test"
+#   1. Install opencode: https://opencode.ai (Go binary)
+#   2. Verify headless mode: opencode -p "echo test" -q
 #   3. Provider API key in /opt/poly-oracle-agent/.env
 #   4. poly-oracle-runtime-audit.timer must be active (produces artifacts)

@@ -6,7 +6,7 @@ Autonomous 72-hour server runtime review of the Poly Oracle Agent. Aggregates WI
 
 Usage: `/server-runtime-review`
 - No arguments. The lookback window is fixed at 72 hours.
-- Designed to run headlessly via systemd timer (openclaude -p "/server-runtime-review").
+- Designed to run headlessly via systemd timer (opencode -p "/server-runtime-review" -q).
 
 Canonical templates (use as exact structural reference; do NOT diverge from their section ordering or headings):
 - Observations report → `docs/runtime_observations/2026-05-17-orchestrator-dry-run-session.md` (12 sections)
