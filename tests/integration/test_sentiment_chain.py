@@ -8,8 +8,8 @@ Tests use the ACTUAL GrokClient instantiated in ClaudeClient.__init__
 patch.object on the real instance to inject timeouts / errors.
 
 Asserts:
-  - CRYPTO / POLITICS trigger GrokClient.analyze_sentiment (mock mode)
-  - SPORTS / CULTURE bypass Grok entirely
+  - CRYPTO / POLITICS / CULTURE trigger GrokClient.analyze_sentiment (mock mode)
+  - SPORTS bypasses Grok entirely
   - Grok timeout -> neutral fallback, pipeline continues
   - Malformed Grok JSON -> neutral fallback, pipeline continues
   - PromptFactory injects sentiment block into evaluation prompt
@@ -181,6 +181,34 @@ async def test_crypto_triggers_grok_sentiment_call(
     assert str(_MOCK_SENTIMENT.tweet_volume_delta) in prompt_text
 
 
+@pytest.mark.asyncio
+async def test_crypto_skips_grok_when_primary_budget_exhausted(
+    test_config,
+    mock_anthropic_buy_json,
+    mock_polymarket,
+):
+    """Eligible markets must not spend Grok calls when primary LLM is blocked."""
+    budget_config = test_config.model_copy(
+        update={
+            "enable_llm_cost_guard": True,
+            "llm_hourly_call_limit": 0,
+            "llm_reflection_hourly_call_limit": 1000,
+        }
+    )
+    client, _, out_q = _setup_client(budget_config, mock_anthropic_buy_json)
+
+    with patch.object(
+        client._grok_client,
+        "analyze_sentiment",
+        wraps=client._grok_client.analyze_sentiment,
+    ) as spy:
+        await client._process_evaluation(_crypto_market_item())
+        spy.assert_not_called()
+
+    client.client.messages.create.assert_not_called()
+    assert out_q.qsize() == 0
+
+
 # ---------------------------------------------------------------------------
 # Test 2: POLITICS triggers Grok call (real GrokClient, mock mode)
 # ---------------------------------------------------------------------------
@@ -240,17 +268,17 @@ async def test_sports_skips_grok_sentiment(
 
 
 # ---------------------------------------------------------------------------
-# Test 4: CULTURE skips Grok (real GrokClient, never called)
+# Test 4: CULTURE triggers Grok (real GrokClient, mock mode)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_culture_skips_grok_sentiment(
+async def test_culture_triggers_grok_sentiment(
     test_config,
     mock_anthropic_buy_json,
     mock_polymarket,
 ):
-    """CULTURE market MUST NOT call GrokClient — prompt contains neutral fallback."""
+    """CULTURE market uses Grok sentiment but remains bounded by Gatekeeper."""
     client, _, _ = _setup_client(test_config, mock_anthropic_buy_json)
 
     with patch.object(
@@ -259,12 +287,13 @@ async def test_culture_skips_grok_sentiment(
         wraps=client._grok_client.analyze_sentiment,
     ) as spy:
         await client._process_evaluation(_culture_market_item())
-        spy.assert_not_called()
+        spy.assert_called_once()
 
     call_args = client.client.messages.create.call_args_list[0]
     messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
     prompt_text = messages[0]["content"]
-    assert str(NEUTRAL_SENTIMENT.sentiment_score) in prompt_text
+    assert str(_MOCK_SENTIMENT.sentiment_score) in prompt_text
+    assert str(_MOCK_SENTIMENT.tweet_volume_delta) in prompt_text
 
 
 # ---------------------------------------------------------------------------

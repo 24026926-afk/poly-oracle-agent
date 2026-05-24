@@ -410,14 +410,19 @@ class AppConfig(BaseSettings):
         description="Master enable for LLM budget enforcement before provider calls",
     )
     llm_hourly_call_limit: int = Field(
-        default=60,
+        default=240,
         ge=0,
-        description="Max LLM provider calls per hour (0=no calls allowed)",
+        description="Max primary LLM provider calls per hour (0=no primary calls allowed)",
+    )
+    llm_reflection_hourly_call_limit: int = Field(
+        default=240,
+        ge=0,
+        description="Max reflection LLM provider calls per hour (0=no reflection calls allowed)",
     )
     llm_daily_call_limit: int = Field(
-        default=500,
+        default=2000,
         ge=0,
-        description="Max LLM provider calls per day (0=no calls allowed)",
+        description="Max total LLM provider calls per day across primary and reflection (0=no calls allowed)",
     )
     llm_daily_token_limit: int = Field(
         default=1000000,
@@ -430,7 +435,7 @@ class AppConfig(BaseSettings):
         description="Max estimated LLM cost per day in USD (0=no calls allowed)",
     )
     llm_market_hourly_call_limit: int = Field(
-        default=10,
+        default=60,
         ge=0,
         description="Max calls per market per hour (0=no calls allowed)",
     )
@@ -537,6 +542,51 @@ class AppConfig(BaseSettings):
         ge=0,
         description="Minimum spread change to trigger a new evaluation (0.5pp)",
     )
+    enable_category_evaluation_cadence: bool = Field(
+        default=False,
+        description="Enable category-aware evaluation cadence throttling",
+    )
+    grok_eligible_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("30"),
+        ge=0,
+        description="Minimum seconds between evaluations for Grok-eligible markets",
+    )
+    non_grok_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("120"),
+        ge=0,
+        description="Minimum seconds between evaluations for non-Grok-eligible markets",
+    )
+    culture_evaluation_interval_sec: Decimal = Field(
+        default=Decimal("600"),
+        ge=0,
+        description=(
+            "Minimum seconds between evaluations for CULTURE markets, even when "
+            "CULTURE is Grok-eligible"
+        ),
+    )
+
+    # --- F4 (2026-05-23 runtime-stabilization): WS snapshot persistence throttle ---
+    # Persist a market_snapshots row only when the midpoint moved at least this
+    # many basis points (bps) for the condition OR when the time-window forces it.
+    # Drops DB write volume ~10x without dropping price-discovery moves.
+    snapshot_persist_min_bps: int = Field(
+        default=25,
+        ge=0,
+        le=10000,
+        description=(
+            "Minimum midpoint change (in basis points) since last persist to "
+            "trigger a new market_snapshots row for the same condition."
+        ),
+    )
+    snapshot_persist_max_interval_sec: Decimal = Field(
+        default=Decimal("2.0"),
+        ge=Decimal("0.5"),
+        description=(
+            "Always persist a snapshot if at least this many seconds have "
+            "elapsed since the last persist for the condition, regardless of "
+            "midpoint delta."
+        ),
+    )
 
     # --- WI-53: Prompt Queue Backpressure ---
     prompt_queue_maxsize: int = Field(
@@ -585,6 +635,11 @@ class AppConfig(BaseSettings):
     ] = Field(
         default="drop_oldest",
         description="Overflow policy: drop_oldest, drop_newest, or drop_diagnostic",
+    )
+    operational_event_diagnostic_throttle_sec: Decimal = Field(
+        default=Decimal("60"),
+        ge=0,
+        description="Minimum seconds between durable high-frequency diagnostic events",
     )
 
     @field_validator(
@@ -697,8 +752,12 @@ class AppConfig(BaseSettings):
         "dedupe_min_evaluation_interval_sec",
         "dedupe_midpoint_delta",
         "dedupe_spread_delta",
+        "grok_eligible_evaluation_interval_sec",
+        "non_grok_evaluation_interval_sec",
         "event_ledger_flush_interval_sec",
         "event_ledger_shutdown_flush_timeout_sec",
+        "operational_event_diagnostic_throttle_sec",
+        "snapshot_persist_max_interval_sec",
         mode="before",
     )
     @classmethod

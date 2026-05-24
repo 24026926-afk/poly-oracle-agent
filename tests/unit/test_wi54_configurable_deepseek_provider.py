@@ -54,6 +54,7 @@ def _mock_config(provider: str = "anthropic", **overrides):
     cfg.llm_market_cooldown_seconds = 300
     cfg.llm_fallback_tokens_per_call = 4096
     cfg.llm_hourly_call_limit = 60
+    cfg.llm_reflection_hourly_call_limit = 120
     cfg.llm_daily_call_limit = 500
     cfg.llm_daily_token_limit = 0
     cfg.llm_daily_cost_limit_usd = 10

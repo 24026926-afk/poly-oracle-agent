@@ -8,6 +8,7 @@ using asyncio queues.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 import sys
 from typing import Any
@@ -21,7 +22,7 @@ from web3 import AsyncHTTPProvider, AsyncWeb3
 from src.agents.context.aggregator import DataAggregator
 from src.agents.context.bounded_queue import BoundedPromptQueue
 from src.agents.context.prompt_factory import PromptFactory
-from src.agents.evaluation.claude_client import ClaudeClient
+from src.agents.evaluation.claude_client import ClaudeClient, resolve_market_category
 from src.agents.execution.bankroll_sync import BankrollSyncProvider
 from src.agents.execution.bankroll_tracker import BankrollPortfolioTracker
 from src.agents.execution.broadcaster import OrderBroadcaster
@@ -75,7 +76,7 @@ from src.schemas.execution import (
     ExitOrderAction,
     PositionRecord,
 )
-from src.schemas.llm import MarketCategory
+from src.schemas.llm import GROK_ELIGIBLE_CATEGORIES, MarketCategory
 from src.schemas.market import MarketMetadata
 from src.schemas.position import PositionStatus
 from src.schemas.risk import LifecycleReport, PortfolioSnapshot
@@ -93,6 +94,12 @@ structlog.configure(
 
 logger = structlog.get_logger(__name__)
 
+_THROTTLED_DURABLE_EVENT_TYPES = frozenset(
+    {
+        OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+    }
+)
+
 
 class Orchestrator:
     """Top-level coordinator for the 4-layer async pipeline."""
@@ -102,6 +109,20 @@ class Orchestrator:
         self.active_condition_id: str | None = None
         self.active_markets: list[MarketMetadata] = []
         self._condition_by_token: dict[str, str] = {}
+        self._last_ws_subscribe_summary: (
+            tuple[frozenset[str], frozenset[str]] | None
+        ) = None
+        # F3 (2026-05-23): dedupe orchestrator.market_activated INFO logs.
+        # Stores the previously-emitted activated condition_id set; only emit
+        # INFO when the set diff is non-empty. DEBUG heartbeat covers the
+        # "still alive" case for log-tailing operators.
+        self._last_activated_condition_ids: frozenset[str] = frozenset()
+        self._operational_event_last_emit: dict[
+            tuple[OperationalEventType, OperationalEventReasonCode], datetime
+        ] = {}
+        self._operational_event_suppressed: dict[
+            tuple[OperationalEventType, OperationalEventReasonCode], int
+        ] = {}
         self._running = False
 
         # WI-47: Metrics registry — created early so WI-53 prompt queue can use it
@@ -280,6 +301,7 @@ class Orchestrator:
             db_session_factory=AsyncSessionLocal,
             metrics=self.metrics_registry,
             event_publisher=self._publish_operational_event,
+            budget_quarantine_callback=self.prompt_queue.quarantine_market_until,
         )
 
         # Initialized in start() after discovery
@@ -387,6 +409,19 @@ class Orchestrator:
             min_interval_sec=float(self.config.dedupe_min_evaluation_interval_sec),
             midpoint_delta=self.config.dedupe_midpoint_delta,
             spread_delta=self.config.dedupe_spread_delta,
+        )
+        self.aggregator.configure_category_cadence(
+            enabled=self.config.enable_category_evaluation_cadence,
+            grok_eligible_min_interval_sec=float(
+                self.config.grok_eligible_evaluation_interval_sec
+            ),
+            non_grok_min_interval_sec=float(
+                self.config.non_grok_evaluation_interval_sec
+            ),
+            culture_min_interval_sec=float(self.config.culture_evaluation_interval_sec),
+            grok_eligible_categories={
+                category.value for category in GROK_ELIGIBLE_CATEGORIES
+            },
         )
         # WI-32: DataAggregator reference for concurrent tracking
         self._data_aggregator = self.aggregator
@@ -586,6 +621,8 @@ class Orchestrator:
         self.ws_client.set_market_token_pairs(token_ids_by_condition)
         self.ws_client.set_condition_by_token(condition_by_token)
 
+        resolved_categories_by_condition: dict[str, MarketCategory] = {}
+
         if self.aggregator is not None:
             self.aggregator.condition_id = self.active_condition_id
             self.aggregator.condition_by_token = condition_by_token
@@ -593,10 +630,19 @@ class Orchestrator:
             self.aggregator.clear_markets()
             for market in deduped:
                 yes_tok = market.token_ids[0] if market.token_ids else None
+                resolved_category = resolve_market_category(
+                    raw_category=market.category,
+                    condition_id=market.condition_id,
+                    title=market.question,
+                    tags=list(market.tags),
+                )
+                resolved_categories_by_condition[market.condition_id] = (
+                    resolved_category
+                )
                 self.aggregator.register_market(
                     condition_id=market.condition_id,
                     question=market.question,
-                    category=market.category,
+                    category=resolved_category.value,
                     tags=list(market.tags),
                     yes_token_id=yes_tok,
                 )
@@ -609,20 +655,61 @@ class Orchestrator:
         if getattr(self.ws_client, "_ws", None) is not None:
             await self.ws_client.subscribe_batch(all_token_ids)
 
-        logger.info(
-            "ws_subscribe_summary",
-            activated_markets=len(self.active_markets),
-            token_count=len(all_token_ids),
-            unique_conditions=len(set(condition_by_token.values())),
+        subscribe_summary = (
+            frozenset(all_token_ids),
+            frozenset(condition_by_token.values()),
         )
-
-        for market in deduped:
+        if subscribe_summary != self._last_ws_subscribe_summary:
             logger.info(
-                "orchestrator.market_activated",
-                condition_id=market.condition_id,
-                category=market.category,
-                token_count=len(market.token_ids),
+                "ws_subscribe_summary",
+                activated_markets=len(self.active_markets),
+                token_count=len(all_token_ids),
+                unique_conditions=len(set(condition_by_token.values())),
             )
+            self._last_ws_subscribe_summary = subscribe_summary
+
+        # F3 (2026-05-23): emit orchestrator.market_activated INFO only when
+        # the activated condition_id set actually changes. The discovery loop
+        # re-walks the eligible set every ~10s; without this guard the log
+        # fills with ~5,600 redundant lines per hour for an unchanged set.
+        # DEBUG heartbeat preserves visibility for log-tailing operators.
+        new_activated_cids: frozenset[str] = frozenset(
+            market.condition_id for market in deduped
+        )
+        added_cids = new_activated_cids - self._last_activated_condition_ids
+        removed_cids = self._last_activated_condition_ids - new_activated_cids
+
+        if not added_cids and not removed_cids:
+            logger.debug(
+                "orchestrator.market_activation_unchanged",
+                active_count=len(new_activated_cids),
+            )
+        else:
+            for market in deduped:
+                if market.condition_id not in added_cids:
+                    continue
+                resolved_category = resolved_categories_by_condition.get(
+                    market.condition_id
+                )
+                if resolved_category is None:
+                    resolved_category = resolve_market_category(
+                        raw_category=market.category,
+                        condition_id=market.condition_id,
+                        title=market.question,
+                        tags=list(market.tags),
+                    )
+                logger.info(
+                    "orchestrator.market_activated",
+                    condition_id=market.condition_id,
+                    category=resolved_category.value,
+                    token_count=len(market.token_ids),
+                )
+            for removed_cid in sorted(removed_cids):
+                logger.info(
+                    "orchestrator.market_deactivated",
+                    condition_id=removed_cid,
+                )
+        self._last_activated_condition_ids = new_activated_cids
 
     async def _activate_market(self, market: MarketMetadata) -> None:
         """Activate a single discovered Gamma market (legacy, wraps _activate_markets)."""
@@ -1598,11 +1685,49 @@ class Orchestrator:
     def _mark_event_ledger_degraded(self) -> None:
         self._event_ledger_degraded = True
 
+    def _should_throttle_durable_event(self, event: OperationalEventCreate) -> bool:
+        if event.event_type not in _THROTTLED_DURABLE_EVENT_TYPES:
+            return False
+        if event.severity in (
+            OperationalEventSeverity.CRITICAL,
+            OperationalEventSeverity.ERROR,
+        ):
+            return False
+
+        throttle_seconds = float(self.config.operational_event_diagnostic_throttle_sec)
+        if throttle_seconds <= 0:
+            return False
+
+        now = datetime.now(timezone.utc)
+        key = (event.event_type, event.reason_code)
+        last_emit = self._operational_event_last_emit.get(key)
+        if last_emit is None or (now - last_emit).total_seconds() >= throttle_seconds:
+            suppressed = self._operational_event_suppressed.pop(key, 0)
+            self._operational_event_last_emit[key] = now
+            if suppressed:
+                logger.debug(
+                    "operational_event.diagnostic_throttle_released",
+                    event_type=event.event_type.value,
+                    reason_code=event.reason_code.value,
+                    suppressed_count=suppressed,
+                )
+            return False
+
+        self._operational_event_suppressed[key] = (
+            self._operational_event_suppressed.get(key, 0) + 1
+        )
+        return True
+
     async def _publish_operational_event(
         self,
         event: OperationalEventCreate,
     ) -> Any:
         if self.event_bus is None:
+            return None
+        if self._should_throttle_durable_event(event):
+            await self.metrics_registry.record_event_dropped(
+                reason="diagnostic_throttled"
+            )
             return None
         result = await self.event_bus.publish(event)
         if not result.accepted and event.severity in (

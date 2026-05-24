@@ -10,6 +10,7 @@ All financial comparisons use Decimal.  No float is permitted.
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
@@ -387,6 +388,20 @@ def _make_config(**overrides):
 
     base = dict(_BASE_CONFIG)
     base.update(overrides)
+    for key in [
+        "ENABLE_MARKET_DISCOVERY_PREFLIGHT",
+        "MARKET_DISCOVERY_MAX_PREFLIGHT_CANDIDATES",
+        "PREFLIGHT_MAX_SPREAD_PCT",
+        "ENABLE_CATEGORY_EVALUATION_CADENCE",
+        "GROK_ELIGIBLE_EVALUATION_INTERVAL_SEC",
+        "NON_GROK_EVALUATION_INTERVAL_SEC",
+        "CULTURE_EVALUATION_INTERVAL_SEC",
+        "OPERATIONAL_EVENT_DIAGNOSTIC_THROTTLE_SEC",
+    ]:
+        try:
+            del os.environ[key]
+        except KeyError:
+            pass
     return AppConfig(_env_file=None, **base)
 
 
@@ -449,6 +464,39 @@ class TestAppConfigDedupeFields:
     def test_dedupe_fields_reject_negative_values(self):
         with pytest.raises(Exception):
             _make_config(dedupe_min_evaluation_interval_sec=Decimal("-1"))
+
+
+class TestAppConfigCategoryCadenceFields:
+    """AppConfig fields for category-aware evaluation cadence."""
+
+    def test_enable_category_evaluation_cadence_field(self):
+        cfg = _make_config()
+        assert hasattr(cfg, "enable_category_evaluation_cadence")
+        assert cfg.enable_category_evaluation_cadence is False
+
+    def test_grok_eligible_evaluation_interval_field(self):
+        cfg = _make_config()
+        assert hasattr(cfg, "grok_eligible_evaluation_interval_sec")
+        assert isinstance(cfg.grok_eligible_evaluation_interval_sec, Decimal)
+
+    def test_non_grok_evaluation_interval_field(self):
+        cfg = _make_config()
+        assert hasattr(cfg, "non_grok_evaluation_interval_sec")
+        assert isinstance(cfg.non_grok_evaluation_interval_sec, Decimal)
+
+    def test_culture_evaluation_interval_field(self):
+        cfg = _make_config()
+        assert hasattr(cfg, "culture_evaluation_interval_sec")
+        assert cfg.culture_evaluation_interval_sec == Decimal("600")
+        assert isinstance(cfg.culture_evaluation_interval_sec, Decimal)
+
+    def test_category_cadence_fields_reject_negative_values(self):
+        with pytest.raises(Exception):
+            _make_config(non_grok_evaluation_interval_sec=Decimal("-1"))
+
+    def test_culture_evaluation_interval_rejects_negative_values(self):
+        with pytest.raises(Exception):
+            _make_config(culture_evaluation_interval_sec=Decimal("-1"))
 
 
 class TestAppConfigPromptQueueFields:
@@ -561,6 +609,97 @@ class TestMarketDiscoveryPreflight:
         assert result == []
 
     @pytest.mark.asyncio
+    async def test_stable_market_rejection_emits_once_plus_cycle_summaries(self):
+        from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
+        from src.schemas.ops import OperationalEventType
+        from tests.unit.test_market_discovery import (
+            _future_iso,
+            _make_gamma_stub,
+            _make_market,
+            _make_tracker_stub,
+        )
+
+        events = []
+
+        async def publish(event):
+            events.append(event)
+
+        market = _make_market(condition_id="too-soon", end_date_iso=_future_iso(1))
+        gamma = _make_gamma_stub([market])
+        tracker = _make_tracker_stub()
+        config = _make_fake_config_preflight(enable_market_discovery_preflight=False)
+        config.dry_run = True
+
+        engine = MarketDiscoveryEngine(
+            gamma,
+            tracker,
+            config,
+            event_publisher=publish,
+        )
+
+        assert await engine.discover() == []
+        assert await engine.discover() == []
+
+        rejected = [
+            event
+            for event in events
+            if event.event_type == OperationalEventType.MARKET_REJECTED
+        ]
+        cycles = [
+            event
+            for event in events
+            if event.event_type
+            == OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED
+        ]
+        assert len(rejected) == 1
+        assert len(cycles) == 2
+
+    @pytest.mark.asyncio
+    async def test_market_rejection_reason_change_emits_again(self):
+        from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
+        from src.schemas.ops import OperationalEventType
+        from tests.unit.test_market_discovery import (
+            _future_iso,
+            _make_gamma_stub,
+            _make_market,
+            _make_tracker_stub,
+        )
+
+        events = []
+
+        async def publish(event):
+            events.append(event)
+
+        market = _make_market(condition_id="changing", end_date_iso=_future_iso(1))
+        gamma = _make_gamma_stub([market])
+        tracker = _make_tracker_stub()
+        config = _make_fake_config_preflight(enable_market_discovery_preflight=False)
+        config.dry_run = True
+        engine = MarketDiscoveryEngine(
+            gamma,
+            tracker,
+            config,
+            event_publisher=publish,
+        )
+
+        assert await engine.discover() == []
+        gamma.get_active_markets.return_value = [
+            _make_market(
+                condition_id="changing",
+                token_ids=[],
+                end_date_iso=_future_iso(24),
+            )
+        ]
+        assert await engine.discover() == []
+
+        rejected = [
+            event
+            for event in events
+            if event.event_type == OperationalEventType.MARKET_REJECTED
+        ]
+        assert len(rejected) == 2
+
+    @pytest.mark.asyncio
     async def test_preflight_skips_order_book_unavailable(self):
         """When order book fetch fails, market is skipped."""
         from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
@@ -664,6 +803,70 @@ class TestMarketDiscoveryPreflight:
         engine = MarketDiscoveryEngine(gamma, tracker, config, polymarket_client=pmc)
         result = await engine.discover()
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_preflight_run5_extreme_spread_threshold_skips_bounds_quotes(self):
+        """Run 5 calibration rejects 0.001/0.999 bound quotes before activation."""
+        from datetime import datetime, timezone
+
+        from src.agents.execution.polymarket_client import MarketSnapshot
+        from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
+
+        market = _make_market_metadata()
+        gamma = _make_gamma_stub([market])
+        tracker = _make_tracker_stub()
+        config = _make_fake_config_preflight(preflight_max_spread_pct=Decimal("0.90"))
+
+        pmc = AsyncMock()
+        pmc.fetch_order_book.return_value = MarketSnapshot(
+            token_id="tok-1",
+            best_bid=Decimal("0.001"),
+            best_ask=Decimal("0.999"),
+            midpoint_probability=Decimal("0.5"),
+            spread=Decimal("0.998"),
+            fetched_at_utc=datetime.now(timezone.utc),
+            source="test",
+        )
+
+        engine = MarketDiscoveryEngine(gamma, tracker, config, polymarket_client=pmc)
+        result = await engine.discover()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_preflight_run5_threshold_allows_plausible_wide_market(self):
+        """Run 5 threshold does not reject a 0.25/0.75 two-sided book."""
+        from datetime import datetime, timezone
+
+        from src.agents.execution.polymarket_client import MarketSnapshot
+        from src.agents.ingestion.market_discovery import MarketDiscoveryEngine
+        from tests.unit.test_market_discovery import (
+            _make_gamma_stub,
+            _make_tracker_stub,
+        )
+
+        market = _make_market_metadata()
+        gamma = _make_gamma_stub([market])
+        tracker = _make_tracker_stub()
+        config = _make_fake_config_preflight(preflight_max_spread_pct=Decimal("0.90"))
+
+        pmc = AsyncMock()
+        pmc.fetch_order_book.return_value = MarketSnapshot(
+            token_id="tok-1",
+            best_bid=Decimal("0.25"),
+            best_ask=Decimal("0.75"),
+            midpoint_probability=Decimal("0.5"),
+            spread=Decimal("0.50"),
+            fetched_at_utc=datetime.now(timezone.utc),
+            source="test",
+        )
+
+        engine = MarketDiscoveryEngine(gamma, tracker, config, polymarket_client=pmc)
+        result = await engine.discover()
+        assert result == [market]
 
     @pytest.mark.asyncio
     async def test_preflight_uses_decimal_for_spread_comparison(self):
@@ -810,7 +1013,7 @@ class TestMarketQuarantine:
         """After quarantine expires, market can be checked again."""
         from src.agents.ingestion.market_quarantine import MarketQuarantineManager
 
-        config = _make_config(preflight_quarantine_duration_seconds=Decimal("0.001"))
+        config = _make_config(preflight_quarantine_duration_seconds=Decimal("0.05"))
         manager = MarketQuarantineManager(config, failure_threshold=2)
 
         manager.record_failure("c1")
@@ -818,7 +1021,7 @@ class TestMarketQuarantine:
         assert manager.is_quarantined("c1")
 
         # Wait for expiry
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.06)
         assert not manager.is_quarantined("c1")
 
     @pytest.mark.asyncio
@@ -985,6 +1188,118 @@ class TestDataAggregatorDedupe:
         assert agg.output_queue.qsize() == 1
 
 
+class TestDataAggregatorCategoryCadence:
+    """Category-aware cadence throttles emits before queue insertion."""
+
+    @pytest.mark.asyncio
+    async def test_non_grok_category_is_throttled_without_queue_reordering(self):
+        from src.agents.context.aggregator import DataAggregator
+
+        agg = DataAggregator(asyncio.Queue(), asyncio.Queue(), "culture-1")
+        agg.configure_category_cadence(
+            enabled=True,
+            grok_eligible_min_interval_sec=30.0,
+            non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
+            grok_eligible_categories={"CRYPTO", "IRAN"},
+        )
+        agg.register_market(
+            "culture-1",
+            category="CULTURE",
+            yes_token_id="yes-culture",
+        )
+        agg.best_bid = 0.40
+        agg.best_ask = 0.60
+
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_material_move_bypasses_non_grok_category_cadence(self):
+        from src.agents.context.aggregator import DataAggregator
+
+        agg = DataAggregator(asyncio.Queue(), asyncio.Queue(), "culture-1")
+        agg.configure_category_cadence(
+            enabled=True,
+            grok_eligible_min_interval_sec=30.0,
+            non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
+            grok_eligible_categories={"CRYPTO", "IRAN"},
+        )
+        agg.register_market(
+            "culture-1",
+            category="CULTURE",
+            yes_token_id="yes-culture",
+        )
+        agg.best_bid = 0.40
+        agg.best_ask = 0.60
+
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+        agg.best_bid = 0.55
+        agg.best_ask = 0.75
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_grok_eligible_category_uses_shorter_interval(self):
+        from src.agents.context.aggregator import DataAggregator
+
+        agg = DataAggregator(asyncio.Queue(), asyncio.Queue(), "crypto-1")
+        agg.configure_category_cadence(
+            enabled=True,
+            grok_eligible_min_interval_sec=30.0,
+            non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
+            grok_eligible_categories={"CRYPTO", "IRAN"},
+        )
+        agg.register_market("crypto-1", category="CRYPTO", yes_token_id="yes-crypto")
+        agg.best_bid = 0.40
+        agg.best_ask = 0.60
+
+        await agg._emit_state_for_market("crypto-1")
+        assert agg.output_queue.qsize() == 1
+
+        agg._markets["crypto-1"].last_emit_time -= 31.0
+        await agg._emit_state_for_market("crypto-1")
+        assert agg.output_queue.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_culture_uses_dedicated_interval_even_when_grok_eligible(self):
+        from src.agents.context.aggregator import DataAggregator
+
+        agg = DataAggregator(asyncio.Queue(), asyncio.Queue(), "culture-1")
+        agg.configure_category_cadence(
+            enabled=True,
+            grok_eligible_min_interval_sec=30.0,
+            non_grok_min_interval_sec=120.0,
+            culture_min_interval_sec=600.0,
+            grok_eligible_categories={"CRYPTO", "IRAN", "CULTURE"},
+        )
+        agg.register_market(
+            "culture-1",
+            category="CULTURE",
+            yes_token_id="yes-culture",
+        )
+        agg.best_bid = 0.40
+        agg.best_ask = 0.60
+
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+        agg._markets["culture-1"].last_emit_time -= 31.0
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 1
+
+        agg._markets["culture-1"].last_emit_time -= 570.0
+        await agg._emit_state_for_market("culture-1")
+        assert agg.output_queue.qsize() == 2
+
+
 # ===================================================================
 # Orchestrator — prompt queue backpressure
 # ===================================================================
@@ -1130,6 +1445,61 @@ class TestPromptQueueBackpressure:
             await bq.put(item)
 
         assert bq.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_budget_quarantine_drops_market_without_queue_churn(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        assert (
+            PromptQueueBackpressureReason.BUDGET_QUARANTINED.value
+            == "BUDGET_QUARANTINED"
+        )
+        bq = BoundedPromptQueue(max_size=2, coalescing=True)
+        await bq.quarantine_market_until(
+            "c1",
+            datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        decision = await bq.put({"state": {"condition_id": "c1"}, "prompt": "p1"})
+
+        assert decision.action == "drop"
+        assert decision.reason == PromptQueueBackpressureReason.BUDGET_QUARANTINED
+        assert bq.qsize() == 0
+
+    @pytest.mark.asyncio
+    async def test_budget_quarantine_drains_existing_market_items(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        bq = BoundedPromptQueue(max_size=5, coalescing=False)
+        await bq.put({"state": {"condition_id": "c1"}, "prompt": "old-1"})
+        await bq.put({"state": {"condition_id": "c2"}, "prompt": "keep"})
+        await bq.put({"state": {"condition_id": "c1"}, "prompt": "old-2"})
+
+        await bq.quarantine_market_until(
+            "c1",
+            datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        assert bq.qsize() == 1
+        remaining = await bq.get()
+        assert remaining["state"]["condition_id"] == "c2"
+        bq.task_done()
+        await asyncio.wait_for(bq.join(), timeout=1)
+
+    @pytest.mark.asyncio
+    async def test_budget_quarantine_lifts_after_expiry(self):
+        from src.agents.context.bounded_queue import BoundedPromptQueue
+
+        bq = BoundedPromptQueue(max_size=2, coalescing=True)
+        await bq.quarantine_market_until(
+            "c1",
+            datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+
+        decision = await bq.put({"state": {"condition_id": "c1"}, "prompt": "p1"})
+
+        assert decision.action == "enqueue"
+        assert bq.qsize() == 1
 
 
 # ===================================================================

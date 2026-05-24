@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import structlog
@@ -51,6 +52,7 @@ class BoundedPromptQueue:
         self._unfinished_tasks = 0
         self._all_done = asyncio.Event()
         self._all_done.set()  # Initially empty = all done
+        self._budget_quarantine_until: dict[str, datetime] = {}
 
     async def put(
         self,
@@ -58,6 +60,18 @@ class BoundedPromptQueue:
     ) -> PromptQueueBackpressureDecision:
         """Attempt to enqueue a prompt payload."""
         condition_id = item.get("state", {}).get("condition_id")
+        if condition_id and self._is_budget_quarantined(condition_id):
+            logger.debug(
+                "queue.budget_quarantined_drop",
+                reason=PromptQueueBackpressureReason.BUDGET_QUARANTINED.value,
+                queue_depth=len(self._deque),
+            )
+            return PromptQueueBackpressureDecision(
+                action="drop",
+                reason=PromptQueueBackpressureReason.BUDGET_QUARANTINED,
+                queue_depth=len(self._deque),
+                condition_id=condition_id,
+            )
 
         # Resolve the decision under the lock without holding it across any await.
         # _coalesce_sync and _drop_stale_sync are fully synchronous so the lock
@@ -233,3 +247,54 @@ class BoundedPromptQueue:
     @property
     def coalescing(self) -> bool:
         return self._coalescing
+
+    async def quarantine_market_until(
+        self,
+        condition_id: str,
+        until_utc: datetime | None,
+    ) -> None:
+        """Temporarily drop queued snapshots for a market blocked by LLM budget."""
+        if not condition_id or until_utc is None:
+            return
+        if until_utc.tzinfo is None:
+            until_utc = until_utc.replace(tzinfo=timezone.utc)
+        async with self._lock:
+            current = self._budget_quarantine_until.get(condition_id)
+            if current is None or until_utc > current:
+                self._budget_quarantine_until[condition_id] = until_utc
+            retained: deque[Dict[str, Any]] = deque(maxlen=self._max_size)
+            removed = 0
+            for item in self._deque:
+                existing_cid = item.get("state", {}).get("condition_id")
+                if existing_cid == condition_id:
+                    removed += 1
+                    continue
+                retained.append(item)
+            if removed == 0:
+                return
+
+            self._deque = retained
+            self._unfinished_tasks = max(0, self._unfinished_tasks - removed)
+            if self._deque:
+                self._not_empty.set()
+            else:
+                self._not_empty.clear()
+            if self._unfinished_tasks == 0:
+                self._all_done.set()
+            self._update_queue_depth_metric()
+            logger.info(
+                "queue.budget_quarantine_drained",
+                reason=PromptQueueBackpressureReason.BUDGET_QUARANTINED.value,
+                queue_depth=len(self._deque),
+                dropped_count=removed,
+            )
+
+    def _is_budget_quarantined(self, condition_id: str) -> bool:
+        until_utc = self._budget_quarantine_until.get(condition_id)
+        if until_utc is None:
+            return False
+        now = datetime.now(timezone.utc)
+        if now >= until_utc:
+            self._budget_quarantine_until.pop(condition_id, None)
+            return False
+        return True

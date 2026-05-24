@@ -1,9 +1,112 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-17
-**Version:** 0.16.5
-**Status:** Phase 16 COMPLETE — hotfix pending commit (Grok eligibility expansion)
-**Active WI:** none
+**Last Updated:** 2026-05-23
+**Version:** 0.16.7
+**Status:** Phase 16 COMPLETE — WI-62 Server Runtime Review IN PROGRESS
+**Active WI:** WI-62
+
+## WI-62 — Server Runtime Review Skill (IN PROGRESS)
+
+**Trigger:** Post-WI-61, the server produces ~288 typed JSON audit artifacts every 72 hours but has no autonomous mechanism to aggregate them into a narrative review. The existing `server-runtime-review` OpenCode command is a thin skeleton, and the systemd service references the wrong binary (`claude` instead of `opencode`) with a hardcoded placeholder API key.
+
+**Brief context:** `~/documents/integration_task/01_Brief Context/WI-62-server-runtime-review.md`
+
+**Scope:**
+- Harden `scripts/ops/aggregate_audits.py` — zero-artifact detection, explicit Fix Plan thresholds, decision distribution, DB growth delta, secret scrubbing.
+- Rebuild `.opencode/commands/server-runtime-review.md` — full pre-flight, error handling, canonical 12/14-section templates (match dry-run-review rigor).
+- Fix `deploy/systemd/poly-oracle-server-review.{service,timer}` — opencode binary, 24h cadence with 72h lookback, proper hardening.
+- Server prerequisite documentation.
+
+**Out of scope:** Modifying orchestrator code, WI-61 audit logic, Moonshot reviewer, any `DRY_RUN=false` path.
+
+**Dependencies:** WI-61 artifacts, opencode CLI with headless mode (`-p` flag) on server.
+
+---
+
+## WI-61 — Periodic Runtime Audit (COMPLETE, 2026-05-23)
+
+**Trigger:** Post-Phase 16, the dry-run paper-trading deployment needs an always-on, deterministic safety-evidence layer that runs out-of-process on a fixed cadence and surfaces degradation via Telegram before an operator notices it in the dashboard. Phase 17 has not been scoped yet; WI-61 is a standalone operational-hardening Work Item.
+
+**Brief context:** `~/documents/integration_task/01_Brief Context/WI-61-periodic-runtime-audit.md`
+
+**Delivered:**
+- `src/schemas/runtime_audit.py` — typed Pydantic V2 schemas (`RuntimeAuditReport`, `RuntimeAuditExitCode`, `RuntimeAuditStatus`, `RuntimeAuditFailureReason`, probe/summary/artifact/Telegram/reviewer models). All numeric fields are `Decimal` with `_reject_float` validators. All models frozen; bounded string lengths; tz-aware `generated_at_utc`.
+- `src/observability/runtime_audit.py` — deterministic, read-only auditor. Probes `/healthz`, `/readyz`, `/metrics`, SQLite file, Docker Compose (optional), bounded log tail (optional). Routes all DB reads through `OperationalEventRepository`, `DecisionRepository`, `MarketRepository`, `PositionRepository`, `ExecutionRepository` — no raw SQL, no direct sessions. Forbidden-content scan applied to JSON+MD artifacts, Telegram payloads, and reviewer input/output. Atomic `latest.{json,md}` swap with typed failure reasons. Optional advisory LLM reviewer (`run_llm_review`) is a separate function using direct `httpx` POST to `https://api.moonshot.ai/v1/chat/completions` — disabled by default, no OpenCode/Hermes/OpenClaw dependency.
+- `scripts/ops/periodic_runtime_audit.py` — CLI entrypoint with read-only SQLite URI access (`mode=ro&uri=true`), typed exit codes.
+- `src/db/repositories/{decision,execution,market}_repo.py` — added bounded `get_recent_*(cutoff, limit)` methods using SQLAlchemy ORM `select()`.
+- `deploy/systemd/poly-oracle-runtime-audit.{service,timer}` — 15-min cadence, `ProtectSystem=strict`, `ReadWritePaths=` constrained to `docs/operations/runtime_audits/`.
+- `deploy/systemd/poly-oracle-runtime-review.{service,timer}` — committed disabled by default.
+- `docs/runbooks/periodic-runtime-audit.md` — operator runbook.
+- `.env.example` — `SQLITE_DB_PATH`, `APP_LOG_PATH`, `ENABLE_RUNTIME_AUDIT_ALERTS`, `RUNTIME_REVIEW_ENABLED`, `MOONSHOT_API_KEY` documented.
+
+**Safety posture:**
+- `dry_run=true` enforced as mandatory safety gate → exit code 2 on failure.
+- Typed exit codes: `0=healthy`, `1=degraded`, `2=safety-gate failure`, `3=probe error`.
+- No execution, signing, broadcasting, Gatekeeper, or `LLMEvaluationResponse` paths imported.
+- No Alembic migration, no schema mutation, no `Base.metadata.create_all()`.
+
+**MAAP cleared:** all five checks (no `float` for money, no raw SQL outside repos, no Gatekeeper bypass, no `dry_run` bypass, no schema drift) plus zero-trust audit on path traversal, atomic swap failure, forbidden-content scanning, and timeout coverage.
+
+**Regression:** 149 WI-61 tests; full regression 2482 passed; coverage 93% (`runtime_audit.py` 92%, `schemas/runtime_audit.py` 95%).
+
+**Branch:** `feat/wi-61-periodic-runtime-audit`, final commit: `352e26c`, merge commit: `0587744`.
+
+---
+
+## Post-WI-61 Doc Reconciliation — Spread Calibration (2026-05-23)
+
+**Trigger:** 2026-05-23 dry-run review (`docs/runtime_observations/2026-05-23-orchestrator-dry-run-session.md` §4 / F1) surfaced drift between live `.env` (`PREFLIGHT_MAX_SPREAD_PCT=0.99`) and the 2026-05-18 hotfix-documented value (`0.90`).
+
+**Decision:** Operator confirmed `0.99` is the canonical live value. The 2026-05-18 material-move bypass in `src/agents/context/aggregator.py` lets price-discovery moves clear cadence suppression even at the looser spread tolerance, so `0.99` is the intentional working calibration.
+
+**Changes (this entry only — no code):** None. STATE.md is the authoritative record; `.env.example` retains `0.90` as the conservative default for fresh deployments, but live operator config runs `0.99`.
+
+**Next:** Continue with the 2026-05-23 fix-plan sequence (F2 cooldown metric next).
+
+---
+
+## Post-Phase 16 Hotfix — Run 5 Runtime Stabilization Calibration (2026-05-18)
+
+**Trigger:** Run 5 fix-plan review surfaced a spread-threshold calibration gap and a category-activation imbalance for CULTURE.
+
+**Changes (committed on develop as `10d78b4`):**
+- `.env.example` and local runtime calibration aligned to `LLM_MARKET_HOURLY_CALL_LIMIT=120` and `PREFLIGHT_MAX_SPREAD_PCT=0.90`. *(Live `.env` was subsequently bumped to `0.99` by the operator; canonical value reconciled in the 2026-05-23 entry above.)*
+- `src/agents/context/aggregator.py` now lets material midpoint/spread moves bypass category cadence suppression.
+- `src/orchestrator.py` throttles only diagnostic operational events and counts throttled diagnostics as dropped.
+- `docs/runbooks/llm-cost-guard.md` now matches the current cost calibration.
+
+**Regression:** focused 367 passed; full regression 2329 passed; coverage-backed regression 2329 passed; coverage 93%.
+**Next:** run a fresh dry-run validation against `10d78b4`.
+
+## Post-Phase 16 Hotfix — Run 2 Runtime Stabilization (2026-05-17)
+
+**Trigger:** Run 2 dry-run observation showed the previous Grok/DeepSeek fixes held, but the
+runtime entered a budget-driven idle state: per-market LLM caps fired within minutes, budget-block
+logs and ledger rows dominated observability, repeated market rejection events flooded the ledger,
+and concurrent dashboard/CLI reads could hit SQLite lock contention.
+
+**Changes (uncommitted on develop):**
+- `src/agents/evaluation/llm_cost_guard.py` / `src/schemas/llm.py` — added per-market budget
+  window expiry, throttled audit emission fields, and preserved per-occurrence metrics.
+- `src/agents/evaluation/claude_client.py` / `src/agents/context/bounded_queue.py` — replaced
+  duplicate provider-skip budget logs with throttled structured diagnostics and budget-quarantined
+  prompt queue drops until the market budget window reopens.
+- `src/agents/ingestion/market_discovery.py` / `src/schemas/ops.py` — emit repeated
+  `MARKET_REJECTED` only on state changes and add a cycle-summary event.
+- `src/db/engine.py`, `src/ui/dashboard.py`, `src/observability/dashboard_activity_feed.py` —
+  enable SQLite WAL/busy-timeout behavior for runtime connections and dashboard reads.
+- `src/orchestrator.py` — resolves activation categories using the evaluation resolver and suppresses
+  unchanged WebSocket subscription-summary logs.
+- `.env.example`, `README.md`, `docs/runbooks/llm-cost-guard.md` — updated dry-run LLM budget
+  tuning to 240 primary calls/hour, 240 reflection calls/hour, 2000 daily calls, and 60 calls/market/hour.
+
+**Regression:** Final wi-done full regression passed outside the sandbox: 2314 passed. Latest
+checker coverage before the final correction pass: 92%. MAAP follow-ups removed the dead
+`MarketQuarantineReason.BUDGET_EXHAUSTED` enum/test, made `peek_budget()` read-only for budget
+window state, and drain queued snapshots when budget quarantine starts.
+**Next:** Run the next dry-run validation window against the committed Run 2 stabilization hotfix.
+
+---
 
 ## Post-Phase 16 Hotfix — Grok Sentiment Eligibility Expansion (2026-05-17)
 
@@ -108,13 +211,27 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2296 |
-| Latest local test result | 2296 passed unforced with local `.env`; coverage-backed regression also 2296 passed |
+| Total tests | 2333 |
+| Latest local test result | 2333 passed; coverage-backed regression also 2333 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
 
 ## Runtime Hotfixes
+
+2026-05-19 - CULTURE Grok sentiment upgrade (commit `b4d18fc`):
+- Added `MarketCategory.CULTURE` to `GROK_ELIGIBLE_CATEGORIES` so CULTURE markets receive live xAI Grok sentiment rather than a static neutral fallback.
+- Injected `_CULTURE_SIGNAL_GUIDANCE` into the GrokClient user prompt for CULTURE markets, instructing the model to resolve broad hype, fandom noise, or stale discourse toward neutral (score ≈ 0.0) rather than inventing directional edge.
+- Added `CULTURE_EVALUATION_INTERVAL_SEC=600` (`AppConfig.culture_evaluation_interval_sec`) and wired it through `DataAggregator.configure_category_cadence` and `Orchestrator` so CULTURE gets live signal coverage without consuming the normal 30s Grok cadence budget.
+- The CULTURE cadence branch in `aggregator.py` is evaluated **before** the Grok-eligible check, ensuring the 600s floor holds even if CULTURE appears in `GROK_ELIGIBLE_CATEGORIES`.
+- Validation: full regression 2333 passed; coverage 93%. MAAP cleared.
+
+2026-05-17 - LLM/Grok dry-run throughput stabilization:
+- Split primary and reflection hourly LLM budget accounting so `LLM_HOURLY_CALL_LIMIT` now applies to primary evaluations and `LLM_REFLECTION_HOURLY_CALL_LIMIT` applies to reflection audits, while daily/token/cost/per-market caps remain shared fail-closed safety controls.
+- Added non-mutating `LLMBudgetGuard.peek_budget()` and used it to skip eligible Grok sentiment calls when the downstream primary LLM call is already budget-blocked, preventing wasted xAI calls and 429 pressure.
+- Added Grok narrative summary truncation before `SentimentResponse` validation so otherwise-valid sentiment payloads are preserved when only `top_narrative_summary` exceeds the 320-character prompt-budget field.
+- Enabled local runtime observability flags in `.env` for Telegram startup/operational alerts and the WI-56 operational event ledger, with circuit breaker explicitly left disabled for dry-run.
+- Validation: targeted WI-52/Grok/sentiment tests passed; full regression passed (`2305 passed`); coverage remained 93%.
 
 2026-05-17 - Prompt queue consumer and DeepSeek model stabilization:
 - Fixed `BoundedPromptQueue` lock starvation by keeping coalesce/drop-stale mutation synchronous under the queue lock and recording coalescing metrics after releasing the lock.

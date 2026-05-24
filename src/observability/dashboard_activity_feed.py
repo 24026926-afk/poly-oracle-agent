@@ -296,6 +296,7 @@ def _read_records_from_sqlite(
     uri = _resolve_ro_uri(db_path)
     try:
         conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        conn.execute("PRAGMA busy_timeout=5000")
     except sqlite3.OperationalError:
         return (
             [],

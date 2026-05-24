@@ -47,6 +47,7 @@ def _make_config(**overrides: dict) -> object:
     base.update(overrides)
     for key in [
         "LLM_HOURLY_CALL_LIMIT",
+        "LLM_REFLECTION_HOURLY_CALL_LIMIT",
         "LLM_DAILY_CALL_LIMIT",
         "LLM_DAILY_TOKEN_LIMIT",
         "LLM_DAILY_COST_LIMIT_USD",
@@ -177,8 +178,13 @@ class TestLLMBudgetConfig:
 
 class TestLLMBudgetWindow:
     def test_hourly_window_tracks_call_count(self):
-        w = LLMBudgetWindow(hourly_calls=5)
+        w = LLMBudgetWindow(hourly_calls=5, primary_hourly_calls=3)
         assert w.hourly_calls == 5
+        assert w.primary_hourly_calls == 3
+
+    def test_hourly_window_tracks_reflection_call_count(self):
+        w = LLMBudgetWindow(hourly_calls=5, reflection_hourly_calls=2)
+        assert w.reflection_hourly_calls == 2
 
     def test_daily_window_tracks_call_count(self):
         w = LLMBudgetWindow(daily_calls=100)
@@ -259,6 +265,12 @@ class TestLLMBudgetBlockReason:
         assert (
             LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED.value
             == "hourly_call_limit_exhausted"
+        )
+
+    def test_reflection_hourly_exhausted_reason(self):
+        assert (
+            LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED.value
+            == "reflection_hourly_call_limit_exhausted"
         )
 
     def test_daily_exhausted_reason(self):
@@ -378,11 +390,15 @@ class TestAppConfigLLMCostGuard:
 
     def test_llm_hourly_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_hourly_call_limit == 60
+        assert cfg.llm_hourly_call_limit == 240
+
+    def test_llm_reflection_hourly_call_limit_default(self):
+        cfg = _make_config()
+        assert cfg.llm_reflection_hourly_call_limit == 240
 
     def test_llm_daily_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_daily_call_limit == 500
+        assert cfg.llm_daily_call_limit == 2000
 
     def test_llm_daily_token_limit_default(self):
         cfg = _make_config()
@@ -394,7 +410,7 @@ class TestAppConfigLLMCostGuard:
 
     def test_llm_per_market_hourly_call_limit_default(self):
         cfg = _make_config()
-        assert cfg.llm_market_hourly_call_limit == 10
+        assert cfg.llm_market_hourly_call_limit == 60
 
     def test_llm_repeated_hold_threshold_default(self):
         cfg = _make_config()
@@ -568,12 +584,36 @@ class TestBudgetEnforcementUnit:
         assert d.allowed is False
         assert d.block_reason == LLMBudgetBlockReason.DAILY_COST_LIMIT_EXHAUSTED
 
-    async def test_blocks_reflection_call_when_hourly_limit_exhausted(self, guard):
+    async def test_primary_hourly_limit_does_not_block_reflection(self, guard):
         for _ in range(2):
             d = await guard.check_budget(call_type="primary")
             assert d.allowed is True
+        d = await guard.check_budget(call_type="primary")
+        assert d.allowed is False
+        assert d.block_reason == LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED
+        d = await guard.check_budget(call_type="reflection")
+        assert d.allowed is True
+
+    async def test_blocks_reflection_call_when_reflection_hourly_limit_exhausted(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=2,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=100,
+        )
+        guard = LLMBudgetGuard(cfg)
+        for _ in range(2):
+            d = await guard.check_budget(call_type="reflection")
+            assert d.allowed is True
         d = await guard.check_budget(call_type="reflection")
         assert d.allowed is False
+        assert (
+            d.block_reason
+            == LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED
+        )
 
     async def test_blocks_reflection_call_when_daily_limit_exhausted(self):
         cfg = _make_config(
@@ -660,6 +700,7 @@ class TestBudgetEnforcementUnit:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=2,
+            llm_reflection_hourly_call_limit=1,
             llm_daily_call_limit=2,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
@@ -685,6 +726,10 @@ class TestBudgetEnforcementUnit:
         # Now both hourly and daily are exhausted
         d3 = await guard.check_budget(call_type="reflection")
         assert d3.allowed is False
+        assert (
+            d3.block_reason
+            == LLMBudgetBlockReason.REFLECTION_HOURLY_CALL_LIMIT_EXHAUSTED
+        )
         # Reflection blocked → conservative no-trade
         reflection = ReflectionResponse(
             verdict=ReflectionVerdict.REJECTED,
@@ -713,6 +758,165 @@ class TestBudgetEnforcementUnit:
         d = await guard.check_budget(call_type="primary")
         assert d.allowed is False
         assert d.block_reason is not None
+
+    async def test_peek_budget_does_not_reserve_call_slot(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=1,
+            llm_daily_call_limit=10,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=100,
+        )
+        guard = LLMBudgetGuard(cfg)
+        peek = await guard.peek_budget(call_type="primary")
+        assert peek.allowed is True
+
+        first = await guard.check_budget(call_type="primary")
+        assert first.allowed is True
+        second = await guard.check_budget(call_type="primary")
+        assert second.allowed is False
+        assert second.block_reason == LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED
+
+    async def test_peek_budget_does_not_initialize_market_window(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "peek-market-cap"
+
+        peek = await guard.peek_budget(call_type="primary", market_key=market_key)
+
+        assert peek.allowed is True
+        assert market_key not in guard._per_market_hourly
+        assert market_key not in guard._per_market_hourly_reset
+
+    async def test_peek_budget_does_not_reset_expired_market_window(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "peek-expired-market-cap"
+        expired_reset = datetime.now(timezone.utc) - timedelta(seconds=1)
+        guard._per_market_hourly[market_key] = 1
+        guard._per_market_hourly_reset[market_key] = expired_reset
+
+        peek = await guard.peek_budget(call_type="primary", market_key=market_key)
+
+        assert peek.allowed is True
+        assert guard._per_market_hourly[market_key] == 1
+        assert guard._per_market_hourly_reset[market_key] == expired_reset
+
+    async def test_per_market_hourly_limit_applies_across_call_types(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=2,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "shared-market-cap"
+
+        primary = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        assert primary.allowed is True
+        reflection = await guard.check_budget(
+            call_type="reflection",
+            market_key=market_key,
+        )
+        assert reflection.allowed is True
+        blocked = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        assert blocked.allowed is False
+        assert (
+            blocked.block_reason
+            == LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED
+        )
+        assert blocked.emit_audit_event is True
+        assert blocked.retry_after_utc is not None
+
+    async def test_per_market_window_resets_independently(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "reset-market-cap"
+
+        first = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert first.allowed is True
+        blocked = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert blocked.allowed is False
+
+        guard._per_market_hourly_reset[market_key] = datetime.now(
+            timezone.utc
+        ) - timedelta(seconds=1)
+        allowed = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert allowed.allowed is True
+
+    async def test_budget_block_audit_emission_is_throttled_per_market_reason(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_hourly_call_limit=100,
+            llm_reflection_hourly_call_limit=100,
+            llm_daily_call_limit=100,
+            llm_daily_token_limit=1000000,
+            llm_daily_cost_limit_usd=Decimal("100"),
+            llm_market_hourly_call_limit=1,
+        )
+        guard = LLMBudgetGuard(cfg)
+        market_key = "throttled-market-cap"
+
+        allowed = await guard.check_budget(call_type="primary", market_key=market_key)
+        assert allowed.allowed is True
+        first_block = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        second_block = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+
+        assert first_block.emit_audit_event is True
+        assert second_block.emit_audit_event is False
+
+        key = (
+            market_key,
+            LLMBudgetBlockReason.PER_MARKET_HOURLY_LIMIT_EXHAUSTED.value,
+            "primary",
+        )
+        guard._budget_block_last_emit[key] = datetime.now(timezone.utc) - timedelta(
+            seconds=61
+        )
+        third_block = await guard.check_budget(
+            call_type="primary",
+            market_key=market_key,
+        )
+        assert third_block.emit_audit_event is True
+        assert third_block.suppressed_since_last_emit == 1
 
 
 # ---------------------------------------------------------------------------
@@ -994,6 +1198,63 @@ class TestLoggingAndMetrics:
         tokens = [s for s in snap.samples if s.name == "poly_agent_llm_tokens_total"]
         assert any(int(s.value) >= 5000 for s in tokens)
 
+    async def test_metrics_track_daily_token_usage_by_provider(self):
+        reg = MetricsRegistry()
+        await reg.set_llm_daily_token_usage(
+            provider="deepseek",
+            total_tokens=2500,
+            token_limit=10000,
+        )
+        snap = await reg.snapshot()
+        usage = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_daily_token_usage_total"
+        ]
+        ratio = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_daily_token_utilization_ratio"
+        ]
+        assert any(
+            s.labels.labels.get("provider") == "deepseek" and s.value == Decimal("2500")
+            for s in usage
+        )
+        assert any(
+            s.labels.labels.get("provider") == "deepseek" and s.value == Decimal("0.25")
+            for s in ratio
+        )
+
+    async def test_budget_guard_usage_updates_daily_token_gauge(self):
+        cfg = _make_config(
+            enable_llm_cost_guard=True,
+            llm_daily_token_limit=100000,
+        )
+        reg = MetricsRegistry()
+        guard = LLMBudgetGuard(cfg, metrics=reg)
+
+        decision = await guard.check_budget(call_type="primary", market_key="m1")
+        assert decision.allowed is True
+        await guard.record_usage(
+            provider=LLMProviderName.DEEPSEEK,
+            model_name="deepseek-chat",
+            input_tokens=100,
+            output_tokens=50,
+            market_key="m1",
+        )
+        await asyncio.sleep(0)
+
+        snap = await reg.snapshot()
+        usage = [
+            s
+            for s in snap.samples
+            if s.name == "poly_agent_llm_daily_token_usage_total"
+        ]
+        assert any(
+            s.labels.labels.get("provider") == "deepseek" and s.value == Decimal("150")
+            for s in usage
+        )
+
     async def test_metrics_track_estimated_spend(self):
         reg = MetricsRegistry()
         await reg.record_llm_estimated_spend(cost_usd=Decimal("2.50"))
@@ -1108,6 +1369,7 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=2,
+            llm_reflection_hourly_call_limit=2,
             llm_daily_call_limit=100,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),
@@ -1140,6 +1402,7 @@ class TestLLMCostGuardIntegration:
         cfg = _make_config(
             enable_llm_cost_guard=True,
             llm_hourly_call_limit=1,
+            llm_reflection_hourly_call_limit=100,
             llm_daily_call_limit=1,
             llm_daily_token_limit=1000000,
             llm_daily_cost_limit_usd=Decimal("100"),

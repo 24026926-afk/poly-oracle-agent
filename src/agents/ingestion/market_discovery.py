@@ -70,6 +70,9 @@ class MarketDiscoveryEngine:
         self._quarantine_manager = MarketQuarantineManager(config)
         self._metrics = metrics
         self._event_publisher = event_publisher
+        self._last_rejection_state: dict[
+            str, tuple[OperationalEventReasonCode, str]
+        ] = {}
 
     async def _publish_event(
         self,
@@ -78,6 +81,7 @@ class MarketDiscoveryEngine:
         severity: OperationalEventSeverity,
         reason_code: OperationalEventReasonCode,
         message: str,
+        market_count: int | None = None,
     ) -> None:
         if self._event_publisher is None:
             return
@@ -86,6 +90,7 @@ class MarketDiscoveryEngine:
                 message=message,
                 reason_code=reason_code.value,
                 dry_run=self._config.dry_run,
+                market_count=market_count,
             )
             await self._event_publisher(
                 OperationalEventCreate(
@@ -98,6 +103,40 @@ class MarketDiscoveryEngine:
             )
         except Exception:
             logger.debug("market_discovery.operational_event_skipped")
+
+    async def _publish_market_rejection_once(
+        self,
+        market: MarketMetadata,
+        *,
+        severity: OperationalEventSeverity,
+        reason_code: OperationalEventReasonCode,
+        message: str,
+    ) -> None:
+        state = (reason_code, message)
+        previous = self._last_rejection_state.get(market.condition_id)
+        if previous == state:
+            return
+        self._last_rejection_state[market.condition_id] = state
+        await self._publish_event(
+            event_type=OperationalEventType.MARKET_REJECTED,
+            severity=severity,
+            reason_code=reason_code,
+            message=message,
+        )
+
+    def _reconcile_rejection_state(
+        self,
+        *,
+        candidates: list[MarketMetadata],
+        eligible: list[MarketMetadata],
+    ) -> None:
+        seen_ids = {market.condition_id for market in candidates}
+        eligible_ids = {market.condition_id for market in eligible}
+        for condition_id in eligible_ids:
+            self._last_rejection_state.pop(condition_id, None)
+        for condition_id in list(self._last_rejection_state):
+            if condition_id not in seen_ids:
+                self._last_rejection_state.pop(condition_id, None)
 
     # ------------------------------------------------------------------
     # Public API
@@ -141,8 +180,8 @@ class MarketDiscoveryEngine:
         for market in candidates:
             if not self._has_required_metadata(market):
                 stats["no_metadata"] += 1
-                await self._publish_event(
-                    event_type=OperationalEventType.MARKET_REJECTED,
+                await self._publish_market_rejection_once(
+                    market,
                     severity=OperationalEventSeverity.WARNING,
                     reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
                     message="Market rejected because required metadata was missing",
@@ -151,8 +190,8 @@ class MarketDiscoveryEngine:
 
             if not self._meets_ttr_requirement(market):
                 stats["ttr_fail"] += 1
-                await self._publish_event(
-                    event_type=OperationalEventType.MARKET_REJECTED,
+                await self._publish_market_rejection_once(
+                    market,
                     severity=OperationalEventSeverity.INFO,
                     reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
                     message="Market rejected because time-to-resolution was below threshold",
@@ -168,8 +207,8 @@ class MarketDiscoveryEngine:
                     exposure_usdc=str(exposure),
                     cap_usdc=str(exposure_cap),
                 )
-                await self._publish_event(
-                    event_type=OperationalEventType.MARKET_REJECTED,
+                await self._publish_market_rejection_once(
+                    market,
                     severity=OperationalEventSeverity.WARNING,
                     reason_code=OperationalEventReasonCode.DECISION_SKIP_EXPOSURE,
                     message="Market rejected because exposure cap was reached",
@@ -195,6 +234,20 @@ class MarketDiscoveryEngine:
                 eligible_count=len(eligible),
                 **stats,
             )
+
+        self._reconcile_rejection_state(candidates=candidates, eligible=eligible)
+        await self._publish_event(
+            event_type=OperationalEventType.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+            severity=OperationalEventSeverity.INFO,
+            reason_code=OperationalEventReasonCode.MARKET_ELIGIBILITY_CYCLE_COMPLETED,
+            message=(
+                "Market eligibility cycle completed: "
+                f"total={stats['total']} eligible={len(eligible)} "
+                f"ttr_fail={stats['ttr_fail']} "
+                f"preflight_skip={stats['preflight_skip']}"
+            ),
+            market_count=len(eligible),
+        )
 
         return eligible
 
@@ -266,8 +319,8 @@ class MarketDiscoveryEngine:
                     if preflight_result.skip_reason
                     else None,
                 )
-                await self._publish_event(
-                    event_type=OperationalEventType.MARKET_REJECTED,
+                await self._publish_market_rejection_once(
+                    market,
                     severity=OperationalEventSeverity.WARNING,
                     reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
                     message="Market rejected by bounded preflight checks",

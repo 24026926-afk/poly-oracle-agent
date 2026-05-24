@@ -10,7 +10,11 @@ __pycache__/
 
 # DB files
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # OS
 .DS_Store
@@ -20,6 +24,7 @@ __pycache__/
 .vscode/
 .idea/
 .gemini/
+.qwen/
 
 # Build
 dist/
@@ -28,6 +33,7 @@ build/
 uv.lock
 output/
 tmp/
+logs/
 
 # Pytest
 .pytest_cache/

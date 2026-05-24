@@ -1,0 +1,24 @@
+[Unit]
+Description=Poly-Oracle Runtime Audit — WI-61 periodic safety evidence
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=poly-oracle
+WorkingDirectory=/opt/poly-oracle-agent
+EnvironmentFile=/opt/poly-oracle-agent/.env
+ExecStart=/opt/poly-oracle-agent/.venv/bin/python scripts/ops/periodic_runtime_audit.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=poly-oracle-audit
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/poly-oracle-agent/docs/operations/runtime_audits
+
+[Install]
+WantedBy=multi-user.target

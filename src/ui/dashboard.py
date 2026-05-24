@@ -723,7 +723,9 @@ def get_connection() -> sqlite3.Connection:
     enforced by SQLite itself.
     """
     uri = _resolve_db_uri()
-    return sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
 
 
 def to_decimal(value: object) -> Decimal:

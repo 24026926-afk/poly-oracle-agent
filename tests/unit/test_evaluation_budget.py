@@ -80,6 +80,7 @@ class _DryRunConfig:
         self.llm_market_cooldown_seconds = 300
         self.llm_fallback_tokens_per_call = 4096
         self.llm_hourly_call_limit = 60
+        self.llm_reflection_hourly_call_limit = 120
         self.llm_daily_call_limit = 500
         self.llm_daily_token_limit = 0
         self.llm_daily_cost_limit_usd = 10
