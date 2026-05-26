@@ -25,9 +25,13 @@ from src.observability.health import (
 logger = structlog.get_logger(__name__)
 
 _HEALTHZ_BODY = json.dumps({"status": "ok"}).encode("utf-8")
-_HTTP_200 = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
-_HTTP_503 = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: "
-_NL2 = b"\r\n\r\n"
+_STATUS_TEXT: dict[int, str] = {
+    200: "OK",
+    400: "Bad Request",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    503: "Service Unavailable",
+}
 
 
 class HealthServer:
@@ -141,14 +145,7 @@ class HealthServer:
 
     async def _handle_healthz(self, writer: asyncio.StreamWriter) -> None:
         """Liveness probe — always 200 if the event loop is alive."""
-        try:
-            writer.write(_HTTP_200)
-            writer.write(str(len(_HEALTHZ_BODY)).encode("ascii"))
-            writer.write(_NL2)
-            writer.write(_HEALTHZ_BODY)
-            await writer.drain()
-        finally:
-            writer.close()
+        await self._respond(writer, 200, _HEALTHZ_BODY, raw_body=True)
 
     async def _handle_readyz(self, writer: asyncio.StreamWriter) -> None:
         """Readiness probe — checks DB reachability and WS health."""
@@ -235,29 +232,29 @@ class HealthServer:
         body: object,
         raw_body: bool = False,
     ) -> None:
-        """Write an HTTP response and close the connection."""
+        """Write a complete HTTP/1.1 response and close the connection.
+
+        Builds the full status line and headers in a single block so
+        Content-Length always reflects the real payload length. Avoids
+        the prior bug where prebuilt header constants ended in
+        ``Content-Length: `` with no numeric value.
+        """
         try:
             if raw_body and isinstance(body, bytes):
                 payload = body
             else:
                 payload = json.dumps(body).encode("utf-8")
 
-            status_line = (
-                b"HTTP/1.1 200 OK\r\n"
-                if status_code == 200
-                else f"HTTP/1.1 {status_code} \r\n".encode("ascii")
-            )
-            if status_code == 503:
-                status_line = _HTTP_503
-            elif status_code == 200 and raw_body:
-                status_line = _HTTP_200
+            reason = _STATUS_TEXT.get(status_code, "")
+            response = (
+                f"HTTP/1.1 {status_code} {reason}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: {len(payload)}\r\n"
+                f"Connection: close\r\n"
+                f"\r\n"
+            ).encode("ascii")
 
-            writer.write(status_line)
-            writer.write(
-                f"Content-Type: application/json\r\nContent-Length: {len(payload)}\r\n\r\n".encode(
-                    "ascii"
-                )
-            )
+            writer.write(response)
             writer.write(payload)
             await writer.drain()
         finally:
