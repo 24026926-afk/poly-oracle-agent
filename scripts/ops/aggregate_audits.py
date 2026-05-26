@@ -29,7 +29,12 @@ from pathlib import Path
 # Allow running from project root without install
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from src.schemas.runtime_audit import RuntimeAuditReport, RuntimeAuditStatus
+from src.schemas.runtime_audit import (
+    RuntimeAuditFindingType,
+    RuntimeAuditReport,
+    RuntimeAuditSeverity,
+    RuntimeAuditStatus,
+)
 
 # ── Forbidden-content scrubbing (mirrors runtime_audit.py patterns) ──────
 
@@ -77,10 +82,22 @@ def main() -> int:
         default=".",
         help="Root of the repository (default: current directory)",
     )
+    parser.add_argument(
+        "--artifact-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory to scan for runtime-audit-*.json artifacts. "
+            "Overrides --project-root when set."
+        ),
+    )
     args = parser.parse_args()
 
-    root_path = Path(args.project_root).resolve()
-    audits_dir = root_path / "docs" / "operations" / "runtime_audits"
+    if args.artifact_dir is not None:
+        audits_dir = Path(args.artifact_dir).resolve()
+    else:
+        root_path = Path(args.project_root).resolve()
+        audits_dir = root_path / "docs" / "operations" / "runtime_audits"
 
     if not audits_dir.exists():
         error_output = {
@@ -108,6 +125,7 @@ def main() -> int:
     total_response_time = Decimal("0")
     health_samples = 0
     max_exposure_usdc = Decimal("0")
+    position_observed = False
 
     # Decision distribution accumulators
     total_decisions = 0
@@ -127,15 +145,30 @@ def main() -> int:
 
     # ── Iterative processing (no load-all) ───────────────────────────────
 
+    skipped_artifacts = 0
     for filepath in sorted(audits_dir.glob("runtime-audit-*.json")):
         if filepath.name == "latest.json":
             continue
 
         try:
             content = filepath.read_text(encoding="utf-8")
-            report = RuntimeAuditReport.model_validate_json(content)
+            payload = json.loads(content)
+            # Coerce timezone-naive ISO timestamps to UTC. Pydantic rejects
+            # naive datetimes when the schema field is tz-aware; operators
+            # occasionally produce naive timestamps from older serializers.
+            ts = payload.get("generated_at_utc")
+            if isinstance(ts, str) and ts:
+                try:
+                    parsed_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if parsed_ts.tzinfo is None:
+                        payload["generated_at_utc"] = ts + "+00:00"
+                except ValueError:
+                    pass  # let pydantic surface the parse error below
+            report = RuntimeAuditReport.model_validate(payload)
         except Exception:
-            # Skip malformed or schema-incompatible artifacts
+            # Skip malformed or schema-incompatible artifacts but count them
+            # so operators can detect upstream corruption / serializer drift.
+            skipped_artifacts += 1
             continue
 
         if report.generated_at_utc < cutoff_time:
@@ -157,9 +190,17 @@ def main() -> int:
             elif current_dry_run != dry_run_posture:
                 dry_run_changed = True
 
-        # Safety gate failures
+        # Safety gate failures — count both report-level status and
+        # individual findings flagged CRITICAL/SAFETY_GATE so artifacts that
+        # carry the failure as a finding (not just a status) are still tallied.
         if report.status == RuntimeAuditStatus.SAFETY_GATE_FAILED:
             critical_safety_gates += 1
+        for finding in report.findings:
+            if (
+                finding.severity == RuntimeAuditSeverity.CRITICAL
+                and finding.finding_type == RuntimeAuditFindingType.SAFETY_GATE
+            ):
+                critical_safety_gates += 1
 
         # Ledger summary accumulators
         if report.ledger_summary and report.ledger_summary.available:
@@ -181,6 +222,7 @@ def main() -> int:
 
         # Position exposure (track max)
         if report.position_summary and report.position_summary.available:
+            position_observed = True
             if report.position_summary.total_open_exposure_usdc > max_exposure_usdc:
                 max_exposure_usdc = report.position_summary.total_open_exposure_usdc
 
@@ -205,6 +247,7 @@ def main() -> int:
             "cutoff_utc": cutoff_time.isoformat(),
             "artifacts_directory": str(audits_dir),
             "scanned_files": 0,
+            "skipped_artifacts": skipped_artifacts,
         }
         print(json.dumps(error_output, indent=2))
         return 1
@@ -230,11 +273,22 @@ def main() -> int:
 
     # ── Build output ─────────────────────────────────────────────────────
 
+    # "unavailable" sentinels when no observation exists. Tests assert on the
+    # exact string; downstream consumers treat it as a non-numeric placeholder.
+    avg_response_time_out: str = (
+        _decimal_to_str(avg_response_time_ms) if health_samples > 0 else "unavailable"
+    )
+    max_exposure_out: str = (
+        _decimal_to_str(max_exposure_usdc) if position_observed else "unavailable"
+    )
+
     summary = {
         "scanned_files": scanned_files,
+        "skipped_artifacts": skipped_artifacts,
         "window_start_utc": first_timestamp.isoformat() if first_timestamp else None,
         "window_end_utc": last_timestamp.isoformat() if last_timestamp else None,
         "lookback_hours": args.hours,
+        "hours": args.hours,
         # Safety and errors
         "critical_safety_gates": critical_safety_gates,
         "total_errors": total_errors,
@@ -245,23 +299,26 @@ def main() -> int:
         "cooldown_blocks": cooldown_blocks,
         "market_quarantines": market_quarantines,
         # Performance
-        "avg_response_time_ms": _decimal_to_str(avg_response_time_ms),
+        "avg_response_time_ms": avg_response_time_out,
         "health_samples": health_samples,
         # Exposure
-        "max_exposure_usdc": _decimal_to_str(max_exposure_usdc),
+        "max_exposure_usdc": max_exposure_out,
         # Database
         "db_growth_bytes": db_growth_bytes,
+        "db_growth_bytes_delta": str(db_growth_bytes),
         # Dry-run posture (context, not a finding unless changed)
         "dry_run_posture": dry_run_posture,
         "dry_run_changed": dry_run_changed,
-        # Decision distribution
+        "dry_run_inconsistent": dry_run_changed,
+        # Decision distribution — exact-shape contract: only buy/sell/hold/skip.
+        # Aggregate total surfaced as `total_decisions` at the top level.
         "decision_distribution": {
-            "total": total_decisions,
             "buy": buy_count,
             "sell": sell_count,
             "hold": hold_count,
             "skip": skip_count,
         },
+        "total_decisions": total_decisions,
         # Fix Plan trigger
         "fix_plan_required": fix_plan_required,
         "fix_plan_triggers": {
