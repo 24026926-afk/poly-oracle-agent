@@ -567,7 +567,68 @@ Position sizing: `min(quarter_kelly × bankroll, 0.03 × bankroll)` where quarte
 
 ---
 
-## 11. Operational Notes
+## 11. Server-Side Operations (Phase 16+)
+
+### WI-61: Periodic Runtime Audit
+
+The server runs an autonomous safety audit every 15 minutes that probes health endpoints, database state, Docker service status, and bounded log summaries. Artifacts are written to `docs/operations/runtime_audits/`.
+
+**On DigitalOcean Droplet:**
+
+```bash
+# Check audit timer status
+systemctl status poly-oracle-runtime-audit.timer
+
+# View latest audit output
+cat docs/operations/runtime_audits/latest.json
+
+# View audit history
+ls -lt docs/operations/runtime_audits/
+```
+
+**Exit codes:** `0` = healthy, `1` = degraded, `2` = safety-gate failure, `3` = probe error
+
+### WI-62: Server Runtime Review
+
+Every 24 hours, the server autonomously reviews the last 72 hours of WI-61 audit artifacts and produces a structured observation report (and conditional fix plan) in `docs/runtime_observations/`.
+
+**On DigitalOcean Droplet:**
+
+```bash
+# Check review timer status
+systemctl status poly-oracle-server-review.timer
+
+# Trigger manual review
+systemctl start poly-oracle-server-review.service
+
+# View review output
+journalctl -u poly-oracle-server-review.service --since "1 hour ago"
+
+# View generated reports
+ls -lt docs/runtime_observations/
+```
+
+**Architecture:**
+- Runs headlessly via OpenCode CLI (`opencode run --command server-runtime-review`)
+- Uses DeepSeek provider for LLM synthesis (all arithmetic done by Python aggregator)
+- Writes reports to `docs/runtime_observations/{YYYY-MM-DD}-server-runtime-session.md`
+- Generates fix plan only if thresholds are breached (errors > 50, safety gates > 0, etc.)
+
+### Local Development Note
+
+WI-61/WI-62 are **server-side only** operations. Running `/server-runtime-review` locally will abort because audit artifacts exist only on the deployment server. To review server health locally:
+
+```bash
+# SSH to server and view reports
+ssh root@159.223.130.81 'cat /opt/poly-oracle-agent/docs/runtime_observations/latest.md'
+
+# Or trigger a fresh review
+ssh root@159.223.130.81 'systemctl start poly-oracle-server-review.service'
+```
+
+---
+
+## 12. Operational Notes
 
 > **This system is not live-trading ready.** Phase 3 must be fully complete before any live execution. Always set `DRY_RUN=true` for local development, CI, and validation runs.
 
