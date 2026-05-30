@@ -16,6 +16,11 @@ services:
     volumes:
       - poly_oracle_data:/data
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
       interval: 30s
