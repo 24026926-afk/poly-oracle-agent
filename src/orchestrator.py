@@ -8,6 +8,8 @@ using asyncio queues.
 """
 
 import asyncio
+import logging
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 import sys
@@ -84,12 +86,19 @@ from src.schemas.risk import LifecycleReport, PortfolioSnapshot
 # Ensure .env is explicitly loaded if running from root
 load_dotenv()
 
-# Configure structlog for the root execution
+# Configure structlog for the root execution.
+# Read LOG_LEVEL from env directly because AppConfig is loaded later, in main();
+# this still ensures DEBUG events from the WS firehose are dropped before any
+# processor runs, which is the difference between ~150 MB/day and ~12 GB/day
+# of stdout under the default json-file Docker log driver.
+_log_level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
 structlog.configure(
+    wrapper_class=structlog.make_filtering_bound_logger(_log_level),
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.dev.ConsoleRenderer(),
-    ]
+    ],
 )
 
 logger = structlog.get_logger(__name__)
