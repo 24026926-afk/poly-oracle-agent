@@ -1,9 +1,32 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-31
-**Version:** 0.16.11
-**Status:** WI-65 Deterministic Eval Math COMPLETE
+**Version:** 0.16.12
+**Status:** WI-66 Reflection Verdict Calibration COMPLETE
 **Active WI:** none
+
+## WI-66 — Reflection Verdict Calibration (COMPLETE, 2026-05-31)
+
+**Trigger:** Fix B of the zero-trade remediation. After WI-65 removed the arithmetic-flag rejections, the dominant remaining blocker was the Stage-C reflection auditor REJECTing ~95% of candidates on soft, subjective bias flags (`overconfidence_unsupported` ~509, `narrative_anchoring` ~330) — a REJECT forces `confidence_score=0.0` → Gatekeeper HOLD, the same fatal outcome as a real integrity failure.
+
+**Delivered:**
+- `src/schemas/llm.py` — new `ReflectionSeverity` enum (`HARD`/`SOFT`/`NONE`).
+- `src/agents/evaluation/claude_client.py` — `_classify_reflection_severity()` (infra-marker audit_note → HARD; hard-integrity keyword flag → HARD; any other/unknown flag → SOFT; no flags → NONE) and `_build_confidence_penalized_candidate()` (Decimal penalty, clamped [0,1], non-dict safe). `_apply_reflection_verdict` REJECTED branch: SOFT → confidence-penalized candidate + `reflection.soft_flag_downgrade` log; HARD/NONE → `_build_hold_candidate` (unchanged). Module-level `_REFLECTION_INFRA_MARKERS` / `_REFLECTION_HARD_FLAG_KEYWORDS` frozensets.
+- `src/core/config.py` — new `reflection_soft_flag_confidence_factor: Decimal` (default `0.90`, `gt=0`, `le=1`), in the Decimal-coercion validator list.
+- `src/agents/context/prompt_factory.py` — `build_reflection_prompt` gains an enumerated flag vocabulary and "reserve REJECT for hard integrity failures; record soft bias as flags" guidance.
+- `.env.example` — documented `REFLECTION_SOFT_FLAG_CONFIDENCE_FACTOR=0.90`.
+- `tests/unit/test_WI-66-reflection-verdict-calibration.py` — 22 tests (severity classification, penalty math, verdict routing, Gatekeeper still governs penalized candidates, config bounds).
+- `tests/integration/test_reflection_chain.py` — replaced the obsolete "bias forces HOLD" test with three: hard-flag→HOLD, soft+strong→trades, soft+marginal→HOLD (proves the downgrade end-to-end).
+
+**Safety posture:** Reflection is advisory QC; `LLMEvaluationResponse` is the unconditional terminal Gatekeeper. A soft-bias REJECT becomes a confidence **penalty** (never bypasses MIN_CONFIDENCE/EV/spread/TTR/exposure or quarter-Kelly/3% sizing). Hard-integrity and all infrastructure REJECTs (`BUDGET_EXHAUSTED`/`REFLECTION_ERROR`/`ADJUSTED_MISSING_PAYLOAD`) stay fail-closed HOLD. Penalty computed in `Decimal`; confidence is an epistemic score, not a money path. No execution/signing/`dry_run`/schema-migration change.
+
+**MAAP cleared:** all five gates plus zero-trust simulation (infra-before-flags ordering, mixed soft+hard → HARD, non-dict safety, clamp/factor bounds, pure-staticmethod concurrency).
+
+**Out of scope (follow-up):** fix C — discovery price-band filter for sub-0.05 longshots.
+
+**Regression:** 22 WI-66 unit tests + 3 reflection-chain integration tests; full regression 2632 passed; coverage 93%.
+
+**Branch:** `feat/wi-66-reflection-verdict-calibration`.
 
 ## WI-65 — Deterministic Eval Math (COMPLETE, 2026-05-31)
 
@@ -303,8 +326,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2608 |
-| Latest local test result | 2608 passed (2026-05-31 WI-65 MAAP run); coverage-backed regression 2608 passed |
+| Total tests | 2632 |
+| Latest local test result | 2632 passed (2026-05-31 WI-66 MAAP run); coverage-backed regression 2632 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
