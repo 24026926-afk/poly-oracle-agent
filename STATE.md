@@ -1,9 +1,32 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-23
-**Version:** 0.16.7
-**Status:** WI-62 Server Runtime Review COMPLETE
+**Last Updated:** 2026-05-30
+**Version:** 0.16.8
+**Status:** Operational maintenance complete — log-level fix + log rotation deployed and merged to main
 **Active WI:** none
+
+## Operational Hotfix — Log Disk Exhaustion (2026-05-30)
+
+**Trigger:** 60 h production dry-run on DigitalOcean droplet (159.223.130.81) filled the 24 GB disk with a 12 GB Docker JSON log. Root cause: `src/orchestrator.py`'s inline `structlog.configure()` had no `wrapper_class`, so `LOG_LEVEL=INFO` was silently ignored and 4 high-volume WS debug events flooded stdout at ~200 MB/h.
+
+**Changes (commit `409f777`, merged to main at `c64ffe0`):**
+- `src/orchestrator.py`: replaced bare `structlog.configure(processors=[...])` with one that wraps `structlog.make_filtering_bound_logger(_log_level)` reading `LOG_LEVEL` from env before `AppConfig` is loaded. Reduces log volume to ~2 MB/h at INFO.
+- `docker-compose.yml`: added `logging.driver=json-file` with `max-size=100m` / `max-file=3` hard ceiling on the orchestrator service (300 MB max total Docker log on disk).
+
+**60 h run debrief (not bugs — correct behavior):**
+- Bot evaluated 3,799 markets (82% via DeepSeek deepseek-chat, 18% via Claude Sonnet 4), all decisions HOLD. Correct: every market showed 98–99.8% bid-ask spread, far exceeding `PREFLIGHT_MAX_SPREAD_PCT=0.99`; Reflection Audit correctly REJECTED positive-EV claims under extreme illiquidity.
+- `confidence=0.0` on 97% of decisions is the REFLECTION_AUDIT REJECTED verdict, not degenerate LLM output. Real token counts confirmed: 1,800–2,300 input, 400–900 output per decision.
+- Claude LLM monthly budget exhausted at ~52 h; subsequent evaluations gracefully skipped via `llm_budget_blocked`. Budget runway vs cadence calculation needed before next long run.
+- Grok sentiment: 100% HTTP 403 throughout entire run. Fallback to neutral working correctly. Likely expired API key.
+
+**MAAP cleared:** 2,566 tests, 93% coverage. No financial math, DB, Gatekeeper, dry_run, or schema paths touched.
+
+**Open follow-ups (not started):**
+1. Grok API 403 — rotate or validate API key
+2. Market spread calibration — `PREFLIGHT_MAX_SPREAD_PCT` may need tuning or market sources reconsidered
+3. Claude budget runway calculation — calibrate vs evaluation cadence for long runs
+
+---
 
 ## WI-62 — Server Runtime Review (COMPLETE, 2026-05-23)
 
@@ -219,8 +242,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2544 |
-| Latest local test result | 2544 passed; coverage-backed regression also 2544 passed |
+| Total tests | 2566 |
+| Latest local test result | 2566 passed (2026-05-30 MAAP run); coverage-backed regression 2566 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
