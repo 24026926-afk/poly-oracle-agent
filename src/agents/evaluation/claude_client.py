@@ -48,7 +48,7 @@ from src.agents.evaluation.llm_cost_guard import (
     LLMBudgetGuard,
     MarketCognitiveCircuitBreaker,
 )
-from src.agents.execution.polymarket_client import PolymarketClient
+from src.agents.execution.polymarket_client import MarketSnapshot, PolymarketClient
 from src.db.models import AgentDecisionLog
 from src.db.repositories.decision_repo import DecisionRepository
 
@@ -839,6 +839,11 @@ class ClaudeClient:
         # Stage C→D: Apply reflection verdict to choose final candidate
         final_json = self._apply_reflection_verdict(reflection, primary_json)
 
+        # WI-65: Override LLM-echoed market facts with the authoritative WI-14
+        # snapshot before the Gatekeeper computes EV/spread. The LLM owns
+        # judgment; the system owns market facts and arithmetic.
+        final_json = self._apply_authoritative_market_facts(final_json, wi14_snapshot)
+
         # Stage D: Terminal Gatekeeper validation
         try:
             eval_resp = LLMEvaluationResponse.model_validate_json(final_json)
@@ -1468,6 +1473,39 @@ class ClaudeClient:
         candidate["decision_boolean"] = False
         candidate["recommended_action"] = "HOLD"
         candidate["confidence_score"] = 0.0
+        return json.dumps(candidate)
+
+    @staticmethod
+    def _apply_authoritative_market_facts(
+        candidate_json: str, snapshot: MarketSnapshot
+    ) -> str:
+        """Override LLM-echoed market facts with authoritative order-book values.
+
+        WI-65: the LLM supplies judgment only; the system owns every market
+        fact that feeds the Gatekeeper's deterministic EV/spread math. Best
+        bid/ask, midpoint, and market-implied probability (``p_market``) are
+        replaced with the authoritative WI-14 snapshot values so a hallucinated
+        or rounded echo can never move the money path. Applied at the single
+        terminal-validation chokepoint, so it covers every reflection verdict.
+
+        Decimal snapshot values are serialized as strings at the schema
+        boundary (Pydantic coerces them to the schema's float fields); no float
+        arithmetic is performed here.
+        """
+        candidate = json.loads(candidate_json)
+        if not isinstance(candidate, dict):
+            return candidate_json
+
+        market_context = candidate.get("market_context")
+        if isinstance(market_context, dict):
+            market_context["best_bid"] = str(snapshot.best_bid)
+            market_context["best_ask"] = str(snapshot.best_ask)
+            market_context["midpoint"] = str(snapshot.midpoint_probability)
+
+        estimate = candidate.get("probabilistic_estimate")
+        if isinstance(estimate, dict):
+            estimate["p_market"] = str(snapshot.midpoint_probability)
+
         return json.dumps(candidate)
 
     async def _evaluate_with_retries(

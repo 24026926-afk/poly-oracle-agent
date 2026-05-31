@@ -1,9 +1,28 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-31
-**Version:** 0.16.10
-**Status:** WI-64 Discovery Volume Floor COMPLETE
+**Version:** 0.16.11
+**Status:** WI-65 Deterministic Eval Math COMPLETE
 **Active WI:** none
+
+## WI-65 — Deterministic Eval Math (COMPLETE, 2026-05-31)
+
+**Trigger:** Root-cause of the zero-trade runs. Market data was healthy (97.2% of snapshots ≤2¢ spread; realistic eval-context midpoints), but the Stage-C reflection auditor rejected 649/680 candidates (95.4%) — a REJECTED verdict forces `confidence_score=0.0` → Gatekeeper HOLD. The two largest mechanical rejection classes were `ev_arithmetic_inconsistency` (~290) and `spread_pct_miscalculation` (~113), manufactured because the primary prompt asked the model to compute EV/spread in prose and the reflection prompt then re-audited that arithmetic — even though `LLMEvaluationResponse` already recomputes EV/Kelly/spread deterministically. Fix A of the remediation sequence (B = reflection calibration, C = discovery price-band, are follow-ups).
+
+**Delivered:**
+- `src/agents/context/prompt_factory.py` — `build_evaluation_prompt` no longer instructs the model to calculate EV or apply numeric EV/spread/confidence thresholds; it requests judgment only (p_true, confidence, reasoning, qualitative risk) and states the system computes the arithmetic. `build_reflection_prompt` drops the bid/ask/spread and p_true/p_market/EV arithmetic-consistency audit questions, adds an explicit "system-computed, do not re-audit" block, and keeps evidence/bias/uncertainty/coherence checks.
+- `src/agents/evaluation/claude_client.py` — new `_apply_authoritative_market_facts(candidate_json, snapshot)` staticmethod overrides the candidate's `market_context.best_bid/best_ask/midpoint` and `probabilistic_estimate.p_market` with the authoritative WI-14 `MarketSnapshot` values, applied at the single terminal-validation chokepoint in `_evaluate` (covers APPROVED/ADJUSTED/REJECTED). The Gatekeeper's spread/EV can no longer be moved by an LLM-echoed quote.
+- `tests/unit/test_WI-65-deterministic-eval-math.py` — 13 unit tests: primary/reflection prompt content (omits arithmetic instructions/audits, retains judgment + system-computed statements), authoritative override on all verdict paths, EV/spread recomputed from authoritative facts, non-dict guard, input non-mutation.
+
+**Safety posture:** LLM = judgment only; system owns all market facts + arithmetic. No change to the Gatekeeper's arithmetic; the override only replaces *inputs* before terminal validation, strengthening (never bypassing) `LLMEvaluationResponse`. No new `float` arithmetic (Decimal→`str()` at the schema boundary). No execution, signing, broadcasting, `dry_run`, DB, or schema/migration path touched.
+
+**MAAP cleared:** all five gates plus zero-trust simulation (verdict-path coverage, `null` candidate guard, crossed/extreme-price field constraints from `_parse_order_book`, Decimal→str coercion, pure-staticmethod concurrency).
+
+**Out of scope (follow-up):** fix B — reflection verdict re-calibration (soft bias flags → ADJUST instead of REJECT); fix C — discovery price-band filter.
+
+**Regression:** 13 WI-65 tests; full regression 2608 passed; coverage 93%.
+
+**Branch:** `feat/wi-65-deterministic-eval-math`.
 
 ## WI-64 — Discovery Volume Floor (COMPLETE, 2026-05-31)
 
@@ -284,8 +303,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2595 |
-| Latest local test result | 2595 passed (2026-05-31 WI-64 MAAP run); coverage-backed regression 2595 passed |
+| Total tests | 2608 |
+| Latest local test result | 2608 passed (2026-05-31 WI-65 MAAP run); coverage-backed regression 2608 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
