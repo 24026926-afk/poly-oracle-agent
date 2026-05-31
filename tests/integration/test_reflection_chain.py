@@ -209,24 +209,21 @@ async def test_reflection_approved_passes_to_gatekeeper(test_config, mock_polyma
 
 
 # ---------------------------------------------------------------------------
-# Test 2: REJECTED via bias — forces HOLD path, no execution enqueue
+# Test 2: REJECTED — WI-66 splits hard (fail-closed HOLD) from soft (penalty)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_reflection_rejected_bias_forces_hold(test_config, mock_polymarket):
-    """When reflection returns REJECTED with bias flags, the pipeline must
-    force a HOLD candidate — trade must NOT reach execution queue.
-    REJECTED verdict guarantees non-execution regardless of original candidate."""
+async def test_reflection_rejected_hard_flag_forces_hold(test_config, mock_polymarket):
+    """WI-66: a REJECT carrying a HARD integrity flag stays fail-closed —
+    confidence is zeroed and no trade reaches the execution queue."""
     client, _, out_q = _setup_client(test_config)
 
-    # Primary candidate would normally pass Gatekeeper (BUY, high confidence)
-    primary_json = _primary_candidate_json(decision=True, action="BUY")
+    primary_json = _primary_candidate_json(decision=True, action="BUY", confidence=0.95)
     reflection_resp_json = _reflection_json(
         verdict="REJECTED",
-        bias_flags=["confirmation_bias", "narrative_anchoring"],
-        consistency_flags=["p_true_unsupported_by_evidence"],
-        audit_note="Severe confirmation bias detected. p_true=0.65 not supported by data.",
+        risk_flags=["fabricated_data"],
+        audit_note="Candidate cites fabricated data not present in the snapshot.",
     )
 
     client.client = MagicMock()
@@ -239,18 +236,75 @@ async def test_reflection_rejected_bias_forces_hold(test_config, mock_polymarket
 
     await client._process_evaluation(_crypto_market_item())
 
-    # REJECTED verdict must force HOLD — no trade enqueued
-    assert out_q.qsize() == 0, (
-        "REJECTED reflection must force HOLD; trade must NOT reach execution queue"
+    assert out_q.qsize() == 0, "HARD-flag REJECT must force HOLD; no trade enqueued"
+    client._persist_decision.assert_called_once()
+    persisted_eval = client._persist_decision.call_args[0][0]
+    assert persisted_eval.decision_boolean is False
+    assert persisted_eval.recommended_action == RecommendedAction.HOLD
+
+
+@pytest.mark.asyncio
+async def test_reflection_rejected_soft_bias_strong_candidate_trades(
+    test_config, mock_polymarket
+):
+    """WI-66: a REJECT justified only by soft bias flags penalizes confidence
+    (0.95 * 0.90 = 0.855 >= MIN_CONFIDENCE) instead of forcing HOLD, so a strong
+    candidate still reaches execution."""
+    client, _, out_q = _setup_client(test_config)
+
+    primary_json = _primary_candidate_json(decision=True, action="BUY", confidence=0.95)
+    reflection_resp_json = _reflection_json(
+        verdict="REJECTED",
+        bias_flags=["confirmation_bias", "narrative_anchoring"],
+        consistency_flags=["p_true_unsupported"],
+        audit_note="Possible narrative anchoring; p_true only weakly supported.",
     )
 
-    # Verify _persist_decision was still called (audit trail must exist)
-    client._persist_decision.assert_called_once()
+    client.client = MagicMock()
+    client.client.messages.create = AsyncMock(
+        side_effect=[
+            _mock_anthropic_response(primary_json),
+            _mock_anthropic_response(reflection_resp_json),
+        ],
+    )
 
-    # The persisted evaluation must be a HOLD
-    persist_args = client._persist_decision.call_args
-    persisted_eval = persist_args[0][0]  # first positional arg
-    assert persisted_eval.decision_boolean is False
+    await client._process_evaluation(_crypto_market_item())
+
+    assert out_q.qsize() == 1, "Soft-bias REJECT on a strong candidate must still trade"
+    eval_resp = out_q.get_nowait()["evaluation"]
+    assert eval_resp.recommended_action == RecommendedAction.BUY
+    assert eval_resp.confidence_score == pytest.approx(0.855)
+    assert eval_resp.gatekeeper_audit.all_filters_passed is True
+
+
+@pytest.mark.asyncio
+async def test_reflection_rejected_soft_bias_marginal_candidate_holds(
+    test_config, mock_polymarket
+):
+    """WI-66: a soft-bias REJECT on a marginal candidate (0.80 * 0.90 = 0.72 <
+    MIN_CONFIDENCE) is HELD by the terminal Gatekeeper — the penalty, not the
+    reflection verdict, drives the HOLD."""
+    client, _, out_q = _setup_client(test_config)
+
+    primary_json = _primary_candidate_json(decision=True, action="BUY", confidence=0.80)
+    reflection_resp_json = _reflection_json(
+        verdict="REJECTED",
+        bias_flags=["overconfidence_unsupported"],
+        audit_note="Overconfidence not fully supported by cited evidence.",
+    )
+
+    client.client = MagicMock()
+    client.client.messages.create = AsyncMock(
+        side_effect=[
+            _mock_anthropic_response(primary_json),
+            _mock_anthropic_response(reflection_resp_json),
+        ],
+    )
+
+    await client._process_evaluation(_crypto_market_item())
+
+    assert out_q.qsize() == 0, "Marginal soft-bias candidate must HOLD via Gatekeeper"
+    persisted_eval = client._persist_decision.call_args[0][0]
     assert persisted_eval.recommended_action == RecommendedAction.HOLD
 
 

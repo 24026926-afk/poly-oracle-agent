@@ -31,6 +31,7 @@ from src.schemas.llm import (
     LLMEvaluationResponse,
     MarketCategory,
     ReflectionResponse,
+    ReflectionSeverity,
     ReflectionVerdict,
     SentimentResponse,
 )
@@ -58,6 +59,29 @@ _CHAIN_BUDGET: float = (
     2.0  # shared wall-clock budget (seconds) across the evaluation chain
 )
 _CHAIN_BUDGET_DRY_RUN: float = 60.0  # relaxed budget for debugging / dry-run pipelines
+
+# WI-66: Reflection verdict calibration — keyword sets for severity classification.
+# Infra-failure audit_note markers injected by _run_reflection_audit itself: a
+# REJECT carrying any of these is an infrastructure failure → fail-closed HOLD.
+_REFLECTION_INFRA_MARKERS: frozenset[str] = frozenset(
+    {"BUDGET_EXHAUSTED", "REFLECTION_ERROR", "ADJUSTED_MISSING_PAYLOAD"}
+)
+# Hard-integrity flag substrings: a genuine data/safety failure → fail-closed HOLD.
+# Soft bias concerns (overconfidence, narrative anchoring, recency, unsupported)
+# and any unrecognized flag are treated as SOFT, because the terminal Gatekeeper
+# independently enforces every hard limit — reflection is advisory QC on top.
+_REFLECTION_HARD_FLAG_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "fabricat",
+        "hallucinat",
+        "stale",
+        "missing_data",
+        "unavailable",
+        "crossed",
+        "contradict",
+        "safety",
+    }
+)
 
 _BUDGET_REASON_CODES: dict[LLMBudgetBlockReason, OperationalEventReasonCode] = {
     LLMBudgetBlockReason.HOURLY_CALL_LIMIT_EXHAUSTED: (
@@ -1449,7 +1473,9 @@ class ClaudeClient:
 
         - APPROVED  → pass original candidate unchanged.
         - ADJUSTED  → use corrected candidate (single-pass, no recursion).
-        - REJECTED  → build conservative HOLD candidate.
+        - REJECTED  → WI-66: HARD/NONE → conservative HOLD; SOFT (advisory bias
+          flags only) → confidence-penalized candidate, then the terminal
+          Gatekeeper decides.
         """
         if reflection.verdict == ReflectionVerdict.APPROVED:
             return primary_candidate_json
@@ -1459,8 +1485,75 @@ class ClaudeClient:
                 reflection.corrected_candidate_json, cls=_DecimalSafeEncoder
             )
 
-        # REJECTED → conservative HOLD
-        return self._build_hold_candidate(primary_candidate_json)
+        # REJECTED → severity decides between fail-closed HOLD and a penalty.
+        severity = self._classify_reflection_severity(reflection)
+        if severity != ReflectionSeverity.SOFT:
+            return self._build_hold_candidate(primary_candidate_json)
+
+        factor = Decimal(str(self.config.reflection_soft_flag_confidence_factor))
+        flag_count = len(
+            reflection.bias_flags + reflection.consistency_flags + reflection.risk_flags
+        )
+        logger.info(
+            "reflection.soft_flag_downgrade",
+            confidence_factor=str(factor),
+            flag_count=flag_count,
+        )
+        return self._build_confidence_penalized_candidate(
+            primary_candidate_json, factor
+        )
+
+    @staticmethod
+    def _classify_reflection_severity(
+        reflection: ReflectionResponse,
+    ) -> ReflectionSeverity:
+        """Classify a reflection REJECT for downgrade eligibility (WI-66).
+
+        Infra-failure markers in audit_note → HARD (fail-closed). A hard-
+        integrity keyword in any flag → HARD. Any other flag (recognized soft
+        bias or unrecognized) → SOFT, because the terminal Gatekeeper still
+        independently enforces every hard limit. No flags → NONE.
+        """
+        note = reflection.audit_note or ""
+        if any(marker in note for marker in _REFLECTION_INFRA_MARKERS):
+            return ReflectionSeverity.HARD
+
+        all_flags = (
+            reflection.bias_flags + reflection.consistency_flags + reflection.risk_flags
+        )
+        for flag in all_flags:
+            lowered = str(flag).lower()
+            if any(keyword in lowered for keyword in _REFLECTION_HARD_FLAG_KEYWORDS):
+                return ReflectionSeverity.HARD
+
+        if all_flags:
+            return ReflectionSeverity.SOFT
+        return ReflectionSeverity.NONE
+
+    @staticmethod
+    def _build_confidence_penalized_candidate(
+        primary_candidate_json: str, factor: Decimal
+    ) -> str:
+        """Penalize a soft-flagged candidate's confidence (WI-66).
+
+        Multiplies ``confidence_score`` by ``factor`` (Decimal math, clamped to
+        [0, 1]) and leaves decision/action untouched — the terminal Gatekeeper
+        re-derives the decision from the penalized confidence and authoritative
+        EV/spread. A non-dict candidate is returned unchanged (terminal
+        validation then conservatively skips it); never raises.
+        """
+        candidate = json.loads(primary_candidate_json)
+        if not isinstance(candidate, dict):
+            return primary_candidate_json
+
+        original = Decimal(str(candidate.get("confidence_score", 0.0)))
+        penalized = original * factor
+        if penalized < Decimal("0"):
+            penalized = Decimal("0")
+        elif penalized > Decimal("1"):
+            penalized = Decimal("1")
+        candidate["confidence_score"] = float(penalized)
+        return json.dumps(candidate)
 
     @staticmethod
     def _build_hold_candidate(primary_candidate_json: str) -> str:

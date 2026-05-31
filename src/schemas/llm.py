@@ -109,6 +109,20 @@ class ReflectionVerdict(str, Enum):
     REJECTED = "REJECTED"
 
 
+class ReflectionSeverity(str, Enum):
+    """WI-66: severity of a REJECTED reflection verdict, for downgrade routing.
+
+    HARD → fail-closed HOLD (integrity flag or infrastructure failure).
+    SOFT → confidence-penalized candidate (advisory bias concern; the terminal
+           Gatekeeper still decides).
+    NONE → flagless REJECT → fail-closed HOLD.
+    """
+
+    HARD = "HARD"
+    SOFT = "SOFT"
+    NONE = "NONE"
+
+
 # ---------------------------------------------------------------------------
 # Sub-schema: ReflectionResponse (Stage C — Reflection Auditor output)
 # ---------------------------------------------------------------------------

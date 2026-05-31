@@ -208,12 +208,21 @@ Expected Value, net odds, Kelly sizing, spread percentage, and position size are
 3. Uncertainty check: If assumptions are unsupported or contradictory, should the decision default to HOLD?
 4. Decision coherence check: Are decision_boolean and recommended_action logically consistent with the stated p_true and confidence?
 
+### FLAG VOCABULARY (use these exact tokens)
+Soft bias concerns (recorded as flags; the system penalizes confidence — do NOT
+REJECT for these alone): overconfidence_unsupported, narrative_anchoring,
+recency_bias, confirmation_bias, p_true_unsupported, unresolved_uncertainty.
+Hard integrity failures (these justify REJECT): fabricated_data, stale_data,
+missing_data, crossed_book, internal_contradiction, safety_violation.
+
 ### OUTPUT
 Return ONLY a raw JSON object matching this schema (no markdown, no commentary):
 {reflection_schema}
 
 Verdict rules:
 - APPROVED: candidate passes all checks unchanged.
-- ADJUSTED: provide correction_instructions and corrected_candidate_json with fixes.
-- REJECTED: candidate has fatal bias or inconsistency; force HOLD.
+- ADJUSTED: correctable issue; provide correction_instructions and corrected_candidate_json.
+- REJECTED: reserve for HARD integrity failures only (fabricated/stale/missing data,
+  crossed book, internal contradiction, safety). Do NOT REJECT solely for soft bias;
+  record those as flags and let the system apply a confidence penalty.
 """
