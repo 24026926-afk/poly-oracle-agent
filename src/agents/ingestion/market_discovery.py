@@ -172,10 +172,18 @@ class MarketDiscoveryEngine:
             "total": len(markets),
             "no_metadata": 0,
             "ttr_fail": 0,
+            "volume_fail": 0,
             "exposure_fail": 0,
             "preflight_skip": 0,
             "quarantine_skip": 0,
         }
+
+        # WI-64: Volume floor. Disabled when <= 0 (default), preserving prior
+        # behavior. When active, prune low/unknown-volume markets here, before
+        # any preflight order-book fetch or LLM evaluation consumes budget.
+        min_volume = Decimal(
+            str(getattr(self._config, "min_market_volume_24h_usdc", 0))
+        )
 
         for market in candidates:
             if not self._has_required_metadata(market):
@@ -195,6 +203,16 @@ class MarketDiscoveryEngine:
                     severity=OperationalEventSeverity.INFO,
                     reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
                     message="Market rejected because time-to-resolution was below threshold",
+                )
+                continue
+
+            if min_volume > 0 and not self._meets_volume_floor(market, min_volume):
+                stats["volume_fail"] += 1
+                await self._publish_market_rejection_once(
+                    market,
+                    severity=OperationalEventSeverity.INFO,
+                    reason_code=OperationalEventReasonCode.MARKET_INELIGIBLE,
+                    message="Market rejected because 24h volume was below the floor",
                 )
                 continue
 
@@ -487,6 +505,25 @@ class MarketDiscoveryEngine:
             return (end_dt - now).total_seconds() / 3600.0
         except (ValueError, TypeError):
             return None
+
+    def _meets_volume_floor(
+        self, market: MarketMetadata, min_volume: Decimal
+    ) -> bool:
+        """True when the market's 24h volume is known and >= ``min_volume``.
+
+        ``volume_24h`` is an ``Optional[float]`` from the Gamma boundary; it is
+        converted to ``Decimal`` via ``str()`` exactly once for an exact
+        comparison. Missing or non-finite volume fails closed (unknown
+        liquidity is never treated as sufficient) so no LLM budget is spent on
+        markets whose liquidity cannot be confirmed.
+        """
+        raw_volume = market.volume_24h
+        if raw_volume is None:
+            return False
+        volume = Decimal(str(raw_volume))
+        if not volume.is_finite():
+            return False
+        return volume >= min_volume
 
     def _meets_ttr_requirement(self, market: MarketMetadata) -> bool:
         """True when hours-to-resolution >= ``min_ttr_hours``.
