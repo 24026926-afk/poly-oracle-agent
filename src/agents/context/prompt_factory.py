@@ -129,7 +129,7 @@ class PromptFactory:
         sentiment_block = PromptFactory._build_sentiment_block(sentiment)
 
         prompt = f"""{persona}
-Your objective is to evaluate a live binary options market on Polymarket and determine if there is a positive Expected Value (EV) trading opportunity.
+Your objective is to estimate the true probability of a live binary options market on Polymarket resolving to 'YES', and to judge the quality and risk of that estimate. The system computes Expected Value, spread, Kelly sizing, and the final trade decision deterministically from your estimate and authoritative market data — you must not perform those calculations.
 
 ### LIVE MARKET DATA SNAPSHOT
 Condition ID: {market_state.get("condition_id", "Unknown")}
@@ -142,10 +142,10 @@ Timestamp: {market_state.get("timestamp", 0.0)}
 {sentiment_block}
 ### INSTRUCTIONS
 1. Analyze the given market parameters and the sentiment oracle signal above.
-2. Estimate the True Probability of the underlying event resolving to 'YES'. Use your internal knowledge or provided context to establish this.
-3. Calculate the Expected Value (EV). Recall: EV = (True Probability * Profit) - ((1 - True Probability) * Loss).
-4. Apply the required safety filters (e.g., EV > 2%, Spread < 1.5%, Confidence >= 75%).
-5. Output your reasoning and final decision.
+2. Estimate the True Probability (p_true) of the underlying event resolving to 'YES', grounded in cited evidence and your domain knowledge.
+3. State your epistemic confidence in that estimate and explain your reasoning, citing the evidence behind p_true.
+4. Provide a qualitative risk assessment (liquidity, resolution, information asymmetry).
+5. The system computes Expected Value, spread, Kelly sizing, and position size deterministically from authoritative market data — do not calculate or assert any of these numbers yourself.
 
 ### CRITICAL OUTPUT FORMAT
 You MUST reply ONLY with a raw, valid JSON object that strictly adheres to the following JSON schema.
@@ -199,14 +199,14 @@ MIN_TTR_HOURS={MIN_TTR_HOURS}
 ### PRIMARY CANDIDATE (Stage B output)
 {primary_candidate_json}
 
+### SYSTEM-COMPUTED VALUES (DO NOT RE-AUDIT)
+Expected Value, net odds, Kelly sizing, spread percentage, and position size are computed deterministically by the system from authoritative market data. Do not recompute, second-guess, or flag these values or their arithmetic. Audit only the quality of the primary candidate's judgment (its p_true estimate and the reasoning behind it).
+
 ### AUDIT QUESTIONS (answer each explicitly)
-1. Bias check: Does reasoning show confirmation bias, recency bias, narrative anchoring, or overconfidence unsupported by evidence?
-2. Data consistency check: Are bid/ask/midpoint/spread relationships coherent with market snapshot values?
-3. Probability/EV consistency: Are p_true, p_market, and EV arithmetic internally consistent?
-4. Risk sanity check: Does proposed sizing align with quarter-Kelly and 3% cap policy?
-5. Gatekeeper pre-check: Would any mandatory safety filter clearly fail (EV threshold, confidence, spread, TTR)?
-6. Decision coherence check: Are decision_boolean, recommended_action, and size logically consistent?
-7. Uncertainty check: If assumptions are unsupported or contradictory, should decision default to HOLD?
+1. Evidence check: Is p_true supported by cited, relevant evidence, or is it an unsupported assertion?
+2. Bias check: Does the reasoning show confirmation bias, recency bias, narrative anchoring, or overconfidence unsupported by evidence?
+3. Uncertainty check: If assumptions are unsupported or contradictory, should the decision default to HOLD?
+4. Decision coherence check: Are decision_boolean and recommended_action logically consistent with the stated p_true and confidence?
 
 ### OUTPUT
 Return ONLY a raw JSON object matching this schema (no markdown, no commentary):
