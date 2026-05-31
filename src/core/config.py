@@ -522,6 +522,18 @@ class AppConfig(BaseSettings):
         description="Maximum bid-ask spread allowed by preflight (5%)",
     )
 
+    # --- WI-64: Discovery Volume Floor ---
+    min_market_volume_24h_usdc: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        description=(
+            "Minimum 24h market volume (USDC) required at discovery. "
+            "Markets below this (or with unknown volume) are pruned before "
+            "any preflight order-book fetch or LLM evaluation. Default 0 "
+            "disables the filter."
+        ),
+    )
+
     # --- WI-53: Market Evaluation Deduplication ---
     enable_market_evaluation_dedupe: bool = Field(
         default=False,
@@ -749,6 +761,7 @@ class AppConfig(BaseSettings):
         "market_discovery_preflight_timeout_ms",
         "preflight_quarantine_duration_seconds",
         "preflight_max_spread_pct",
+        "min_market_volume_24h_usdc",
         "dedupe_min_evaluation_interval_sec",
         "dedupe_midpoint_delta",
         "dedupe_spread_delta",

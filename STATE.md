@@ -1,9 +1,29 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-05-31
-**Version:** 0.16.9
-**Status:** WI-63 REST Order Book Best-of-Book Selection COMPLETE
+**Version:** 0.16.10
+**Status:** WI-64 Discovery Volume Floor COMPLETE
 **Active WI:** none
+
+## WI-64 — Discovery Volume Floor (COMPLETE, 2026-05-31)
+
+**Trigger:** Follow-up to the 2026-05-30 60h debrief and WI-63. With correct spreads restored, the discovery surface still includes low-volume markets not worth LLM budget. Add a cheap volume floor to prune them before evaluation.
+
+**Delivered:**
+- `src/core/config.py` — new `min_market_volume_24h_usdc: Decimal` field (default `Decimal("0")` = disabled), registered in the float-rejecting Decimal-coercion validator list.
+- `src/agents/ingestion/market_discovery.py` — `_meets_volume_floor()` helper (None/non-finite fail closed) and a volume gate in the cheap pre-preflight loop of `discover()`, runs before any order-book preflight fetch or LLM evaluation. Adds `volume_fail` to the discovery `stats`. Reads the threshold via `getattr(..., 0)` so configs predating the field default to disabled.
+- `.env.example` — documented `MIN_MARKET_VOLUME_24H_USDC=0`.
+- `tests/unit/test_WI-64-discovery-volume-floor.py` — 12 unit tests: disabled-by-default no-op, threshold boundary (equal/below/above), None handling (active + disabled), negative-threshold-as-disabled, Decimal comparison integrity, rejection-event emission, all-excluded empty result.
+
+**Safety posture:** Read-only metadata filter, no network/DB I/O. Default-disabled (zero behavior change until configured). No execution, signing, broadcasting, `dry_run`, or Gatekeeper path touched. `MarketMetadata` and `MarketEligibilitySkipReason` unchanged; no migration. `Decimal` end-to-end (single `Decimal(str(volume_24h))` boundary conversion).
+
+**MAAP cleared:** all five gates plus zero-trust simulation (default/missing-field, None, non-finite, precision, ordering, negative threshold).
+
+**Out of scope (follow-up):** top-of-book depth filter (REST snapshot does not carry order sizes).
+
+**Regression:** 12 WI-64 tests; full regression 2595 passed; coverage 93%.
+
+**Branch:** `feat/wi-64-discovery-volume-floor`.
 
 ## WI-63 — REST Order Book Best-of-Book Selection (COMPLETE, 2026-05-31)
 
@@ -264,8 +284,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2583 |
-| Latest local test result | 2583 passed (2026-05-31 WI-63 MAAP run); coverage-backed regression 2583 passed |
+| Total tests | 2595 |
+| Latest local test result | 2595 passed (2026-05-31 WI-64 MAAP run); coverage-backed regression 2595 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
