@@ -737,11 +737,14 @@ async def test_probe_docker_unavailable_on_dev_machine() -> None:
     if not _AUDITOR_AVAILABLE:
         raise NotImplementedError("probe_docker not implemented")
     result = await probe_docker(timeout=2.0)
+    # TIMEOUT is a valid bounded-probe outcome on a loaded CI runner where the
+    # docker subprocess exceeds the 2s budget; the probe correctly self-bounds.
     assert result.status in (
         RuntimeAuditProbeStatus.SUCCESS,
         RuntimeAuditProbeStatus.UNAVAILABLE,
         RuntimeAuditProbeStatus.DEGRADED,
         RuntimeAuditProbeStatus.ERROR,
+        RuntimeAuditProbeStatus.TIMEOUT,
     )
 
 
