@@ -146,9 +146,7 @@ async def test_low_volume_emits_rejection_event():
     markets = [_make_market("low", volume_24h=10.0)]
     engine = _build_engine(markets, Decimal("1000"), event_publisher=_capture)
     await engine.discover()
-    messages = [
-        getattr(getattr(e, "payload", None), "message", "") for e in events
-    ]
+    messages = [getattr(getattr(e, "payload", None), "message", "") for e in events]
     assert any("volume" in m.lower() for m in messages)
 
 

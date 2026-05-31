@@ -506,9 +506,7 @@ class MarketDiscoveryEngine:
         except (ValueError, TypeError):
             return None
 
-    def _meets_volume_floor(
-        self, market: MarketMetadata, min_volume: Decimal
-    ) -> bool:
+    def _meets_volume_floor(self, market: MarketMetadata, min_volume: Decimal) -> bool:
         """True when the market's 24h volume is known and >= ``min_volume``.
 
         ``volume_24h`` is an ``Optional[float]`` from the Gamma boundary; it is
