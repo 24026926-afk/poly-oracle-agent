@@ -712,6 +712,10 @@ class Orchestrator:
                     condition_id=market.condition_id,
                     category=resolved_category.value,
                     token_count=len(market.token_ids),
+                    # WI-64 tuning: capture Gamma 24h volume of markets that
+                    # actually reach evaluation, so a volume floor can be set
+                    # from observed data (volume is not persisted elsewhere).
+                    volume_24h_usdc=market.volume_24h,
                 )
             for removed_cid in sorted(removed_cids):
                 logger.info(
