@@ -21,6 +21,17 @@ from pydantic import BaseModel, field_validator
 logger = structlog.get_logger(__name__)
 
 
+def _level_price(entry: Any) -> Decimal:
+    """Extract a Decimal price from a dict or dataclass order-book level.
+
+    Supports both dict entries (``{"price": ...}``) and SDK dataclass entries
+    (``OrderSummary`` with ``.price``). Raises on missing/malformed price so the
+    caller's ``(KeyError, TypeError, ArithmeticError)`` guard handles it.
+    """
+    raw_price = entry["price"] if isinstance(entry, dict) else entry.price
+    return Decimal(str(raw_price))
+
+
 class MarketSnapshot(BaseModel):
     """Typed, Decimal-safe order book snapshot for downstream evaluation."""
 
@@ -147,13 +158,14 @@ class PolymarketClient:
             return None
 
         try:
-            # Support both dict entries and dataclass entries (OrderSummary)
-            bid_0 = bids[0]
-            ask_0 = asks[0]
-            bid_price = bid_0["price"] if isinstance(bid_0, dict) else bid_0.price
-            ask_price = ask_0["price"] if isinstance(ask_0, dict) else ask_0.price
-            best_bid = Decimal(str(bid_price))
-            best_ask = Decimal(str(ask_price))
+            # CLOB returns levels ordered worst -> best, so index [0] is the
+            # worst level on each side and would fabricate a near-empty book
+            # (e.g. bid 0.001 / ask 0.999). Select best-of-book by value: the
+            # maximum positive bid and the minimum positive ask. Order-
+            # independent, mirroring the WS client's _best_bid_from_levels /
+            # _best_ask_from_levels.
+            bid_prices = [p for p in map(_level_price, bids) if p > 0]
+            ask_prices = [p for p in map(_level_price, asks) if p > 0]
         except (KeyError, TypeError, ArithmeticError) as exc:
             logger.warning(
                 "Malformed top-of-book price field.",
@@ -161,6 +173,18 @@ class PolymarketClient:
                 error=str(exc),
             )
             return None
+
+        if not bid_prices or not ask_prices:
+            logger.warning(
+                "No positive bid/ask levels in order book.",
+                token_id=token_id,
+                has_positive_bid=bool(bid_prices),
+                has_positive_ask=bool(ask_prices),
+            )
+            return None
+
+        best_bid = max(bid_prices)
+        best_ask = min(ask_prices)
 
         # Reject crossed book
         if best_ask < best_bid:
