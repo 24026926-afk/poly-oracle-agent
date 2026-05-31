@@ -55,7 +55,7 @@ No new persisted schema, no new enum value on any DB model, no migration.
 7. `reflection_soft_flag_confidence_factor == Decimal("1.0")` → soft-only REJECTs keep full confidence (auditor soft flags become advisory only); the Gatekeeper still gates. Allowed.
 8. Factor out of range (`<= 0` or `> 1`) → rejected at config validation; the system never runs with an invalid factor.
 9. Unrecognized free-text flag on a REJECT → `SOFT` (penalize, let the Gatekeeper decide), because the terminal Gatekeeper independently enforces every hard limit; reflection cannot be the sole safety gate.
-10. Primary candidate JSON is `null`/non-dict (degenerate) → penalized builder, like `_build_hold_candidate`, must not raise; on a non-dict candidate it falls back to the HOLD path.
+10. Primary candidate JSON is `null`/non-dict (degenerate) → the penalized builder must not raise and must not produce a trade. It returns the input unchanged, so the existing terminal-validation `try/except` conservatively skips it (no enqueue). It does **not** call `_build_hold_candidate`, which would itself raise on a non-dict (`None["decision_boolean"]`); returning unchanged achieves the same safe no-trade outcome without raising.
 11. APPROVED / ADJUSTED verdicts → unchanged; no penalty applied.
 
 ## Invariants
