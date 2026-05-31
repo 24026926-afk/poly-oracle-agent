@@ -534,6 +534,21 @@ class AppConfig(BaseSettings):
         ),
     )
 
+    # --- WI-66: Reflection Verdict Calibration ---
+    reflection_soft_flag_confidence_factor: Decimal = Field(
+        default=Decimal("0.90"),
+        gt=0,
+        le=1,
+        description=(
+            "Multiplier applied to a candidate's confidence when a reflection "
+            "REJECT is justified only by soft bias flags (overconfidence, "
+            "narrative anchoring). The penalized candidate still passes through "
+            "the terminal Gatekeeper (MIN_CONFIDENCE/EV/spread). Hard-integrity "
+            "and infrastructure REJECTs are unaffected (forced HOLD). 1.0 = "
+            "soft flags advisory only; lower = more conservative."
+        ),
+    )
+
     # --- WI-53: Market Evaluation Deduplication ---
     enable_market_evaluation_dedupe: bool = Field(
         default=False,
@@ -762,6 +777,7 @@ class AppConfig(BaseSettings):
         "preflight_quarantine_duration_seconds",
         "preflight_max_spread_pct",
         "min_market_volume_24h_usdc",
+        "reflection_soft_flag_confidence_factor",
         "dedupe_min_evaluation_interval_sec",
         "dedupe_midpoint_delta",
         "dedupe_spread_delta",
