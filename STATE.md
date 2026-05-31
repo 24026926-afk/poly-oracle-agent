@@ -1,9 +1,31 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-30
-**Version:** 0.16.8
-**Status:** Operational maintenance complete — log-level fix + log rotation deployed and merged to main
+**Last Updated:** 2026-05-31
+**Version:** 0.16.9
+**Status:** WI-63 REST Order Book Best-of-Book Selection COMPLETE
 **Active WI:** none
+
+## WI-63 — REST Order Book Best-of-Book Selection (COMPLETE, 2026-05-31)
+
+**Trigger:** 2026-05-30 60-hour production dry-run made zero trades (100% HOLD across ~3,000 decisions). Root-cause investigation proved the cause was a book-parsing bug, not market illiquidity or LLM behavior.
+
+**Root cause:** `PolymarketClient._parse_order_book` (`src/agents/execution/polymarket_client.py`) read `bids[0]` / `asks[0]`. The Polymarket CLOB REST order book returns levels ordered worst → best, so index `[0]` is the worst level on each side — fabricating a near-empty book (`bid≈0.001`, `ask≈0.999`), a ~99.8% spread, and a 0.5 midpoint on liquid markets. This REST snapshot feeds the LLM evaluation context (`claude_client.py` overwrites `best_bid`/`best_ask`/`midpoint`/`spread`) and the WI-53 discovery preflight. The WS path had been fixed for this exact defect (`ws_client._best_bid_from_levels` = `max`, `_best_ask_from_levels` = `min`); the REST path never received the fix.
+
+**Empirical proof (server DB, 60h window):** WS-fed `market_snapshots` (correct path) showed ~69% of 749k snapshots had < 10% spread (tradable); REST-fed `agent_decision_logs` clustered at implied-probability ≈ 0.5 with `reasoning_log` citing the literal fabricated arithmetic `0.999-0.001=0.998`.
+
+**Delivered:**
+- `src/agents/execution/polymarket_client.py` — added module-level `_level_price()` helper (dict + dataclass entries → `Decimal`); `_parse_order_book` now selects `best_bid = max(positive bids)` and `best_ask = min(positive asks)`, order-independent, mirroring the WS client. New fail-closed guard returns `None` when no positive level exists on a side. Crossed-book and empty-side paths preserved.
+- `tests/unit/test_WI-63-rest-orderbook-best-of-book-selection.py` — 17 unit tests: worst→best ordering on both sides, order-independence, tight-book spread, non-positive filtering, dict/dataclass parity, single-level, empty-side, crossed-book, Decimal integrity.
+
+**Safety posture:** Read-only public-market-data parser. No execution, signing, broadcasting, `dry_run`, or Gatekeeper path touched. `MarketSnapshot` schema unchanged. No migration. `Decimal` end-to-end.
+
+**MAAP cleared:** all five gates plus zero-trust simulation (empty/non-positive/malformed/crossed/concurrency). No `float`, no raw SQL, no Gatekeeper bypass, no `dry_run` bypass, no schema drift.
+
+**Out of scope (follow-up):** liquidity/volume filter at discovery to prune genuinely illiquid markets before LLM spend.
+
+**Regression:** 17 WI-63 tests; full regression 2583 passed; coverage 93%.
+
+**Branch:** `feat/wi-63-rest-orderbook-best-of-book-selection`.
 
 ## Operational Hotfix — Log Disk Exhaustion (2026-05-30)
 
@@ -242,8 +264,8 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 
 | Metric | Value |
 |---|---|
-| Total tests | 2566 |
-| Latest local test result | 2566 passed (2026-05-30 MAAP run); coverage-backed regression 2566 passed |
+| Total tests | 2583 |
+| Latest local test result | 2583 passed (2026-05-31 WI-63 MAAP run); coverage-backed regression 2583 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
