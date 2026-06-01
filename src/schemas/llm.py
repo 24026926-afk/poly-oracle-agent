@@ -14,7 +14,14 @@ from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Optional
 
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -273,15 +280,21 @@ class ProbabilisticEstimate(BaseModel):
     kelly_quarter: Optional[float] = Field(default=None)
 
     @model_validator(mode="after")
-    def compute_kelly_and_ev(self) -> "ProbabilisticEstimate":
+    def compute_kelly_and_ev(self, info: ValidationInfo) -> "ProbabilisticEstimate":
         p: float = self.p_true
         q: float = 1.0 - p
         p_mkt: float = self.p_market
 
+        # WI-67: an operator risk profile may override the Kelly fraction via
+        # validation context; an absent context or key falls back to the
+        # conservative module constant (fail-safe).
+        ctx = info.context or {}
+        kelly_fraction: float = float(ctx.get("kelly_fraction", KELLY_FRACTION))
+
         b: float = (1.0 - p_mkt) / p_mkt
         ev: float = p * b - q
         f_star: float = max(0.0, (b * p - q) / b)
-        f_quarter: float = KELLY_FRACTION * f_star
+        f_quarter: float = kelly_fraction * f_star
 
         object.__setattr__(self, "net_odds_b", round(b, 6))
         object.__setattr__(self, "expected_value", round(ev, 6))
@@ -748,10 +761,23 @@ class LLMEvaluationResponse(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _apply_gatekeeper_filters(self) -> "LLMEvaluationResponse":
+    def _apply_gatekeeper_filters(
+        self, info: ValidationInfo
+    ) -> "LLMEvaluationResponse":
         pe = self.probabilistic_estimate
         mc = self.market_context
         ra = self.risk_assessment
+
+        # WI-67: an operator risk profile may override these thresholds via
+        # validation context. A missing context or key falls back to the
+        # conservative module constant — a partial profile never loosens an
+        # unspecified gate (fail-safe). The EV>0 floor below stays absolute.
+        ctx = info.context or {}
+        min_ev: float = float(ctx.get("min_ev_threshold", MIN_EV_THRESHOLD))
+        min_conf: float = float(ctx.get("min_confidence", MIN_CONFIDENCE))
+        max_spread: float = float(ctx.get("max_spread_pct", MAX_SPREAD_PCT))
+        max_exposure: float = float(ctx.get("max_exposure_pct", MAX_EXPOSURE_PCT))
+        min_ttr: float = float(ctx.get("min_ttr_hours", MIN_TTR_HOURS))
 
         ev: float = pe.expected_value  # type: ignore[assignment]
         kelly_full: float = pe.kelly_full  # type: ignore[assignment]
@@ -765,23 +791,23 @@ class LLMEvaluationResponse(BaseModel):
         if ev <= 0.0:
             triggered = GatekeeperFilter.EV_NON_POSITIVE
             all_passed = False
-        elif ev < MIN_EV_THRESHOLD:
+        elif ev < min_ev:
             triggered = GatekeeperFilter.MIN_EV_THRESHOLD
             all_passed = False
-        elif self.confidence_score < MIN_CONFIDENCE:
+        elif self.confidence_score < min_conf:
             triggered = GatekeeperFilter.MIN_CONFIDENCE
             all_passed = False
-        elif spread_pct > MAX_SPREAD_PCT:
+        elif spread_pct > max_spread:
             triggered = GatekeeperFilter.MAX_SPREAD
             all_passed = False
-        elif ttr is not None and ttr < MIN_TTR_HOURS:
+        elif ttr is not None and ttr < min_ttr:
             triggered = GatekeeperFilter.MIN_TIME_TO_RESOLUTION
             all_passed = False
 
         if ra.information_asymmetry_flag and all_passed:
             kelly_q = kelly_q * 0.5
 
-        final_pos = min(kelly_q, MAX_EXPOSURE_PCT) if all_passed else 0.0
+        final_pos = min(kelly_q, max_exposure) if all_passed else 0.0
         final_pos = max(0.0, final_pos)
 
         audit = GatekeeperAudit(

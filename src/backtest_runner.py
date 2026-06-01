@@ -525,20 +525,35 @@ class BacktestRunner:
                 "Backtest execution router must accept explicit dry_run=True."
             ) from exc
 
-    @staticmethod
-    def _gatekeeper_validate(raw_decision: Any) -> Any:
+    def _risk_profile_context(self) -> dict[str, float]:
+        """WI-67: terminal-Gatekeeper thresholds sourced from the backtest
+        config so offline replay exercises the same risk profile as live."""
+        cfg = self.config
+        return {
+            "min_confidence": float(cfg.min_confidence),
+            "min_ev_threshold": float(cfg.min_ev_threshold),
+            "max_spread_pct": float(cfg.max_spread_pct),
+            "max_exposure_pct": float(cfg.max_exposure_pct),
+            "min_ttr_hours": float(cfg.min_ttr_hours),
+            "kelly_fraction": float(cfg.kelly_fraction),
+        }
+
+    def _gatekeeper_validate(self, raw_decision: Any) -> Any:
         if isinstance(raw_decision, (dict, list)):
             raw_payload = json.dumps(raw_decision, default=str)
         else:
             raw_payload = raw_decision
 
+        context = self._risk_profile_context()
         try:
-            return LLMEvaluationResponse.model_validate_json(raw_payload)
+            return LLMEvaluationResponse.model_validate_json(
+                raw_payload, context=context
+            )
         except Exception:
             model_validate = getattr(LLMEvaluationResponse, "model_validate", None)
             if model_validate is None:
                 raise
-            return model_validate(raw_decision)
+            return model_validate(raw_decision, context=context)
 
 
 def _snapshot_field(snapshot: Any, field_name: str) -> Any:

@@ -437,6 +437,35 @@ class ClaudeClient:
             self.config, metrics=self._metrics
         )
 
+    def _risk_profile_context(self) -> Dict[str, float]:
+        """WI-67: terminal-Gatekeeper thresholds sourced from config.
+
+        Passed as Pydantic validation context so an operator risk profile
+        (e.g. a less-conservative dry-run) actually reaches the terminal
+        ``LLMEvaluationResponse`` validator instead of being silently capped by
+        the conservative module defaults.
+
+        Only keys the config actually carries are emitted; any absent key is
+        left out so the schema falls back to its conservative module constant
+        (fail-safe — a partial config never loosens a gate, never crashes the
+        evaluation pipeline).
+        """
+        cfg = self.config
+        keys = (
+            "min_confidence",
+            "min_ev_threshold",
+            "max_spread_pct",
+            "max_exposure_pct",
+            "min_ttr_hours",
+            "kelly_fraction",
+        )
+        context: Dict[str, float] = {}
+        for key in keys:
+            value = getattr(cfg, key, None)
+            if value is not None:
+                context[key] = float(value)
+        return context
+
     async def _publish_event(
         self,
         *,
@@ -870,7 +899,9 @@ class ClaudeClient:
 
         # Stage D: Terminal Gatekeeper validation
         try:
-            eval_resp = LLMEvaluationResponse.model_validate_json(final_json)
+            eval_resp = LLMEvaluationResponse.model_validate_json(
+                final_json, context=self._risk_profile_context()
+            )
         except ValidationError as e:
             logger.error(
                 "Final candidate failed Gatekeeper validation.",
@@ -1649,7 +1680,9 @@ class ClaudeClient:
                 json_str = self._extract_json(raw_content)
 
                 try:
-                    eval_response = LLMEvaluationResponse.model_validate_json(json_str)
+                    eval_response = LLMEvaluationResponse.model_validate_json(
+                        json_str, context=self._risk_profile_context()
+                    )
 
                     # WI-52: Safely extract usage — may be missing/malformed
                     _usage = getattr(resp, "usage", None)

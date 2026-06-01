@@ -1,9 +1,33 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-05-31
-**Version:** 0.16.12
-**Status:** WI-66 Reflection Verdict Calibration COMPLETE
+**Last Updated:** 2026-06-01
+**Version:** 0.16.13
+**Status:** WI-67 Configurable Gatekeeper Risk Profiles COMPLETE
 **Active WI:** none
+
+## WI-67 — Configurable Gatekeeper Risk Profiles (COMPLETE, 2026-06-01)
+
+**Trigger:** The aggressive dry-run experiment (`exposing-this-plan.md`) and the broader "ride or die" mode required lowering `MIN_CONFIDENCE` (etc.) for a dry-run — but the terminal Gatekeeper (`LLMEvaluationResponse`) enforced its 5 thresholds via **hardcoded module constants** in `src/schemas/llm.py`, read directly by the validators and never sourced from `AppConfig`. The downstream `ExecutionRouter` read `config.min_confidence`, but the terminal gate forces HOLD before the router runs — so lowering the env/config value was a **silent no-op**. (Codex's review of the experiment plan reproduced the same blind spot.)
+
+**Delivered:**
+- `src/schemas/llm.py` — `_apply_gatekeeper_filters` and the nested `ProbabilisticEstimate.compute_kelly_and_ev` take `info: ValidationInfo` and read the 6 knobs (`min_confidence`, `min_ev_threshold`, `max_spread_pct`, `max_exposure_pct`, `min_ttr_hours`, `kelly_fraction`) from `info.context`, defaulting to the module constants. The `EV > 0` floor stays non-configurable.
+- `src/agents/evaluation/claude_client.py` — `_risk_profile_context()` builds the context from `self.config`, emitting only keys the config carries (fail-safe; never crashes on a partial config). Passed at both terminal-Gatekeeper construction sites.
+- `src/schemas/execution.py` — `BacktestConfig` gains `max_spread_pct`/`max_exposure_pct`/`min_ttr_hours` (Decimal, float-rejection validator); the previously-dead `min_confidence`/`min_ev_threshold`/`kelly_fraction` fields are now wired into the gate.
+- `src/backtest_runner.py` — `_risk_profile_context()` + `_gatekeeper_validate` (now an instance method) thread the context into offline replay.
+- `tests/unit/test_WI-67-configurable-gatekeeper-risk-profiles.py` — 18 tests (fail-safe no/partial/empty context; each knob individually; EV>0 non-configurable; Kelly scaling; exposure cap; ClaudeClient + BacktestRunner wiring mirrors config; partial-config key omission).
+- `tests/unit/test_evaluation_budget.py` — fixed 2 pre-existing time-bomb fixtures (hardcoded `market_end_date=2026-06-01` = today → TTR≈0 → forced HOLD).
+- `tests/integration/test_wi33_backtest_runner.py` — gatekeeper fakes accept the `context` kwarg.
+- `docs/deliverables/business_logic/business_logic_WI-67-configurable-gatekeeper-risk-profiles.md`, `docs/deliverables/implementation_prompts/prompt_WI-67-configurable-gatekeeper-risk-profiles.md`, `docs/runbooks/aggressive-dry-run-experiment.md`.
+
+**Safety posture:** Context defaults equal the module constants → default behavior byte-identical. A missing/partial context never loosens a gate (fail-safe per knob). No global mutable state — thresholds are per-validation-call (async-safe). No new `float` in money/PnL/sizing paths (BacktestConfig thresholds Decimal). `LLMEvaluationResponse` remains the unconditional terminal Gatekeeper. No `dry_run` weakening, no signing/broadcasting, no migration.
+
+**MAAP cleared:** all five gates (no float in money paths, no raw SQL, no Gatekeeper bypass, no dry_run bypass, no schema drift) plus zero-trust (fail-safe defaults, partial-config robustness, EV>0 floor non-configurable, Decimal integrity on the new BacktestConfig fields).
+
+**Enables:** the aggressive dry-run experiment — `docs/runbooks/aggressive-dry-run-experiment.md`. Requires merge to `develop` + Droplet deploy before env thresholds reach the gate.
+
+**Regression:** 18 WI-67 unit tests; full regression 2649 passed; coverage 93%.
+
+**Branch:** `feat/wi-67-configurable-gatekeeper-risk-profiles`.
 
 ## WI-66 — Reflection Verdict Calibration (COMPLETE, 2026-05-31)
 
@@ -327,7 +351,7 @@ See `docs/archive/ARCHIVE_PHASES_1_TO_3.md` for:
 | Metric | Value |
 |---|---|
 | Total tests | 2632 |
-| Latest local test result | 2632 passed (2026-05-31 WI-66 MAAP run); coverage-backed regression 2632 passed |
+| Latest local test result | 2649 passed (2026-06-01 WI-67 MAAP run); coverage-backed regression 2649 passed |
 | Coverage | 93% (target ≥ 80%) |
 | Framework | `pytest` + `pytest-asyncio` |
 | DB | `poly_oracle.db` (SQLite, Alembic-managed, 6 migrations) |
