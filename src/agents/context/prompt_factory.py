@@ -81,6 +81,13 @@ _DEFAULT_PERSONA = (
     "You are an elite Staff Quantitative Developer at a top proprietary trading firm."
 )
 
+# WI-68: fixed neutral marker used when no real market question is available.
+# The LLM Evaluation Guard forbids inventing a question — an absent question must
+# render this exact marker, never fabricated text.
+_QUESTION_UNAVAILABLE = (
+    "Market Question: (unavailable — evaluate on the market data provided)"
+)
+
 
 class PromptFactory:
     """
@@ -88,6 +95,19 @@ class PromptFactory:
     Ensures the LLM understands its role as a Quant Developer and enforces
     strict JSON output matching the Pydantic schema.
     """
+
+    @staticmethod
+    def _build_question_block(market_state: Dict[str, Any]) -> str:
+        """WI-68: render the real market question already carried in
+        ``market_state`` (sourced from ``MarketMetadata.question``).
+
+        An absent/empty question renders the fixed neutral marker — never a
+        fabricated question (LLM Evaluation Guard).
+        """
+        question = market_state.get("question")
+        if question is not None and str(question).strip():
+            return f'Market Question: "{str(question).strip()}"'
+        return _QUESTION_UNAVAILABLE
 
     @staticmethod
     def _build_sentiment_block(sentiment: SentimentResponse | None) -> str:
@@ -127,11 +147,13 @@ class PromptFactory:
         json_schema = LLMEvaluationResponse.model_json_schema()
         persona = _PERSONA_MAP.get(category, _DEFAULT_PERSONA)
         sentiment_block = PromptFactory._build_sentiment_block(sentiment)
+        question_block = PromptFactory._build_question_block(market_state)
 
         prompt = f"""{persona}
 Your objective is to estimate the true probability of a live binary options market on Polymarket resolving to 'YES', and to judge the quality and risk of that estimate. The system computes Expected Value, spread, Kelly sizing, and the final trade decision deterministically from your estimate and authoritative market data — you must not perform those calculations.
 
 ### LIVE MARKET DATA SNAPSHOT
+{question_block}
 Condition ID: {market_state.get("condition_id", "Unknown")}
 Best Bid: {market_state.get("best_bid", 0.0):.4f} USDC
 Best Ask: {market_state.get("best_ask", 0.0):.4f} USDC
