@@ -1106,7 +1106,9 @@ class ClaudeClient:
             reflection.verdict.value == "ADJUSTED"
             and reflection.corrected_candidate_json is not None
         ):
-            final_json = _json.dumps(reflection.corrected_candidate_json)
+            final_json = _json.dumps(
+                reflection.corrected_candidate_json, cls=_DecimalSafeEncoder
+            )
 
         try:
             parsed = _json.loads(final_json, parse_float=Decimal)
