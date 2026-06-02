@@ -1,9 +1,9 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
 **Last Updated:** 2026-06-02
-**Version:** 0.17.0
-**Status:** Phase 17 (Alpha Discovery) PRD ready — WI-68..WI-71 defined, not started
-**Active WI:** none
+**Version:** 0.17.1
+**Status:** Phase 17 (Alpha Discovery) in progress — WI-68 code COMPLETE (diagnostic run pending), WI-69..WI-71 not started
+**Active WI:** WI-68 (diagnostic run pending)
 
 ## Phase 17 — Alpha Discovery (PRD ready, 2026-06-02)
 
@@ -20,6 +20,30 @@
 **Posture:** entire Phase offline / `DRY_RUN=true`. No new live-execution path. `LLMEvaluationResponse` stays the unconditional terminal Gatekeeper. No `float` in money/EV/ROI paths. No further gate loosening.
 
 **Per `/prd` scope boundary:** this PRD generated `docs/PRD-v17.0.md` + this STATE entry only. `business_logic_WI-XX-*.md` and `prompt_WI-XX-*.md` are generated one at a time at `/wi-start {WI}`.
+
+## WI-68 — Prompt Context Enrichment + Re-diagnosis (CODE COMPLETE, diagnostic run pending, 2026-06-02)
+
+**Trigger:** WI-67 proved loosening the gate has no edge because DeepSeek's `p_true` tracks the midpoint — but that diagnostic ran on a **starved prompt**. `PromptFactory.build_evaluation_prompt` rendered only `condition_id` + prices; it never showed the LLM the market **question**, even though the production `market_state` dict (`aggregator.py:520-531`, `:659-673`) already carries `question`/`title`/`category`/`tags` (from `MarketMetadata.question`). A model that cannot read the question has no basis to diverge from the midpoint, so `p_true ≈ midpoint` may be a starved-input artifact rather than proven LLM weakness. WI-68 removes that confound.
+
+**Delivered (code):**
+- `src/agents/context/prompt_factory.py` — `build_evaluation_prompt` now renders the market question via new `_build_question_block(market_state)` (reads `market_state["question"]`); an absent/empty question renders the fixed neutral marker `_QUESTION_UNAVAILABLE` (no fabrication — LLM Evaluation Guard). Sentiment handling byte-identical. **No new production plumbing** — the question was already in the dict, silently dropped at the template.
+- `scripts/run_profile_comparison_backtest.py` — two-arm re-diagnosis. New typed, frozen, Decimal-native models: `EnrichmentArmStatus`, `EnrichmentVerdict`, `QuestionFetchResult`, `EnrichmentDeltaRecord` (per-snapshot `|p_true − midpoint|`, float-rejecting validator), `EnrichmentDiagnosticReport` (per-snapshot rows + aggregate mean/median/max + above-materiality count + typed verdict). `_fetch_question` sources the question per `condition_id` from Gamma (explicit timeout + bounded retry → typed `SKIPPED_NO_QUESTION`, fail-closed). `_cache_key` adds the arm dimension so baseline/enriched candidates never cross-serve. Loop builds a baseline (no question) and enriched (question) candidate per snapshot; profile tallies fed by the enriched candidate. Writes `docs/backtests/wi68_enrichment_diagnostic.json` (full per-snapshot rows + aggregate + verdict).
+- `tests/unit/test_WI-68-prompt-context-enrichment.py` — 26 tests (question render/neutral-fallback/no-fabrication, sentiment unchanged, persona, lookahead; Decimal-native delta math, aggregate stats, materiality count, str serialization, per-snapshot persistence; baseline/enriched arms, cache-key split, Gamma timeout+bounded-retry→typed-skip, success path; `_realized_pnl` midpoint guard; 3 verdict paths).
+- `docs/deliverables/business_logic/business_logic_WI-68-prompt-context-enrichment.md`, `docs/deliverables/implementation_prompts/prompt_WI-68-prompt-context-enrichment.md`.
+
+**Verdict logic (computed + persisted by the script):** enriched-arm delta mean `> materiality_threshold` AND `> baseline` → `PROMPT_STARVATION` (a: alpha discarded at prompt layer); else `LLM_WEAK` (b: WI-71 external-data path justified); no enriched arm → `INSUFFICIENT_DATA`.
+
+**Backtest scope note:** Grok sentiment is real-time "last 60 min" → **not lookahead-safe to reconstruct** for historical snapshots. Backtest enrichment = **question only** (static metadata, lookahead-safe); production keeps the already-wired sentiment. The resolved outcome is read only for PnL, never the prompt.
+
+**Diagnostic run PENDING (operator decision 2026-06-02):** the empirical (a)/(b) verdict requires a billable real-DeepSeek run (217 snapshots × 2 arms ≈ 434 calls + 217 Gamma fetches). The WI-67 candidate cache cannot be reused (old `token|timestamp` key + question-less prompt). Operator chose to commit MAAP-cleared code now and run the diagnostic as a separate confirmed step. **DoD not fully closed until `docs/backtests/wi68_enrichment_diagnostic.json` exists and the verdict is recorded here.**
+
+**Safety posture:** `build_evaluation_prompt` is a pure string builder; `LLMEvaluationResponse` remains the unconditional terminal Gatekeeper (still gates the profile tallies). Enrichment surfaces only real upstream fields (`MarketMetadata.question`); fixed neutral fallback, no fabricated metadata. All probability/delta/PnL math `Decimal` (float rejected at the model boundary). Gamma fetch explicit-timeout + bounded-retry, fail-closed typed skip. No DB/raw SQL, no `dry_run`/signing/broadcast change, no schema migration. Offline / `DRY_RUN`.
+
+**MAAP cleared:** all five gates (no money/EV/PnL float, no raw SQL, no Gatekeeper bypass, no `dry_run` bypass, no schema drift) plus zero-trust (per-snapshot rows persisted, typed verdict persisted, lookahead safety, fail-closed fetch). Initial MAAP blocked on two acceptance gaps (aggregate-only artifact; no verdict) — both fixed before re-clear.
+
+**Regression:** 26 WI-68 unit tests; full regression 2680 passed; coverage 93%.
+
+**Branch:** `feat/wi-68-prompt-context-enrichment`.
 
 ## WI-67 — Configurable Gatekeeper Risk Profiles (COMPLETE, 2026-06-01)
 
