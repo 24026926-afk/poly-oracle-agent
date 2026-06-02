@@ -1010,3 +1010,125 @@ def test_generated_snapshots_preserve_decimal_integrity():
     assert snap_dict["best_bid"] == "0.12345678901234567890"
     assert snap_dict["best_ask"] == "0.23456789012345678901"
     assert snap_dict["midpoint"] == "0.17901234456790123455"
+
+
+# ===================================================================
+# Real Gamma API shape (fix for /events->/markets drift)
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_history_client_accepts_uma_resolution_status():
+    """The live /markets endpoint reports resolution via umaResolutionStatus,
+    not a boolean `resolved` field."""
+    client = _make_client()
+    mock_resp = [
+        {
+            "id": "m1",
+            "closed": True,
+            "umaResolutionStatus": "resolved",
+            "conditionId": "c1",
+        },
+        {
+            "id": "m2",
+            "closed": True,
+            "umaResolutionStatus": "posted",
+            "conditionId": "c2",
+        },
+        {
+            "id": "m3",
+            "closed": False,
+            "umaResolutionStatus": "resolved",
+            "conditionId": "c3",
+        },
+    ]
+    with patch.object(client._http, "get") as mock_get:
+        ro = MagicMock()
+        ro.status_code = 200
+        ro.json.return_value = mock_resp
+        mock_get.return_value = ro
+        result = await client.fetch_resolved_markets()
+    assert [m["id"] for m in result] == ["m1"]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_snapshots_unwrap_clob_history_envelope():
+    """CLOB prices-history returns {"history": [...]}; the client unwraps it."""
+    client = _make_client()
+    with patch.object(client._http, "get") as mock_get:
+        ro = MagicMock()
+        ro.status_code = 200
+        ro.json.return_value = {"history": [{"t": 1775692800, "p": 0.365}]}
+        mock_get.return_value = ro
+        history = await client.fetch_market_snapshots(clob_token_id="999")
+    assert history == [{"t": 1775692800, "p": 0.365}]
+    await client.close()
+
+
+def test_derive_resolved_outcome_from_index_aligned_arrays():
+    b = HistoricalDatasetBuilder(
+        client=_make_client(), output_dir=Path("/tmp"), start_date="x", end_date="y"
+    )
+    assert b._derive_resolved_outcome('["Yes","No"]', '["1","0"]') == "YES"
+    assert b._derive_resolved_outcome('["Yes","No"]', '["0","1"]') == "NO"
+    assert b._derive_resolved_outcome(["Yes", "No"], ["0", "0"]) is None
+
+
+def test_extract_yes_clob_token():
+    assert (
+        HistoricalDatasetBuilder._extract_yes_clob_token(
+            {"clobTokenIds": '["yes-tok","no-tok"]'}
+        )
+        == "yes-tok"
+    )
+    assert (
+        HistoricalDatasetBuilder._extract_yes_clob_token({"clobTokenIds": ["a", "b"]})
+        == "a"
+    )
+    assert HistoricalDatasetBuilder._extract_yes_clob_token({}) is None
+
+
+@pytest.mark.asyncio
+async def test_builder_handles_real_markets_shape_and_price_only_timeseries(tmp_path):
+    """End-to-end: real /markets fields + CLOB price-only {t,p} points.
+
+    Verifies outcome derivation from index-aligned arrays and zero-spread book
+    synthesis from price points.
+    """
+    client = _make_client()
+    raw = [
+        {
+            "id": "123",
+            "conditionId": "0xcond",
+            "closed": True,
+            "umaResolutionStatus": "resolved",
+            "outcomes": '["Yes","No"]',
+            "outcomePrices": '["0","1"]',  # NO won
+            "clobTokenIds": '["999yes","888no"]',
+            "endDate": "2026-05-31T00:00:00Z",
+        }
+    ]
+    timeseries = [{"t": 1775692800, "p": 0.365}, {"t": 1776816000, "p": 0.515}]
+    with (
+        patch.object(client, "fetch_resolved_markets", return_value=raw),
+        patch.object(client, "fetch_market_snapshots", return_value=timeseries),
+    ):
+        builder = HistoricalDatasetBuilder(
+            client=client,
+            output_dir=tmp_path,
+            start_date="2026-05-01",
+            end_date="2026-06-01",
+        )
+        result = await builder.build()
+
+    assert result.manifest.market_count == 1
+    assert result.manifest.snapshot_count == 2
+
+    outcomes = json.loads((tmp_path / "123_outcomes.json").read_text())
+    assert outcomes["resolved_outcome"] == "NO"
+
+    snap_files = [p for p in tmp_path.glob("123_*.json") if "outcomes" not in p.name]
+    snaps = [s for f in snap_files for s in json.loads(f.read_text())]
+    # Zero-spread synthesis: bid == ask == midpoint == p
+    assert any(s["best_bid"] == s["best_ask"] == s["midpoint"] for s in snaps)
