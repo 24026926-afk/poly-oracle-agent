@@ -1,9 +1,25 @@
 # STATE.md — Poly-Oracle-Agent Project State
 
-**Last Updated:** 2026-06-01
-**Version:** 0.16.13
-**Status:** WI-67 Configurable Gatekeeper Risk Profiles COMPLETE
+**Last Updated:** 2026-06-02
+**Version:** 0.17.0
+**Status:** Phase 17 (Alpha Discovery) PRD ready — WI-68..WI-71 defined, not started
 **Active WI:** none
+
+## Phase 17 — Alpha Discovery (PRD ready, 2026-06-02)
+
+**PRD:** `docs/PRD-v17.0.md`.
+
+**Trigger:** The WI-67 profile-comparison backtest (`scripts/run_profile_comparison_backtest.py`, merged `develop` 21aca69) empirically proved that loosening Gatekeeper thresholds produces no edge: on 217 snapshots / 6 resolved markets, conservative (0.75/0.02) → 0 trades; aggressive (0.65/0.005) → 3 trades, **0 wins, net −5.30 USDC**, avg_conf pinned at the 0.65 floor. DeepSeek `p_true` tracks the market midpoint → EV ≈ 0. **The gate is not the bottleneck — the signal is.** Phase 17 replaces "loosen the gate" with "find a signal."
+
+**Work Items (defined, awaiting `/wi-start`):**
+- **WI-68 — Prompt Context Enrichment + Re-diagnosis:** the production prompt feeds the LLM only `condition_id` + prices (no market question/news/sentiment), so `p_true ≈ midpoint` is partly a starved-input artifact. Enrich `PromptFactory` with real repo/Grok context and re-run the diagnostic. Cheapest experiment; gates the rest.
+- **WI-69 — Multi-Category Historical Dataset:** extend the WI-43 builder to ≥200 resolved markets tagged by category (sports/weather/crypto/politics/macro). Prereq for any per-category statistic.
+- **WI-70 — Alpha Diagnostic Backtest:** per-category report (`p_true` edge vs midpoint → outcome → Brier → ROI → confidence bucket + negative filter). The core deliverable.
+- **WI-71 — Single-Domain External-Odds Edge (conditional):** wire one external fair-value source for the cleanest domain WI-70 surfaces; trade only when external disagrees with Polymarket post-spread; backtest on held-out markets. Off-ramp: if WI-68+WI-70 prove every category tracks midpoint with enriched context, close the Phase on the documented kill and skip WI-71.
+
+**Posture:** entire Phase offline / `DRY_RUN=true`. No new live-execution path. `LLMEvaluationResponse` stays the unconditional terminal Gatekeeper. No `float` in money/EV/ROI paths. No further gate loosening.
+
+**Per `/prd` scope boundary:** this PRD generated `docs/PRD-v17.0.md` + this STATE entry only. `business_logic_WI-XX-*.md` and `prompt_WI-XX-*.md` are generated one at a time at `/wi-start {WI}`.
 
 ## WI-67 — Configurable Gatekeeper Risk Profiles (COMPLETE, 2026-06-01)
 
