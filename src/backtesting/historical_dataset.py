@@ -200,14 +200,26 @@ class HistoricalDatasetBuilder:
             )
             return None, skips, False
 
-        # Parse outcome fields from the resolved market record
+        # Parse outcome fields from the resolved market record. Gamma's
+        # /markets payload encodes the winner via index-aligned
+        # outcomes/outcomePrices (e.g. ["Yes","No"] + ["0","1"]); legacy/mocked
+        # payloads use a flat outcome/outcomePrice. Prefer the explicit fields,
+        # then derive from the index-aligned arrays.
         resolved_outcome = raw.get("outcome") or raw.get("resolvedOutcome")
+        if not resolved_outcome:
+            resolved_outcome = self._derive_resolved_outcome(
+                raw.get("outcomes"), raw.get("outcomePrices")
+            )
         resolved_outcome_price = self._parse_optional_decimal(
             raw.get("outcomePrice") or raw.get("resolvedOutcomePrice"),
             field_name="resolved_outcome_price",
             token_id=token_id,
             skips=skips,
         )
+        if resolved_outcome_price is None:
+            resolved_outcome_price = self._derive_yes_settle_price(
+                raw.get("outcomes"), raw.get("outcomePrices")
+            )
         realized_pnl_usdc = self._parse_optional_decimal(
             raw.get("realizedPnl") or raw.get("realizedPnlUsdc"),
             field_name="realized_pnl_usdc",
@@ -244,10 +256,14 @@ class HistoricalDatasetBuilder:
             skips=skips,
         )
 
-        # Fetch per-market timeseries via the dedicated client method
+        # Resolve the YES CLOB token used for price history; fall back to
+        # condition_id for legacy/mocked clients.
+        clob_token_id = self._extract_yes_clob_token(raw) or condition_id
+
+        # Fetch per-market price history via the dedicated client method
         try:
             raw_snapshots = await self._client.fetch_market_snapshots(
-                condition_id=condition_id,
+                clob_token_id=clob_token_id,
             )
         except Exception as exc:
             logger.warning(
@@ -412,13 +428,21 @@ class HistoricalDatasetBuilder:
                 raw, "midpoint", "midpoint_price", "midPrice", "price"
             )
         except ValueError as exc:
-            return None, HistoricalDataSkipReason(
-                code=SkipReasonCode.MALFORMED_RECORD,
-                token_id=token_id,
-                condition_id=condition_id,
-                message=f"Missing required price field in snapshot {index}: {exc}",
-                record_index=index,
-            )
+            # CLOB prices-history shape: only a midpoint price `p` is available.
+            # Synthesize a zero-spread book (the public price-history API does
+            # not expose historical order-book depth).
+            price = self._price_to_decimal(raw.get("p") or raw.get("price"))
+            if price is None or price <= Decimal("0"):
+                return None, HistoricalDataSkipReason(
+                    code=SkipReasonCode.MALFORMED_RECORD,
+                    token_id=token_id,
+                    condition_id=condition_id,
+                    message=(
+                        f"Missing required price field in snapshot {index}: {exc}"
+                    ),
+                    record_index=index,
+                )
+            best_bid = best_ask = midpoint = price
 
         spread = self._optional_decimal(
             raw,
@@ -586,6 +610,71 @@ class HistoricalDatasetBuilder:
     # ------------------------------------------------------------------
     # Field helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _coerce_str_list(value: Any) -> list[str]:
+        """Parse a Gamma list field that may be a JSON string or a real list."""
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        if isinstance(value, list):
+            return [str(v) for v in value]
+        return []
+
+    def _derive_resolved_outcome(
+        self, outcomes: Any, outcome_prices: Any
+    ) -> str | None:
+        """Map index-aligned outcomes/outcomePrices to a YES/NO winner.
+
+        The winning outcome settles at price 1; e.g. ["Yes","No"] + ["0","1"]
+        means NO won.
+        """
+        names = self._coerce_str_list(outcomes)
+        prices = self._coerce_str_list(outcome_prices)
+        for name, price in zip(names, prices):
+            if self._price_to_decimal(price) == Decimal("1"):
+                upper = name.strip().upper()
+                if upper in ("YES", "NO"):
+                    return upper
+        return None
+
+    def _derive_yes_settle_price(
+        self, outcomes: Any, outcome_prices: Any
+    ) -> Decimal | None:
+        """Return the settle price (0 or 1) of the YES outcome."""
+        names = self._coerce_str_list(outcomes)
+        prices = self._coerce_str_list(outcome_prices)
+        for name, price in zip(names, prices):
+            if name.strip().upper() == "YES":
+                return self._price_to_decimal(price)
+        return None
+
+    @staticmethod
+    def _extract_yes_clob_token(raw: dict[str, Any]) -> str | None:
+        """Extract the YES CLOB token id from a Gamma market's clobTokenIds."""
+        tokens = raw.get("clobTokenIds")
+        if isinstance(tokens, str):
+            try:
+                tokens = json.loads(tokens)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(tokens, list) and tokens:
+            return str(tokens[0])
+        return None
+
+    @staticmethod
+    def _price_to_decimal(value: Any) -> Decimal | None:
+        """Convert a numeric/string price to Decimal via str (float-safe)."""
+        if value is None:
+            return None
+        if isinstance(value, Decimal):
+            return value
+        try:
+            return Decimal(str(value))
+        except (ArithmeticError, ValueError, TypeError):
+            return None
 
     def _require_decimal(self, raw: dict[str, Any], *field_names: str) -> Decimal:
         """Extract first available named field and parse as Decimal."""

@@ -62,6 +62,18 @@ def parse_args() -> argparse.Namespace:
         default="1000",
         help="Initial bankroll in USDC for the backtest run (default: 1000)",
     )
+    # WI-67: optional risk-profile overrides applied to the terminal Gatekeeper
+    # via BacktestConfig. Omit a knob to keep its conservative default (which
+    # matches the module constant in src/schemas/llm.py).
+    for flag, helptext in (
+        ("--min-confidence", "Gatekeeper confidence floor (default 0.75)"),
+        ("--min-ev-threshold", "Min expected value (default 0.02)"),
+        ("--max-spread-pct", "Max bid-ask spread (default 0.015)"),
+        ("--max-exposure-pct", "Max bankroll fraction per trade (default 0.03)"),
+        ("--min-ttr-hours", "Min hours to resolution (default 4.0)"),
+        ("--kelly-fraction", "Kelly multiplier (default 0.25)"),
+    ):
+        parser.add_argument(flag, type=str, default=None, help=helptext)
     return parser.parse_args()
 
 
@@ -286,12 +298,29 @@ async def main() -> int:
         )
         return 1
 
-    # Build config — dry_run is forced True
+    # Build config — dry_run is forced True. WI-67: apply any risk-profile
+    # overrides (Decimal; BacktestConfig rejects float). Omitted knobs keep the
+    # conservative defaults.
+    profile_overrides: dict[str, Decimal] = {}
+    for attr, raw in (
+        ("min_confidence", args.min_confidence),
+        ("min_ev_threshold", args.min_ev_threshold),
+        ("max_spread_pct", args.max_spread_pct),
+        ("max_exposure_pct", args.max_exposure_pct),
+        ("min_ttr_hours", args.min_ttr_hours),
+        ("kelly_fraction", args.kelly_fraction),
+    ):
+        if raw is not None:
+            profile_overrides[attr] = Decimal(raw)
+
     config = BacktestConfig(
         data_dir=data_dir,
         initial_bankroll_usdc=initial_bankroll,
         dry_run=True,
+        **profile_overrides,
     )
+    if profile_overrides:
+        logger.info("risk_profile.overrides", **{k: str(v) for k, v in profile_overrides.items()})
 
     # Load data — capture quality metrics
     loader = BacktestDataLoader(config)

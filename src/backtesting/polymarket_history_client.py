@@ -21,6 +21,8 @@ _DEFAULT_TIMEOUT = httpx.Timeout(30.0)
 _MAX_RETRIES = 3
 _RETRY_BACKOFF_BASE = 2.0
 _GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
+_GAMMA_MARKETS_URL = "https://gamma-api.polymarket.com/markets"
+_CLOB_PRICES_HISTORY_URL = "https://clob.polymarket.com/prices-history"
 
 
 class PolymarketHistoryClient:
@@ -75,7 +77,7 @@ class PolymarketHistoryClient:
 
         try:
             raw_markets = await self._get_with_retry(
-                _GAMMA_EVENTS_URL,
+                _GAMMA_MARKETS_URL,
                 params=params,
             )
         except Exception as exc:
@@ -91,7 +93,14 @@ class PolymarketHistoryClient:
         for market in raw_markets:
             if not isinstance(market, dict):
                 continue
-            if market.get("closed") is True and market.get("resolved") is True:
+            # The Gamma /markets endpoint reports resolution via
+            # ``umaResolutionStatus == "resolved"``; legacy/mocked payloads use a
+            # boolean ``resolved``. Accept either, and require ``closed``.
+            is_resolved = (
+                market.get("umaResolutionStatus") == "resolved"
+                or market.get("resolved") is True
+            )
+            if market.get("closed") is True and is_resolved:
                 resolved.append(market)
 
         logger.info(
@@ -103,32 +112,45 @@ class PolymarketHistoryClient:
 
     async def fetch_market_snapshots(
         self,
-        condition_id: str,
+        clob_token_id: str,
         *,
         start_ts: int | None = None,
         end_ts: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch timeseries snapshots for a specific market.
+        """Fetch the price-history timeseries for a CLOB token.
 
-        Returns raw snapshot dicts for a given condition_id.
-        Raises on exhausted retries so the caller can emit a typed
-        skip reason and the CLI can exit non-zero.
+        Uses the CLOB prices-history endpoint, which returns
+        ``{"history": [{"t": <unix>, "p": <price>}, ...]}`` — point-in-time
+        midpoint prices only (no order-book depth). Raises on exhausted retries
+        so the caller can emit a typed skip reason and the CLI can exit non-zero.
         """
-        url = f"{_GAMMA_EVENTS_URL}/{condition_id}/timeseries"
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {"market": clob_token_id, "fidelity": 1440}
         if start_ts:
             params["startTs"] = start_ts
         if end_ts:
             params["endTs"] = end_ts
-        params["fidelity"] = 1440  # daily
+        if not start_ts and not end_ts:
+            params["interval"] = "max"
 
-        snapshots = await self._get_with_retry(url, params=params)
-        if not isinstance(snapshots, list):
+        payload = await self._get_with_retry(_CLOB_PRICES_HISTORY_URL, params=params)
+
+        # CLOB returns a {"history": [...]} envelope; tolerate a bare list for
+        # legacy/mocked clients.
+        if isinstance(payload, dict):
+            history = payload.get("history", [])
+        elif isinstance(payload, list):
+            history = payload
+        else:
             raise ValueError(
-                f"Unexpected snapshot response type for {condition_id}: "
-                f"{type(snapshots).__name__}"
+                f"Unexpected snapshot response type for {clob_token_id}: "
+                f"{type(payload).__name__}"
             )
-        return snapshots
+        if not isinstance(history, list):
+            raise ValueError(
+                f"Unexpected history type for {clob_token_id}: "
+                f"{type(history).__name__}"
+            )
+        return history
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""
