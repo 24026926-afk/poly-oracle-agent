@@ -242,6 +242,12 @@ class BacktestConfig(BaseModel):
     kelly_fraction: Decimal = Decimal("0.25")
     min_confidence: Decimal = Decimal("0.75")
     min_ev_threshold: Decimal = Decimal("0.02")
+    # WI-67: surfaced so offline replay exercises an operator risk profile
+    # through the same terminal Gatekeeper as live. Defaults match the
+    # conservative module constants in ``src.schemas.llm``.
+    max_spread_pct: Decimal = Decimal("0.015")
+    max_exposure_pct: Decimal = Decimal("0.03")
+    min_ttr_hours: Decimal = Decimal("4.0")
     dry_run: bool = True
 
     @field_validator(
@@ -249,6 +255,9 @@ class BacktestConfig(BaseModel):
         "kelly_fraction",
         "min_confidence",
         "min_ev_threshold",
+        "max_spread_pct",
+        "max_exposure_pct",
+        "min_ttr_hours",
         mode="before",
     )
     @classmethod

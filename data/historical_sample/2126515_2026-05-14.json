@@ -1,0 +1,12 @@
+[
+  {
+    "token_id": "2126515",
+    "condition_id": "0x4d1ee0c046938319f654f99c6aca2380c1f6d88a65887dd360fda3d0509eddb4",
+    "timestamp_utc": "2026-05-14T00:00:20+00:00",
+    "best_bid": "0.028",
+    "best_ask": "0.028",
+    "midpoint": "0.028",
+    "spread": "0.000",
+    "market_end_date": "2026-05-31T00:00:00+00:00"
+  }
+]

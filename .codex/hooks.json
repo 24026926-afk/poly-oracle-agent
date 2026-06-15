@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/d.s/Documents/Integration_Task/poly-oracle-agent/.codex/hooks/pre_tool_check.py'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

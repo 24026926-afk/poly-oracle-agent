@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -49,7 +50,9 @@ def _approved_ev_json() -> str:
                 "best_bid": 0.45,
                 "best_ask": 0.455,
                 "midpoint": 0.4525,
-                "market_end_date": "2026-06-01T00:00:00+00:00",
+                "market_end_date": (
+                    datetime.now(timezone.utc) + timedelta(days=30)
+                ).isoformat(),
             },
             "probabilistic_estimate": {
                 "p_true": 0.65,
@@ -235,7 +238,9 @@ def _approved_ev_json_minimal() -> str:
                 "best_bid": 0.45,
                 "best_ask": 0.455,
                 "midpoint": 0.4525,
-                "market_end_date": "2026-06-01T00:00:00+00:00",
+                "market_end_date": (
+                    datetime.now(timezone.utc) + timedelta(days=30)
+                ).isoformat(),
             },
             "probabilistic_estimate": {
                 "p_true": 0.65,

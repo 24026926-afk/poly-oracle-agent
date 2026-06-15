@@ -48,8 +48,8 @@ async def test_builder_produces_loader_compatible_fixture_dataset(tmp_path):
         },
     ]
 
-    async def _mock_snapshots(condition_id: str, **kwargs):
-        if condition_id == "cond-fixture-001":
+    async def _mock_snapshots(clob_token_id: str, **kwargs):
+        if clob_token_id == "cond-fixture-001":
             return [
                 {
                     "timestamp_utc": "2025-03-01T12:00:00Z",
@@ -68,7 +68,7 @@ async def test_builder_produces_loader_compatible_fixture_dataset(tmp_path):
                     "volume_24h": "18000",
                 },
             ]
-        elif condition_id == "cond-fixture-002":
+        elif clob_token_id == "cond-fixture-002":
             return [
                 {
                     "timestamp_utc": "2025-04-01T12:00:00Z",

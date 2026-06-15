@@ -224,7 +224,7 @@ async def test_backtest_runner_replay_pipeline_and_metrics_contract(
         ),
     ]
 
-    def _fake_gatekeeper_validate(_raw_decision):
+    def _fake_gatekeeper_validate(_raw_decision, context=None):
         calls["gatekeeper"] += 1
         return gatekeeper_outcomes[calls["gatekeeper"] - 1]
 
@@ -360,7 +360,7 @@ async def test_backtest_runner_zero_database_writes(tmp_path, monkeypatch):
         runner_module,
         "LLMEvaluationResponse",
         SimpleNamespace(
-            model_validate_json=lambda _raw: SimpleNamespace(
+            model_validate_json=lambda _raw, context=None: SimpleNamespace(
                 decision_boolean=True,
                 recommended_action=SimpleNamespace(value="BUY"),
                 position_size_pct=Decimal("0.02"),

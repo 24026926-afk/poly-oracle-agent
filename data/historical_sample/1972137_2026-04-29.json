@@ -1,0 +1,12 @@
+[
+  {
+    "token_id": "1972137",
+    "condition_id": "0x8b369e10358094a99ffe7f85a81a8e8ca68c611eee0fe63a2efa790ad045bcd6",
+    "timestamp_utc": "2026-04-29T00:00:03+00:00",
+    "best_bid": "0.575",
+    "best_ask": "0.575",
+    "midpoint": "0.575",
+    "spread": "0.000",
+    "market_end_date": "2026-05-31T00:00:00+00:00"
+  }
+]

@@ -45,7 +45,7 @@ Add a deterministic severity classifier for reflection REJECTs and a confidence-
 - `src/core/config.py` — new `reflection_soft_flag_confidence_factor: Decimal` field (default `Decimal("0.90")`, `gt=0`, `le=1`), added to the Decimal-coercion validator list, with a clear description.
 - `src/agents/evaluation/claude_client.py`:
   - `_classify_reflection_severity(reflection) -> ReflectionSeverity` — pure classifier (infra `audit_note` → HARD; hard-keyword flag → HARD; any other flag → SOFT; no flags → NONE). Define the hard-integrity keyword set and the infra-marker set as module-level frozensets.
-  - `_build_confidence_penalized_candidate(primary_candidate_json, factor) -> str` — primary candidate with `confidence_score` multiplied by `factor` (Decimal math, clamped `[0,1]`); non-dict candidate falls back to `_build_hold_candidate`.
+  - `_build_confidence_penalized_candidate(primary_candidate_json, factor) -> str` — primary candidate with `confidence_score` multiplied by `factor` (Decimal math, clamped `[0,1]`); a non-dict candidate is returned unchanged (no raise) so the terminal-validation `try/except` conservatively skips it — never routed to `_build_hold_candidate`, which would raise on a non-dict.
   - `_apply_reflection_verdict` REJECTED branch: `SOFT` → penalized candidate; `HARD`/`NONE` → `_build_hold_candidate` (unchanged). Emit `structlog` `reflection.soft_flag_downgrade` on downgrade.
 - `src/agents/context/prompt_factory.py` — `build_reflection_prompt`: enumerated flag vocabulary + "reserve REJECT for hard integrity failures; record soft bias as flags" guidance (prompt text only).
 - `.env.example` — document `REFLECTION_SOFT_FLAG_CONFIDENCE_FACTOR=0.90` with a one-line explanation.
@@ -60,7 +60,7 @@ Add a deterministic severity classifier for reflection REJECTs and a confidence-
 4. A penalized candidate with marginal primary confidence (e.g. `0.80`, factor `0.90`) is forced to HOLD by the Gatekeeper `MIN_CONFIDENCE` filter.
 5. The confidence penalty is computed with `Decimal` and clamped to `[0,1]`; no money/price/EV/PnL float arithmetic is introduced.
 6. `reflection_soft_flag_confidence_factor` validates `gt=0` and `le=1`; an out-of-range value raises at config construction.
-7. A non-dict primary candidate routed to the penalized builder falls back to the HOLD path without raising.
+7. A non-dict primary candidate routed to the penalized builder is returned unchanged without raising (terminal validation then conservatively skips it — no trade).
 8. `build_reflection_prompt` output contains the enumerated flag vocabulary and the "reserve REJECT for hard failures" guidance.
 9. APPROVED and ADJUSTED verdict handling is unchanged; the WI-65 authoritative-fact override still runs for the penalized path.
 10. Full regression passes with coverage ≥ 80%; no existing test regresses. `ruff format` and `ruff check` clean.

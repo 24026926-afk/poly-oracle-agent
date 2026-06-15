@@ -1,0 +1,12 @@
+[
+  {
+    "token_id": "1919425",
+    "condition_id": "0x0e4a0c937b8934c2475613b6322b3f8edc8dedc24762e01e42b0e6f87424a089",
+    "timestamp_utc": "2026-04-27T00:00:04+00:00",
+    "best_bid": "0.295",
+    "best_ask": "0.295",
+    "midpoint": "0.295",
+    "spread": "0.000",
+    "market_end_date": "2026-05-31T00:00:00+00:00"
+  }
+]
