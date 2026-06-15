@@ -43,3 +43,5 @@ logs/
 # Backtest data + generated reports (keep dir scaffolding, not contents)
 data/historical/*.json
 docs/backtests/
+
+.venv/
