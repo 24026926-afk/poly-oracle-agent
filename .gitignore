@@ -45,3 +45,4 @@ data/historical/*.json
 docs/backtests/
 
 .venv/
+graphify-out/
